@@ -1,0 +1,16 @@
+nohup: ignoring input
+Starting Hydrometeor Profile Analysis using up to 20 cores...
+Discovered 17520 files to process.
+Submitting to ProcessPool...
+Traceback (most recent call last):
+  File "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/python_scripts/analyze_hydrometeors.py", line 199, in <module>
+    main()
+  File "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/python_scripts/analyze_hydrometeors.py", line 122, in main
+    file_path, profile = future.result()
+                         ^^^^^^^^^^^^^^^
+  File "/mnt/HDS_CLIMATE/CLIMATE/deba/miniconda3/envs/epygram/lib/python3.11/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/mnt/HDS_CLIMATE/CLIMATE/deba/miniconda3/envs/epygram/lib/python3.11/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+concurrent.futures.process.BrokenProcessPool: A process in the process pool was terminated abruptly while the future was running or pending.
