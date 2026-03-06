@@ -76,7 +76,7 @@ def _to_pressure_aliases(items: Sequence[str]) -> List[str]:
     return out
 
 
-# Toggle variables by commenting/uncommenting lines below.
+# Default variable blocks (used when no CLI variable override is supplied).
 MODEL_LEVEL_VARS_TEXT = """
 DD_OMEGA
 DD_MESH_FRAC
@@ -187,6 +187,49 @@ REQUESTED_VAR_FALLBACK_ALIASES: Dict[str, Tuple[str, ...]] = {
         "NC.LIQUID.WATER",
     ),
 }
+
+
+def _parse_vars_tokens(tokens: Sequence[str]) -> List[str]:
+    out: List[str] = []
+    for token in tokens:
+        for part in token.split(","):
+            item = part.strip()
+            if item:
+                out.append(item)
+    return _unique_preserve(out)
+
+
+def _load_vars_file(path: Path) -> List[str]:
+    if not path.exists():
+        raise FileNotFoundError(f"Variable file not found: {path}")
+    if not path.is_file():
+        raise ValueError(f"Variable file is not a regular file: {path}")
+    lines = _parse_var_block(path.read_text())
+    return _parse_vars_tokens(lines)
+
+
+def _resolve_requested_vars_from_cli(args: argparse.Namespace) -> Tuple[List[str], str]:
+    selected = list(REQUESTED_VARS)
+    source = "built-in defaults"
+
+    if args.vars_file is not None:
+        selected = _load_vars_file(Path(args.vars_file))
+        source = f"vars-file:{Path(args.vars_file)}"
+
+    if args.vars:
+        selected = _parse_vars_tokens(args.vars)
+        source = "--vars"
+
+    if args.append_vars:
+        selected = _unique_preserve(selected + _parse_vars_tokens(args.append_vars))
+        source = f"{source}+append"
+
+    if args.drop_vars:
+        drop_norm = {_normalize_var_token(name) for name in _parse_vars_tokens(args.drop_vars)}
+        selected = [name for name in selected if _normalize_var_token(name) not in drop_norm]
+        source = f"{source}+drop"
+
+    return selected, source
 
 
 def var_to_ds_name(name: str) -> str:
@@ -940,6 +983,38 @@ def main() -> int:
     parser.set_defaults(skip_incomplete_days=True)
     parser.add_argument("--start-date", metavar="YYYYMMDD", help="Process days on/after this date")
     parser.add_argument("--end-date", metavar="YYYYMMDD", help="Process days on/before this date")
+    parser.add_argument(
+        "--vars",
+        nargs="+",
+        default=None,
+        help=(
+            "Explicit variable list (space- or comma-separated). "
+            "If provided, overrides built-in variable blocks."
+        ),
+    )
+    parser.add_argument(
+        "--vars-file",
+        type=Path,
+        default=None,
+        help="Text file with variable names (# comments supported; one name per line).",
+    )
+    parser.add_argument(
+        "--append-vars",
+        nargs="+",
+        default=None,
+        help="Extra variables to append to the selected/default list.",
+    )
+    parser.add_argument(
+        "--drop-vars",
+        nargs="+",
+        default=None,
+        help="Variables to remove from the selected/default list.",
+    )
+    parser.add_argument(
+        "--list-default-vars",
+        action="store_true",
+        help="Print built-in default variables and exit.",
+    )
     parser.add_argument("--mask-file", default=None, help="Optional NetCDF mask file (e.g., 1 km radar mask)")
     parser.add_argument("--mask-var", default=None, help="Mask variable name in mask NetCDF")
     parser.add_argument("--mask-lat-name", default=None, help="Latitude coordinate name in mask file")
@@ -952,6 +1027,17 @@ def main() -> int:
     )
     parser.add_argument("--quiet", "-q", action="store_true", help="Reduce logging")
     args = parser.parse_args()
+
+    if args.list_default_vars:
+        for name in REQUESTED_VARS:
+            print(name)
+        return 0
+
+    requested_vars, requested_vars_source = _resolve_requested_vars_from_cli(args)
+    if not requested_vars:
+        raise ValueError(
+            "No variables selected. Provide --vars/--vars-file, or remove --drop-vars."
+        )
 
     cfg = RunConfig(
         input_root=str(Path(args.input_root)),
@@ -1018,6 +1104,10 @@ def main() -> int:
         print(f"Valid days: {len(valid_day_names)}", flush=True)
         print(f"Skipped days: {len(skipped_days)}", flush=True)
         print(f"Scheduled FA files: {len(tasks)}", flush=True)
+        print(
+            f"Requested variables ({len(requested_vars)}): source={requested_vars_source}",
+            flush=True,
+        )
 
     processed_files = 0
     failed_files = 0
@@ -1036,12 +1126,12 @@ def main() -> int:
 
     if tasks:
         var_plan = resolve_requested_vars(
-            Path(tasks[0].source_file), REQUESTED_VARS
+            Path(tasks[0].source_file), requested_vars
         )
         if not var_plan.output_vars:
             raise ValueError(
                 "None of the requested variables were found in the sample FA file. "
-                "Edit the variable blocks at the top of this script."
+                "Check --vars/--vars-file selection."
             )
 
         if any(msg.startswith(f"{DERIVED_MODEL_RH_VAR} requires") for msg in var_plan.missing_requested):
@@ -1151,6 +1241,8 @@ def main() -> int:
     summary = {
         "input_root": str(input_root),
         "output_root": str(output_root),
+        "requested_variables_input": requested_vars,
+        "requested_variables_source": requested_vars_source,
         "variables": list(var_plan.output_vars),
         "variables_read_for_processing": list(var_plan.read_vars),
         "missing_requested_variables": list(var_plan.missing_requested),
