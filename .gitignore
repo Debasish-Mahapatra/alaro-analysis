@@ -2,3 +2,13 @@ __pycache__/
 *.pyc
 .DS_Store
 .pytest_cache/
+
+# Keep local legacy scripts/data, but exclude from GitHub.
+extra/
+analyze_hydrometeors.py
+analyze_hydrometeors_lazy.py
+test_lazy.py
+test_profile.py
+run.log
+run_analysis.sh
+note.md
