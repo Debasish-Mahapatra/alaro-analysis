@@ -21,10 +21,19 @@ import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 
-from alaro_analysis.common.constants import EXPERIMENTS, EXPERIMENT_LABELS, FREEZING_K
+from alaro_analysis.common.constants import EXPERIMENTS, EXPERIMENT_LABELS
 from alaro_analysis.common.models import AxisSpec
-from alaro_analysis.common.naming import safe_name
-from alaro_analysis.common.vertical import centers_to_edges
+from alaro_analysis.common.vertical import (
+    centers_to_edges,
+    compute_freezing_line_km,
+    interpolate_profile_to_target_height,
+)
+from alaro_analysis.data.cache import (
+    load_diurnal_mean,
+    load_height_axis,
+    load_temperature_profile,
+)
+from alaro_analysis.plotting.scales import robust_anomaly_scale
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -35,169 +44,6 @@ DEFAULT_INTERMEDIATE_DIRS = [
     Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data"),
 ]
 DEFAULT_OUTPUT_DIR = Path("/Users/dev/Desktop/paper-1/figures")
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def find_cache_file(
-    intermediate_roots: list[Path], relpath: Path
-) -> Path | None:
-    for root in intermediate_roots:
-        candidate = root / relpath
-        if candidate.exists():
-            return candidate
-    return None
-
-
-def load_diurnal_mean(
-    intermediate_roots: list[Path],
-    variable: str,
-    period_subdir: str,
-    experiment: str,
-    spatial_tag: str,
-) -> np.ndarray:
-    relpath = (
-        Path(safe_name(variable))
-        / period_subdir
-        / f"{experiment}_{spatial_tag}_diurnal_profile.npz"
-    )
-    path = find_cache_file(intermediate_roots, relpath)
-    if path is None:
-        raise FileNotFoundError(
-            f"Cache not found for {variable} / {experiment}: {relpath}\n"
-            f"Searched roots: {intermediate_roots}"
-        )
-    payload = np.load(path)
-    return np.asarray(payload["mean"], dtype=np.float64)
-
-
-def load_height_axis(
-    intermediate_roots: list[Path],
-    period_subdir: str,
-    experiment: str,
-    spatial_tag: str,
-    aggregate: str = "first",
-) -> AxisSpec:
-    relpath = (
-        Path("geopotential")
-        / period_subdir
-        / f"{experiment}_{spatial_tag}_height_profile_{aggregate}.npz"
-    )
-    path = find_cache_file(intermediate_roots, relpath)
-    if path is None:
-        raise FileNotFoundError(
-            f"Height cache not found for {experiment}: {relpath}\n"
-            f"Searched roots: {intermediate_roots}"
-        )
-    payload = np.load(path)
-    height_m = np.asarray(payload["height_m"], dtype=np.float64)
-    return AxisSpec(values=height_m / 1000.0, label="Height (km)", is_height_km=True)
-
-
-def load_temperature_profile(
-    intermediate_roots: list[Path],
-    period_subdir: str,
-    experiment: str,
-    spatial_tag: str,
-) -> np.ndarray | None:
-    relpath = (
-        Path(safe_name("TEMPERATURE"))
-        / period_subdir
-        / f"{experiment}_{spatial_tag}_diurnal_profile.npz"
-    )
-    path = find_cache_file(intermediate_roots, relpath)
-    if path is None:
-        return None
-    try:
-        payload = np.load(path, allow_pickle=True)
-        return np.asarray(payload["mean"], dtype=np.float64)
-    except Exception:
-        return None
-
-
-def interpolate_profile_to_target_height(
-    source_height_km: np.ndarray,
-    source_profile: np.ndarray,
-    target_height_km: np.ndarray,
-) -> np.ndarray:
-    out = np.full(
-        (target_height_km.size, source_profile.shape[1]), np.nan, dtype=np.float64
-    )
-    for hour in range(source_profile.shape[1]):
-        col = source_profile[:, hour]
-        finite = np.isfinite(source_height_km) & np.isfinite(col)
-        if np.sum(finite) < 2:
-            continue
-        z = source_height_km[finite]
-        v = col[finite]
-        order = np.argsort(z)
-        z, v = z[order], v[order]
-        unique = np.concatenate(([True], np.diff(z) > 0.0))
-        z, v = z[unique], v[unique]
-        if z.size < 2:
-            continue
-        out[:, hour] = np.interp(target_height_km, z, v, left=np.nan, right=np.nan)
-    return out
-
-
-def infer_freezing_threshold(temp: np.ndarray) -> float | None:
-    valid = temp[np.isfinite(temp)]
-    if valid.size == 0:
-        return None
-    return FREEZING_K if float(np.median(valid)) > 150.0 else 0.0
-
-
-def compute_freezing_line_km(
-    axis: AxisSpec, temperature_profile: np.ndarray
-) -> np.ndarray | None:
-    if not axis.is_height_km:
-        return None
-    n_levels = min(axis.values.size, temperature_profile.shape[0])
-    if n_levels < 2:
-        return None
-    temp = temperature_profile[:n_levels, :]
-    threshold = infer_freezing_threshold(temp)
-    if threshold is None:
-        return None
-    y_km = np.asarray(axis.values[:n_levels], dtype=np.float64)
-    order = np.argsort(y_km)
-    y_sorted = y_km[order]
-    t_sorted = temp[order, :]
-    freeze_line = np.full((24,), np.nan, dtype=np.float64)
-    for hour in range(24):
-        column = t_sorted[:, hour]
-        finite = np.isfinite(column) & np.isfinite(y_sorted)
-        if np.sum(finite) < 2:
-            continue
-        yy, tt = y_sorted[finite], column[finite]
-        for i in range(yy.size - 1):
-            t1, t2 = tt[i], tt[i + 1]
-            y1, y2 = yy[i], yy[i + 1]
-            if np.isclose(t1, threshold):
-                freeze_line[hour] = y1
-                break
-            if np.isclose(t2, threshold):
-                freeze_line[hour] = y2
-                break
-            d1, d2 = t1 - threshold, t2 - threshold
-            if d1 * d2 < 0 and not np.isclose(t1, t2):
-                frac = (threshold - t1) / (t2 - t1)
-                freeze_line[hour] = y1 + frac * (y2 - y1)
-                break
-    return freeze_line
-
-
-def robust_anomaly_scale(*arrays: np.ndarray) -> float:
-    chunks = [arr[np.isfinite(arr)] for arr in arrays]
-    chunks = [c for c in chunks if c.size > 0]
-    if not chunks:
-        return 1.0
-    merged = np.concatenate(chunks)
-    scale = float(np.percentile(np.abs(merged), 98))
-    return scale if scale > 0 else 1.0
-
 
 # ---------------------------------------------------------------------------
 # Plotting
@@ -505,7 +351,13 @@ def main() -> None:
     stag = args.spatial_tag
 
     # ------- load height axis (use control as reference) -------
-    axis_ctrl = load_height_axis(roots, period_sub, "control", stag, args.height_aggregate)
+    axis_ctrl = load_height_axis(
+        roots,
+        period_sub,
+        "control",
+        args.height_aggregate,
+        spatial_tag=stag,
+    )
 
     # ------- load diurnal profiles -------
     print("Loading cached diurnal profiles ...", flush=True)
@@ -525,8 +377,20 @@ def main() -> None:
     lwc_g2   = load_diurnal_mean(roots, "LIQUID_WATER", period_sub, "2mom", stag)
 
     # ------- load height axes for interpolation -------
-    axis_g1  = load_height_axis(roots, period_sub, "graupel", stag, args.height_aggregate)
-    axis_g2  = load_height_axis(roots, period_sub, "2mom",    stag, args.height_aggregate)
+    axis_g1 = load_height_axis(
+        roots,
+        period_sub,
+        "graupel",
+        args.height_aggregate,
+        spatial_tag=stag,
+    )
+    axis_g2 = load_height_axis(
+        roots,
+        period_sub,
+        "2mom",
+        args.height_aggregate,
+        spatial_tag=stag,
+    )
     target_h = np.asarray(axis_ctrl.values, dtype=np.float64)
 
     def interp_to_ctrl(src_axis: AxisSpec, profile: np.ndarray) -> np.ndarray:

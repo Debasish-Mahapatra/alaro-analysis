@@ -10,8 +10,8 @@ import numpy as np
 class PeriodSpec:
     key: str
     label: str
+    allowed_months: tuple[int, ...] | None
     output_subdir: Path
-    allowed_months: tuple[int, ...] | None = None
 
 
 @dataclass(frozen=True)

@@ -30,6 +30,8 @@ from matplotlib.patches import Rectangle
 
 import faxarray as fx
 
+from alaro_analysis.data.dataset_io import select_data_var_name
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -179,22 +181,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _choose_data_var(ds: xr.Dataset, requested: Optional[str]) -> str:
-    if requested:
-        if requested not in ds.data_vars:
-            raise ValueError(
-                f"Variable '{requested}' not found in {list(ds.data_vars)}"
-            )
-        return requested
-    preferred = ("PRESSURE", "GEOPOTENTIEL", "TEMPERATURE")
-    for name in preferred:
-        if name in ds.data_vars:
-            return name
-    if not ds.data_vars:
-        raise ValueError("Dataset has no data variables.")
-    return list(ds.data_vars)[0]
-
-
 def _to_2d_field(da: xr.DataArray) -> xr.DataArray:
     out = da
     for dim in list(out.dims):
@@ -253,7 +239,7 @@ def _grid_boundary(lon: np.ndarray, lat: np.ndarray) -> tuple[np.ndarray, np.nda
 
 def _load_masked_overlay(masked_nc_file: Path, masked_var: Optional[str]) -> tuple[np.ndarray, np.ndarray, np.ndarray, str]:
     with xr.open_dataset(masked_nc_file, decode_times=False) as ds:
-        var_name = _choose_data_var(ds, masked_var)
+        var_name = select_data_var_name(ds, masked_var)
         field = _to_2d_field(ds[var_name])
 
         lon = None

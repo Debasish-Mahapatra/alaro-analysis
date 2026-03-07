@@ -30,20 +30,37 @@ import cmaps
 from alaro_analysis.common.constants import (
     EXPERIMENTS,
     EXPERIMENT_LABELS,
-    FREEZING_K,
     SEASONS,
 )
 from alaro_analysis.common.models import PeriodSpec, SpatialWindow, VerticalAxis
 from alaro_analysis.common.naming import safe_name
 from alaro_analysis.common.seasons import build_period_specs, resolve_seasons
-from alaro_analysis.common.spatial import build_spatial_window, spatial_window_tag
-from alaro_analysis.common.timeparse import (
-    has_pf_subdirs,
-    parse_month_from_day_name,
-    parse_utc_hour_from_name,
+from alaro_analysis.common.spatial import (
+    apply_spatial_window_to_array,
+    build_spatial_window,
+    spatial_window_tag,
 )
-from alaro_analysis.common.vertical import centers_to_edges
-from alaro_analysis.data.discovery import discover_variables
+from alaro_analysis.common.timeparse import has_pf_subdirs
+from alaro_analysis.common.vertical import (
+    centers_to_edges,
+    compute_freezing_line_km,
+    interpolate_profile_to_target_height,
+)
+from alaro_analysis.data.cache import (
+    build_diurnal_cache_file,
+    build_height_cache_file,
+    load_diurnal_profile_cache,
+    load_height_profile_cache,
+    save_diurnal_profile_cache,
+    save_height_profile_cache,
+)
+from alaro_analysis.data.dataset_io import (
+    nanmean_with_count,
+    read_vertical_profile,
+    resolve_data_var_name,
+)
+from alaro_analysis.data.discovery import collect_file_records, discover_variables
+from alaro_analysis.plotting.scales import robust_anomaly_scale, robust_log_limits
 from alaro_analysis.plotting.style import resolve_workers
 
 DEFAULT_CONTROL_DIR = Path(
@@ -461,18 +478,6 @@ def compute_global_plot_scales(
     return scales
 
 
-def nanmean_with_count(
-    data: np.ndarray, axis: tuple[int, ...]
-) -> tuple[np.ndarray, np.ndarray]:
-    valid = np.isfinite(data)
-    count = np.sum(valid, axis=axis)
-    total = np.nansum(data, axis=axis)
-    mean = np.full(total.shape, np.nan, dtype=np.float64)
-    nonzero = count > 0
-    mean[nonzero] = total[nonzero] / count[nonzero]
-    return mean, count.astype(np.int64)
-
-
 def build_experiment_sources(
     primary_dirs: dict[str, Path],
     secondary_dirs: dict[str, Path | None],
@@ -630,88 +635,9 @@ def temperature_cache_available(
     return True
 
 
-def resolve_data_var_name(ds: xr.Dataset, requested: str) -> str:
-    if requested in ds.data_vars:
-        return requested
-
-    req_lower = requested.lower()
-    for name in ds.data_vars:
-        if name.lower() == req_lower:
-            return name
-
-    def compact(token: str) -> str:
-        return SANITIZE_RE.sub("", token).lower()
-
-    req_compact = compact(requested)
-    compact_hits = [name for name in ds.data_vars if compact(name) == req_compact]
-    if len(compact_hits) == 1:
-        return compact_hits[0]
-
-    if len(ds.data_vars) == 1:
-        return next(iter(ds.data_vars.keys()))
-
-    raise KeyError(
-        f"Variable '{requested}' not found. Available: {list(ds.data_vars.keys())}"
-    )
-
-
-def apply_spatial_window_to_array(
-    arr: np.ndarray, spatial_window: SpatialWindow, file_path: Path
-) -> np.ndarray:
-    y_slice = slice(spatial_window.y_start, spatial_window.y_end)
-    x_slice = slice(spatial_window.x_start, spatial_window.x_end)
-    if arr.ndim == 4:
-        trimmed = arr[:, :, y_slice, x_slice]
-    elif arr.ndim == 3:
-        trimmed = arr[:, y_slice, x_slice]
-    else:
-        return arr
-    if trimmed.shape[-2] == 0 or trimmed.shape[-1] == 0:
-        raise ValueError(
-            f"Spatial slice produced empty Y/X domain for {file_path}: "
-            f"shape {arr.shape} -> {trimmed.shape}"
-        )
-    return trimmed
-
-
-def read_vertical_profile(
-    file_path: Path,
-    requested_variable: str,
-    spatial_window: SpatialWindow,
-) -> tuple[np.ndarray, np.ndarray | None]:
-    with xr.open_dataset(file_path, decode_times=False) as ds:
-        var_name = resolve_data_var_name(ds, requested_variable)
-        arr = np.asarray(ds[var_name].values, dtype=np.float64)
-        arr = apply_spatial_window_to_array(arr, spatial_window, file_path)
-        dims = tuple(ds[var_name].dims)
-
-        if arr.ndim == 4:
-            profile, _ = nanmean_with_count(arr, axis=(0, 2, 3))
-            vertical_dim = dims[1]
-        elif arr.ndim == 3:
-            profile, _ = nanmean_with_count(arr, axis=(1, 2))
-            vertical_dim = dims[0]
-        elif arr.ndim == 2:
-            profile, _ = nanmean_with_count(arr, axis=(1,))
-            vertical_dim = dims[0]
-        elif arr.ndim == 1:
-            profile = arr
-            vertical_dim = dims[0]
-        else:
-            raise ValueError(f"Unsupported shape {arr.shape} in {file_path}")
-
-        vertical_coord = None
-        if vertical_dim in ds.coords:
-            coord = np.asarray(ds[vertical_dim].values, dtype=np.float64)
-            if coord.ndim == 1 and coord.size == profile.size:
-                vertical_coord = coord
-
-    return profile, vertical_coord
-
-
 def read_field_array(file_path: Path, requested_variable: str) -> np.ndarray:
     with xr.open_dataset(file_path, decode_times=False) as ds:
-        var_name = resolve_data_var_name(ds, requested_variable)
+        var_name = resolve_data_var_name(ds, requested_variable, compact_match=True)
         return np.asarray(ds[var_name].values, dtype=np.float64)
 
 
@@ -763,39 +689,6 @@ def compute_updraft_derived_profile_from_files(
     raise ValueError(f"Unknown derived updraft variable: {derived_variable}")
 
 
-def collect_file_records(
-    variable_dir: Path,
-    max_days: int | None,
-    allowed_months: tuple[int, ...] | None,
-    utc_offset_hours: int,
-) -> list[tuple[int, Path]]:
-    if not variable_dir.exists():
-        raise FileNotFoundError(f"Missing directory: {variable_dir}")
-
-    allowed_set = set(allowed_months) if allowed_months is not None else None
-    day_dirs = sorted(
-        p for p in variable_dir.iterdir() if p.is_dir() and p.name.startswith("pf")
-    )
-    if max_days is not None:
-        day_dirs = day_dirs[:max_days]
-
-    records: list[tuple[int, Path]] = []
-    for day_dir in day_dirs:
-        month = parse_month_from_day_name(day_dir.name)
-        if allowed_set is not None:
-            if month is None or month not in allowed_set:
-                continue
-
-        for file_path in sorted(day_dir.glob("*.nc")):
-            utc_hour = parse_utc_hour_from_name(file_path.name)
-            if utc_hour is None:
-                continue
-            local_hour = (utc_hour + utc_offset_hours) % 24
-            records.append((local_hour, file_path))
-
-    return records
-
-
 def compute_diurnal_profile(
     experiment_dir: Path,
     variable: str,
@@ -841,7 +734,10 @@ def compute_diurnal_profile(
         if not records:
             raise RuntimeError(f"No valid +0000..+0023 files found in {variable_dir}")
         first_profile, _ = read_vertical_profile(
-            records[0][1], variable, spatial_window=spatial_window
+            records[0][1],
+            variable,
+            spatial_window=spatial_window,
+            compact_match=True,
         )
 
     n_levels = first_profile.size
@@ -865,7 +761,10 @@ def compute_diurnal_profile(
             )
         else:
             profile, _ = read_vertical_profile(
-                file_path, variable, spatial_window=spatial_window
+                file_path,
+                variable,
+                spatial_window=spatial_window,
+                compact_match=True,
             )
 
         if profile.size != n_levels:
@@ -909,19 +808,28 @@ def compute_geopotential_height_profile(
 
     if aggregate == "first":
         profile, _ = read_vertical_profile(
-            records[0][1], height_variable, spatial_window=spatial_window
+            records[0][1],
+            height_variable,
+            spatial_window=spatial_window,
+            compact_match=True,
         )
         return profile, 1
 
     first, _ = read_vertical_profile(
-        records[0][1], height_variable, spatial_window=spatial_window
+        records[0][1],
+        height_variable,
+        spatial_window=spatial_window,
+        compact_match=True,
     )
     sums = np.zeros_like(first, dtype=np.float64)
     counts = np.zeros_like(first, dtype=np.int64)
 
     for idx, (_, file_path) in enumerate(records, start=1):
         profile, _ = read_vertical_profile(
-            file_path, height_variable, spatial_window=spatial_window
+            file_path,
+            height_variable,
+            spatial_window=spatial_window,
+            compact_match=True,
         )
         valid = np.isfinite(profile)
         sums[valid] += profile[valid]
@@ -951,11 +859,10 @@ def load_or_compute_diurnal(
 ) -> tuple[np.ndarray, Path, int, int]:
     use_cache = cache_file.exists() and (not overwrite_intermediate)
     if use_cache:
-        payload = np.load(cache_file)
-        sample_file = Path(str(payload["sample_file"].item()))
-        mean = np.asarray(payload["mean"], dtype=np.float64)
-        if "counts" in payload:
-            counts = np.asarray(payload["counts"], dtype=np.int64)
+        mean, counts, _, sample_file = load_diurnal_profile_cache(cache_file)
+        if sample_file is None:
+            raise ValueError(f"Missing sample_file in cache: {cache_file}")
+        if counts is not None:
             positive = counts[counts > 0]
             if positive.size > 0:
                 return mean, sample_file, int(np.min(positive)), int(np.max(positive))
@@ -971,13 +878,12 @@ def load_or_compute_diurnal(
     )
 
     if max_days is None:
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(
+        save_diurnal_profile_cache(
             cache_file,
             mean=mean,
             counts=counts,
-            n_files=np.array([n_files], dtype=np.int64),
-            sample_file=np.array([str(sample_file)]),
+            n_files=n_files,
+            sample_file=sample_file,
         )
     positive = counts[counts > 0]
     if positive.size == 0:
@@ -998,8 +904,7 @@ def load_or_compute_height(
 ) -> np.ndarray:
     use_cache = cache_file.exists() and (not overwrite_intermediate)
     if use_cache:
-        payload = np.load(cache_file)
-        return np.asarray(payload["height_m"], dtype=np.float64)
+        return load_height_profile_cache(cache_file)
 
     height_m, n_files = compute_geopotential_height_profile(
         geopotential_dir=geopotential_dir,
@@ -1011,12 +916,7 @@ def load_or_compute_height(
         spatial_window=spatial_window,
     )
     if max_days is None:
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(
-            cache_file,
-            height_m=height_m,
-            n_files=np.array([n_files], dtype=np.int64),
-        )
+        save_height_profile_cache(cache_file, height_m=height_m, n_files=n_files)
     return height_m
 
 
@@ -1024,7 +924,10 @@ def infer_axis_from_coord(
     sample_file: Path, variable: str, spatial_window: SpatialWindow
 ) -> VerticalAxis:
     profile, coord = read_vertical_profile(
-        sample_file, variable, spatial_window=spatial_window
+        sample_file,
+        variable,
+        spatial_window=spatial_window,
+        compact_match=True,
     )
     n_levels = profile.size
     if coord is None or coord.size != n_levels:
@@ -1053,54 +956,6 @@ def infer_axis_from_coord(
     if 1200.0 < cmax <= 20000.0:
         return VerticalAxis(values=coord / 1000.0, label="Height (km)", is_height_km=True)
     return VerticalAxis(values=coord, label="Model level", is_height_km=False)
-
-
-def build_diurnal_cache_file(
-    intermediate_dir: Path,
-    variable: str,
-    period_subdir: Path,
-    experiment: str,
-    spatial_tag: str,
-) -> Path:
-    return intermediate_dir / safe_name(variable) / period_subdir / (
-        f"{experiment}_{spatial_tag}_diurnal_profile.npz"
-    )
-
-
-def build_height_cache_file(
-    intermediate_dir: Path,
-    period_subdir: Path,
-    experiment: str,
-    aggregate: str,
-    spatial_tag: str,
-) -> Path:
-    return intermediate_dir / "geopotential" / period_subdir / (
-        f"{experiment}_{spatial_tag}_height_profile_{aggregate}.npz"
-    )
-
-
-def robust_log_limits(data: np.ndarray) -> tuple[float, float]:
-    valid = data[np.isfinite(data) & (data > 0)]
-    if valid.size == 0:
-        return 1e-12, 1.0
-    vmin = float(np.percentile(valid, 5))
-    vmax = float(np.percentile(valid, 99))
-    vmin = max(vmin, float(np.min(valid)))
-    if vmax <= vmin:
-        vmax = vmin * 10.0
-    return vmin, vmax
-
-
-def robust_anomaly_scale(*arrays: np.ndarray) -> float:
-    chunks = [arr[np.isfinite(arr)] for arr in arrays]
-    chunks = [arr for arr in chunks if arr.size > 0]
-    if not chunks:
-        return 1.0
-    merged = np.concatenate(chunks)
-    scale = float(np.percentile(np.abs(merged), 98))
-    if scale <= 0:
-        scale = 1.0
-    return scale
 
 
 def align_vertical_shapes(
@@ -1151,96 +1006,6 @@ def align_axis_and_profile(
     return axis_new, profile[:n_levels, :]
 
 
-def interpolate_profile_to_target_height(
-    source_height_km: np.ndarray,
-    source_profile: np.ndarray,
-    target_height_km: np.ndarray,
-) -> np.ndarray:
-    source_height_km = np.asarray(source_height_km, dtype=np.float64)
-    target_height_km = np.asarray(target_height_km, dtype=np.float64)
-    out = np.full((target_height_km.size, source_profile.shape[1]), np.nan, dtype=np.float64)
-    for hour in range(source_profile.shape[1]):
-        column = source_profile[:, hour]
-        finite = np.isfinite(source_height_km) & np.isfinite(column)
-        if np.sum(finite) < 2:
-            continue
-        z = source_height_km[finite]
-        v = column[finite]
-        order = np.argsort(z)
-        z = z[order]
-        v = v[order]
-        unique_mask = np.concatenate(([True], np.diff(z) > 0.0))
-        z_unique = z[unique_mask]
-        v_unique = v[unique_mask]
-        if z_unique.size < 2:
-            continue
-        out[:, hour] = np.interp(
-            target_height_km,
-            z_unique,
-            v_unique,
-            left=np.nan,
-            right=np.nan,
-        )
-    return out
-
-
-def infer_freezing_threshold(temperature_profile: np.ndarray) -> float | None:
-    valid = temperature_profile[np.isfinite(temperature_profile)]
-    if valid.size == 0:
-        return None
-    median = float(np.median(valid))
-    if median > 150.0:
-        return FREEZING_K
-    return 0.0
-
-
-def compute_freezing_line_km(axis: VerticalAxis, temperature_profile: np.ndarray) -> np.ndarray | None:
-    if not axis.is_height_km:
-        return None
-
-    n_levels = min(axis.values.size, temperature_profile.shape[0])
-    if n_levels < 2:
-        return None
-
-    temp = np.asarray(temperature_profile[:n_levels, :], dtype=np.float64)
-    threshold = infer_freezing_threshold(temp)
-    if threshold is None:
-        return None
-
-    y_km = np.asarray(axis.values[:n_levels], dtype=np.float64)
-    order = np.argsort(y_km)
-    y_sorted = y_km[order]
-    t_sorted = temp[order, :]
-
-    freeze_line = np.full((24,), np.nan, dtype=np.float64)
-    for hour in range(24):
-        column = t_sorted[:, hour]
-        finite = np.isfinite(column) & np.isfinite(y_sorted)
-        if np.sum(finite) < 2:
-            continue
-
-        yy = y_sorted[finite]
-        tt = column[finite]
-        for idx in range(yy.size - 1):
-            t1 = tt[idx]
-            t2 = tt[idx + 1]
-            y1 = yy[idx]
-            y2 = yy[idx + 1]
-
-            if np.isclose(t1, threshold):
-                freeze_line[hour] = y1
-                break
-            if np.isclose(t2, threshold):
-                freeze_line[hour] = y2
-                break
-
-            d1 = t1 - threshold
-            d2 = t2 - threshold
-            if d1 * d2 < 0 and not np.isclose(t1, t2):
-                frac = (threshold - t1) / (t2 - t1)
-                freeze_line[hour] = y1 + frac * (y2 - y1)
-                break
-    return freeze_line
 
 
 def plot_three_panels(

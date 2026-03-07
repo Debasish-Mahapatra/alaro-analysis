@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from alaro_analysis.common.models import PeriodSpec
 from alaro_analysis.common.seasons import build_period_specs, resolve_seasons
 
 
@@ -27,3 +28,11 @@ def test_build_period_specs_full_and_seasonal():
     assert wet.key == "wet"
     assert wet.output_subdir == Path("seasonal") / "wet"
     assert wet.allowed_months == (12, 1, 2, 3, 4)
+
+
+def test_periodspec_supports_legacy_positional_order():
+    spec = PeriodSpec("key", "label", (12, 1, 2), Path("seasonal") / "wet")
+    assert spec.key == "key"
+    assert spec.label == "label"
+    assert spec.allowed_months == (12, 1, 2)
+    assert spec.output_subdir == Path("seasonal") / "wet"

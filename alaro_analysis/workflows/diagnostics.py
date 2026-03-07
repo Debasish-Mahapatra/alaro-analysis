@@ -60,13 +60,27 @@ from alaro_analysis.common.constants import (
 from alaro_analysis.common.models import PeriodSpec, SpatialWindow, VerticalAxis
 from alaro_analysis.common.naming import safe_name
 from alaro_analysis.common.seasons import build_period_specs, resolve_seasons
-from alaro_analysis.common.spatial import build_spatial_window, spatial_window_tag
-from alaro_analysis.common.timeparse import (
-    has_pf_subdirs,
-    parse_month_from_day_name,
-    parse_utc_hour_from_name,
+from alaro_analysis.common.spatial import (
+    apply_spatial_window_to_array,
+    build_spatial_window,
+    spatial_window_tag,
 )
-from alaro_analysis.common.vertical import centers_to_edges
+from alaro_analysis.common.timeparse import has_pf_subdirs
+from alaro_analysis.common.vertical import (
+    centers_to_edges,
+    compute_freezing_line_km,
+    interpolate_profile_to_target_height,
+)
+from alaro_analysis.data.cache import build_cache_file, load_cache, save_cache
+from alaro_analysis.data.dataset_io import (
+    nanmean_with_count,
+    read_time_level_yx,
+    read_vertical_profile,
+    resolve_data_var_name,
+    to_time_level_yx,
+)
+from alaro_analysis.data.discovery import collect_file_records
+from alaro_analysis.plotting.scales import infer_abs_limits, infer_anom_scale
 
 DEFAULT_CONTROL_DIR = Path(
     "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/control/masked-netcdf"
@@ -203,136 +217,12 @@ def resolve_var_name(
     return None
 
 
-def collect_file_records(
-    variable_dir: Path,
-    max_days: int | None,
-    allowed_months: tuple[int, ...] | None,
-    utc_offset_hours: int,
-) -> list[tuple[int, Path]]:
-    if not variable_dir.exists():
-        raise FileNotFoundError(f"Missing directory: {variable_dir}")
-    allowed_set = set(allowed_months) if allowed_months is not None else None
-    day_dirs = sorted(
-        p for p in variable_dir.iterdir() if p.is_dir() and p.name.startswith("pf")
-    )
-    if max_days is not None:
-        day_dirs = day_dirs[:max_days]
-
-    records: list[tuple[int, Path]] = []
-    for day_dir in day_dirs:
-        month = parse_month_from_day_name(day_dir.name)
-        if allowed_set is not None:
-            if month is None or month not in allowed_set:
-                continue
-
-        for file_path in sorted(day_dir.glob("*.nc")):
-            utc_hour = parse_utc_hour_from_name(file_path.name)
-            if utc_hour is None:
-                continue
-            local_hour = (utc_hour + utc_offset_hours) % 24
-            records.append((local_hour, file_path))
-    return records
-
-
-def resolve_data_var_name(ds: xr.Dataset, requested: str) -> str:
-    if requested in ds.data_vars:
-        return requested
-
-    req_lower = requested.lower()
-    for name in ds.data_vars:
-        if name.lower() == req_lower:
-            return name
-
-    req_token = normalize_var_token(requested)
-    token_hits = [name for name in ds.data_vars if normalize_var_token(name) == req_token]
-    if len(token_hits) == 1:
-        return token_hits[0]
-
-    if len(ds.data_vars) == 1:
-        return next(iter(ds.data_vars.keys()))
-
-    raise KeyError(f"Variable '{requested}' not found. Available: {list(ds.data_vars.keys())}")
-
-
-def apply_spatial_window_to_array(
-    arr: np.ndarray, spatial_window: SpatialWindow, file_path: Path
-) -> np.ndarray:
-    if arr.ndim < 2:
-        return arr
-    y_slice = slice(spatial_window.y_start, spatial_window.y_end)
-    x_slice = slice(spatial_window.x_start, spatial_window.x_end)
-    trimmed = arr[(slice(None),) * (arr.ndim - 2) + (y_slice, x_slice)]
-    if trimmed.shape[-2] == 0 or trimmed.shape[-1] == 0:
-        raise ValueError(
-            f"Spatial slice produced empty Y/X domain for {file_path}: "
-            f"shape {arr.shape} -> {trimmed.shape}"
-        )
-    return trimmed
-
-
-def to_time_level_yx(
-    arr: np.ndarray,
-    dims: Sequence[str],
-    file_path: Path,
-    var_name: str,
-) -> np.ndarray:
-    if arr.ndim == 4:
-        return arr
-    if arr.ndim == 3:
-        first = dims[0].lower() if dims else ""
-        if first == "time":
-            return arr[:, np.newaxis, :, :]
-        return arr[np.newaxis, :, :, :]
-    if arr.ndim == 2:
-        return arr[np.newaxis, np.newaxis, :, :]
-    raise ValueError(
-        f"Unsupported shape for {var_name} in {file_path}: {arr.shape} (dims={tuple(dims)})"
-    )
-
-
-def read_time_level_yx(
-    file_path: Path,
-    requested_variable: str,
-    spatial_window: SpatialWindow,
-) -> np.ndarray:
-    with xr.open_dataset(file_path, decode_times=False) as ds:
-        var_name = resolve_data_var_name(ds, requested_variable)
-        da = ds[var_name]
-        arr = np.asarray(da.values, dtype=np.float64)
-        arr = apply_spatial_window_to_array(arr, spatial_window, file_path)
-        arr = to_time_level_yx(arr, da.dims, file_path, requested_variable)
-    return arr
-
-
-def read_vertical_profile(
-    file_path: Path,
-    requested_variable: str,
-    spatial_window: SpatialWindow,
-) -> np.ndarray:
-    arr = read_time_level_yx(file_path, requested_variable, spatial_window=spatial_window)
-    profile, _ = nanmean_with_count(arr, axis=(0, 2, 3))
-    return np.asarray(profile, dtype=np.float64)
-
-
 def align_tlyx_shapes(arrays: Sequence[np.ndarray]) -> list[np.ndarray]:
     t_min = min(arr.shape[0] for arr in arrays)
     l_min = min(arr.shape[1] for arr in arrays)
     y_min = min(arr.shape[2] for arr in arrays)
     x_min = min(arr.shape[3] for arr in arrays)
     return [arr[:t_min, :l_min, :y_min, :x_min] for arr in arrays]
-
-
-def nanmean_with_count(
-    data: np.ndarray,
-    axis: tuple[int, ...],
-) -> tuple[np.ndarray, np.ndarray]:
-    valid = np.isfinite(data)
-    count = np.sum(valid, axis=axis)
-    total = np.nansum(data, axis=axis)
-    mean = np.full(total.shape, np.nan, dtype=np.float64)
-    nonzero = count > 0
-    mean[nonzero] = total[nonzero] / count[nonzero]
-    return mean, count.astype(np.int64)
 
 
 def mean_profile(field_tlyx: np.ndarray) -> np.ndarray:
@@ -428,84 +318,6 @@ def finalize_line_means(
     return out
 
 
-def build_cache_file(
-    intermediate_dir: Path,
-    analysis_name: str,
-    period_subdir: Path,
-    experiment: str,
-    spatial_tag: str,
-) -> Path:
-    return (
-        intermediate_dir
-        / safe_name(analysis_name)
-        / period_subdir
-        / f"{experiment}_{spatial_tag}.npz"
-    )
-
-
-def save_cache(cache_file: Path, payload: dict[str, np.ndarray]) -> None:
-    cache_file.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(cache_file, **payload)
-
-
-def load_cache(cache_file: Path) -> dict[str, np.ndarray]:
-    with np.load(cache_file) as data:
-        return {k: np.asarray(data[k], dtype=np.float64) for k in data.files}
-
-
-def infer_freezing_threshold(temperature_profile: np.ndarray) -> float | None:
-    valid = temperature_profile[np.isfinite(temperature_profile)]
-    if valid.size == 0:
-        return None
-    return 273.15 if float(np.median(valid)) > 150.0 else 0.0
-
-
-def compute_freezing_line_km(axis: VerticalAxis, temperature_profiles: list[np.ndarray]) -> np.ndarray | None:
-    if not axis.is_height_km or not temperature_profiles:
-        return None
-    n_levels = min(axis.values.size, *(arr.shape[0] for arr in temperature_profiles))
-    if n_levels < 2:
-        return None
-
-    stacked = np.stack([arr[:n_levels, :] for arr in temperature_profiles], axis=0)
-    mean_temp = np.nanmean(stacked, axis=0)
-    threshold = infer_freezing_threshold(mean_temp)
-    if threshold is None:
-        return None
-
-    y_km = np.asarray(axis.values[:n_levels], dtype=np.float64)
-    order = np.argsort(y_km)
-    y_sorted = y_km[order]
-    t_sorted = mean_temp[order, :]
-
-    freeze_line = np.full((24,), np.nan, dtype=np.float64)
-    for hour in range(24):
-        column = t_sorted[:, hour]
-        finite = np.isfinite(column) & np.isfinite(y_sorted)
-        if np.sum(finite) < 2:
-            continue
-        yy = y_sorted[finite]
-        tt = column[finite]
-        for i in range(yy.size - 1):
-            t1 = tt[i]
-            t2 = tt[i + 1]
-            y1 = yy[i]
-            y2 = yy[i + 1]
-            if np.isclose(t1, threshold):
-                freeze_line[hour] = y1
-                break
-            if np.isclose(t2, threshold):
-                freeze_line[hour] = y2
-                break
-            d1 = t1 - threshold
-            d2 = t2 - threshold
-            if d1 * d2 < 0 and not np.isclose(t1, t2):
-                frac = (threshold - t1) / (t2 - t1)
-                freeze_line[hour] = y1 + frac * (y2 - y1)
-                break
-    return freeze_line
-
-
 def compute_geopotential_height_profile(
     geopotential_dir: Path,
     height_variable: str,
@@ -525,14 +337,32 @@ def compute_geopotential_height_profile(
         raise RuntimeError(f"No valid geopotential files found in {geopotential_dir}")
 
     if aggregate == "first":
-        profile = read_vertical_profile(records[0][1], height_variable, spatial_window)
+        profile, _ = read_vertical_profile(
+            records[0][1],
+            height_variable,
+            spatial_window=spatial_window,
+            token_normalizer=normalize_var_token,
+            force_time_level_yx=True,
+        )
         return profile, 1
 
-    first = read_vertical_profile(records[0][1], height_variable, spatial_window)
+    first, _ = read_vertical_profile(
+        records[0][1],
+        height_variable,
+        spatial_window=spatial_window,
+        token_normalizer=normalize_var_token,
+        force_time_level_yx=True,
+    )
     sums = np.zeros_like(first, dtype=np.float64)
     counts = np.zeros_like(first, dtype=np.int64)
     for idx, (_, file_path) in enumerate(records, start=1):
-        profile = read_vertical_profile(file_path, height_variable, spatial_window)
+        profile, _ = read_vertical_profile(
+            file_path,
+            height_variable,
+            spatial_window=spatial_window,
+            token_normalizer=normalize_var_token,
+            force_time_level_yx=True,
+        )
         n = min(sums.size, profile.size)
         valid = np.isfinite(profile[:n])
         sums[:n][valid] += profile[:n][valid]
@@ -556,33 +386,6 @@ def align_axis_and_profile(
     n = min(axis.values.size, profile.shape[0])
     axis_new = VerticalAxis(values=axis.values[:n], label=axis.label, is_height_km=axis.is_height_km)
     return axis_new, profile[:n, :]
-
-
-def interpolate_profile_to_target_height(
-    source_height_km: np.ndarray,
-    source_profile: np.ndarray,
-    target_height_km: np.ndarray,
-) -> np.ndarray:
-    source_height_km = np.asarray(source_height_km, dtype=np.float64)
-    target_height_km = np.asarray(target_height_km, dtype=np.float64)
-    out = np.full((target_height_km.size, source_profile.shape[1]), np.nan, dtype=np.float64)
-    for hour in range(source_profile.shape[1]):
-        col = source_profile[:, hour]
-        finite = np.isfinite(source_height_km) & np.isfinite(col)
-        if np.sum(finite) < 2:
-            continue
-        z = source_height_km[finite]
-        v = col[finite]
-        order = np.argsort(z)
-        z = z[order]
-        v = v[order]
-        unique_mask = np.concatenate(([True], np.diff(z) > 0.0))
-        z = z[unique_mask]
-        v = v[unique_mask]
-        if z.size < 2:
-            continue
-        out[:, hour] = np.interp(target_height_km, z, v, left=np.nan, right=np.nan)
-    return out
 
 
 def maybe_convert_pressure_to_pa(p: np.ndarray) -> np.ndarray:
@@ -668,10 +471,30 @@ def compute_downdraft_profiles(
             return None
         ud_omega, ud_mesh, dd_omega, dd_mesh = align_tlyx_shapes(
             [
-                read_time_level_yx(req[0], names["UD_OMEGA"], spatial_window),
-                read_time_level_yx(req[1], names["UD_MESH_FRAC"], spatial_window),
-                read_time_level_yx(req[2], names["DD_OMEGA"], spatial_window),
-                read_time_level_yx(req[3], names["DD_MESH_FRAC"], spatial_window),
+                read_time_level_yx(
+                    req[0],
+                    names["UD_OMEGA"],
+                    spatial_window,
+                    token_normalizer=normalize_var_token,
+                ),
+                read_time_level_yx(
+                    req[1],
+                    names["UD_MESH_FRAC"],
+                    spatial_window,
+                    token_normalizer=normalize_var_token,
+                ),
+                read_time_level_yx(
+                    req[2],
+                    names["DD_OMEGA"],
+                    spatial_window,
+                    token_normalizer=normalize_var_token,
+                ),
+                read_time_level_yx(
+                    req[3],
+                    names["DD_MESH_FRAC"],
+                    spatial_window,
+                    token_normalizer=normalize_var_token,
+                ),
             ]
         )
 
@@ -722,8 +545,18 @@ def compute_precip_profiles(
             return None
         cv, st = align_tlyx_shapes(
             [
-                read_time_level_yx(cv_file, names["CV_PREC_FLUX"], spatial_window),
-                read_time_level_yx(st_file, names["ST_PREC_FLUX"], spatial_window),
+                read_time_level_yx(
+                    cv_file,
+                    names["CV_PREC_FLUX"],
+                    spatial_window,
+                    token_normalizer=normalize_var_token,
+                ),
+                read_time_level_yx(
+                    st_file,
+                    names["ST_PREC_FLUX"],
+                    spatial_window,
+                    token_normalizer=normalize_var_token,
+                ),
             ]
         )
         total = cv + st
@@ -762,9 +595,24 @@ def compute_thermo_profiles(
             return None
         t, q, p = align_tlyx_shapes(
             [
-                read_time_level_yx(t_file, names["TEMPERATURE"], spatial_window),
-                read_time_level_yx(q_file, names["HUMI.SPECIFI"], spatial_window),
-                read_time_level_yx(p_file, names["PRESSURE"], spatial_window),
+                read_time_level_yx(
+                    t_file,
+                    names["TEMPERATURE"],
+                    spatial_window,
+                    token_normalizer=normalize_var_token,
+                ),
+                read_time_level_yx(
+                    q_file,
+                    names["HUMI.SPECIFI"],
+                    spatial_window,
+                    token_normalizer=normalize_var_token,
+                ),
+                read_time_level_yx(
+                    p_file,
+                    names["PRESSURE"],
+                    spatial_window,
+                    token_normalizer=normalize_var_token,
+                ),
             ]
         )
         nlev = min(t.shape[1], z_m.size)
@@ -822,7 +670,11 @@ def compute_kt273_lines(
         vals: dict[str, float] = {}
         for key in required:
             with xr.open_dataset(files[key], decode_times=False) as ds:
-                vn = resolve_data_var_name(ds, names[key])
+                vn = resolve_data_var_name(
+                    ds,
+                    names[key],
+                    token_normalizer=normalize_var_token,
+                )
                 vals[key] = mean_scalar(np.asarray(ds[vn].values, dtype=np.float64))
 
         return {
@@ -862,10 +714,25 @@ def compute_column_lines(
         if not p_file.exists() or not cv_file.exists() or not st_file.exists():
             return None
 
-        p = read_time_level_yx(p_file, names["PRESSURE"], spatial_window)
+        p = read_time_level_yx(
+            p_file,
+            names["PRESSURE"],
+            spatial_window,
+            token_normalizer=normalize_var_token,
+        )
         p = maybe_convert_pressure_to_pa(p)
-        cv = read_time_level_yx(cv_file, names["CV_PREC_FLUX"], spatial_window)
-        st = read_time_level_yx(st_file, names["ST_PREC_FLUX"], spatial_window)
+        cv = read_time_level_yx(
+            cv_file,
+            names["CV_PREC_FLUX"],
+            spatial_window,
+            token_normalizer=normalize_var_token,
+        )
+        st = read_time_level_yx(
+            st_file,
+            names["ST_PREC_FLUX"],
+            spatial_window,
+            token_normalizer=normalize_var_token,
+        )
         p, cv, st = align_tlyx_shapes([p, cv, st])
         total_prec = cv + st
 
@@ -874,7 +741,12 @@ def compute_column_lines(
             q_file = get_peer_file(base_file, experiment_dir, q_name)
             if not q_file.exists():
                 continue
-            q_arr = read_time_level_yx(q_file, q_name, spatial_window)
+            q_arr = read_time_level_yx(
+                q_file,
+                q_name,
+                spatial_window,
+                token_normalizer=normalize_var_token,
+            )
             q_fields.append(q_arr)
         if not q_fields:
             return None
@@ -914,43 +786,6 @@ def compute_column_lines(
     )
     print(f"[{experiment}/column] used files: {used}/{len(records)}", flush=True)
     return finalize_line_means(sums, counts)
-
-
-def infer_abs_limits(control: np.ndarray, linear: bool = True) -> tuple[float, float]:
-    valid = control[np.isfinite(control)]
-    if valid.size == 0:
-        return (0.0, 1.0) if linear else (1e-12, 1.0)
-    if linear:
-        vmin = float(np.percentile(valid, 2))
-        vmax = float(np.percentile(valid, 98))
-        if vmax <= vmin:
-            vmax = vmin + 1e-6
-        return vmin, vmax
-    positive = valid[valid > 0]
-    if positive.size == 0:
-        return 1e-12, 1.0
-    vmin = float(np.percentile(positive, 2))
-    vmax = float(np.percentile(positive, 98))
-    if vmax <= vmin:
-        vmax = vmin * 10.0
-    return vmin, vmax
-
-
-def infer_anom_scale(*anomalies: np.ndarray) -> float:
-    vals = []
-    for arr in anomalies:
-        finite = np.abs(arr[np.isfinite(arr)])
-        if finite.size > 0:
-            vals.append(finite)
-    if not vals:
-        return 1.0
-    merged = np.concatenate(vals)
-    scale = float(np.percentile(merged, 98))
-    if scale <= 0:
-        scale = float(np.max(merged))
-    if scale <= 0:
-        scale = 1.0
-    return scale
 
 
 def plot_three_panel_anomaly(

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import numpy as np
+
 from .models import SpatialWindow
 
 
@@ -43,3 +47,22 @@ def spatial_window_tag(spatial_window: SpatialWindow) -> str:
         f"y{bound(spatial_window.y_start)}-{bound(spatial_window.y_end)}_"
         f"x{bound(spatial_window.x_start)}-{bound(spatial_window.x_end)}"
     )
+
+
+def apply_spatial_window_to_array(
+    arr: np.ndarray,
+    spatial_window: SpatialWindow,
+    file_path: Path,
+) -> np.ndarray:
+    if arr.ndim < 2:
+        return arr
+
+    y_slice = slice(spatial_window.y_start, spatial_window.y_end)
+    x_slice = slice(spatial_window.x_start, spatial_window.x_end)
+    trimmed = arr[(slice(None),) * (arr.ndim - 2) + (y_slice, x_slice)]
+    if trimmed.shape[-2] == 0 or trimmed.shape[-1] == 0:
+        raise ValueError(
+            f"Spatial slice produced empty Y/X domain for {file_path}: "
+            f"shape {arr.shape} -> {trimmed.shape}"
+        )
+    return trimmed

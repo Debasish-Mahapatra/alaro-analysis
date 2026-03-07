@@ -26,13 +26,13 @@ import numpy as np
 from alaro_analysis.common.constants import (
     EXPERIMENTS,
     EXPERIMENT_LABELS,
-    FREEZING_K,
     SEASONS,
 )
 from alaro_analysis.common.models import AxisSpec, PeriodSpec
 from alaro_analysis.common.naming import safe_name
 from alaro_analysis.common.seasons import build_period_specs, resolve_seasons
-from alaro_analysis.common.vertical import centers_to_edges
+from alaro_analysis.common.vertical import centers_to_edges, compute_freezing_line_km
+from alaro_analysis.data.cache import load_diurnal_mean, load_height_axis
 
 try:
     import cmaps  # type: ignore
@@ -193,118 +193,6 @@ def resolve_selected_pairs(pair_args: tuple[str, ...] | list[str]) -> list[tuple
         seen.add(pair)
         selected.append(pair)
     return selected
-
-
-def cache_relpath(variable: str, period: PeriodSpec, experiment: str) -> Path:
-    return (
-        Path(safe_name(variable))
-        / period.output_subdir
-        / f"{experiment}_diurnal_profile.npz"
-    )
-
-
-def height_relpaths(period: PeriodSpec, aggregate: str) -> list[Path]:
-    return [
-        Path("geopotential") / period.output_subdir / f"control_height_profile_{aggregate}.npz",
-        Path("geopotentiel") / period.output_subdir / f"control_height_profile_{aggregate}.npz",
-    ]
-
-
-def find_existing_cache(intermediate_roots: list[Path], relpaths: list[Path]) -> Path | None:
-    for root in intermediate_roots:
-        for rel in relpaths:
-            candidate = root / rel
-            if candidate.exists():
-                return candidate
-    return None
-
-
-def load_diurnal_mean(
-    intermediate_roots: list[Path], variable: str, period: PeriodSpec, experiment: str
-) -> np.ndarray:
-    rel = cache_relpath(variable, period, experiment)
-    found = find_existing_cache(intermediate_roots, [rel])
-    if found is None:
-        raise FileNotFoundError(f"Missing cache: {rel} in any of {intermediate_roots}")
-    payload = np.load(found)
-    return np.asarray(payload["mean"], dtype=np.float64)
-
-
-def load_height_axis(
-    intermediate_roots: list[Path],
-    period: PeriodSpec,
-    aggregate: str,
-    fallback_levels: int,
-) -> AxisSpec:
-    found = find_existing_cache(intermediate_roots, height_relpaths(period, aggregate))
-    if found is None:
-        return AxisSpec(
-            values=np.arange(fallback_levels, dtype=np.float64),
-            label="Model level",
-            is_height_km=False,
-        )
-    payload = np.load(found)
-    height_m = np.asarray(payload["height_m"], dtype=np.float64)
-    return AxisSpec(values=height_m / 1000.0, label="Height (km)", is_height_km=True)
-
-
-def nanmean_with_count(data: np.ndarray, axis: tuple[int, ...]) -> tuple[np.ndarray, np.ndarray]:
-    valid = np.isfinite(data)
-    count = np.sum(valid, axis=axis)
-    total = np.nansum(data, axis=axis)
-    mean = np.full(total.shape, np.nan, dtype=np.float64)
-    ok = count > 0
-    mean[ok] = total[ok] / count[ok]
-    return mean, count.astype(np.int64)
-
-
-def infer_freezing_threshold(temperature_profile: np.ndarray) -> float | None:
-    valid = temperature_profile[np.isfinite(temperature_profile)]
-    if valid.size == 0:
-        return None
-    return FREEZING_K if float(np.median(valid)) > 150.0 else 0.0
-
-
-def compute_freezing_line_km(axis: AxisSpec, temperature_profiles: list[np.ndarray]) -> np.ndarray | None:
-    if (not axis.is_height_km) or (not temperature_profiles):
-        return None
-    n_levels = min(axis.values.size, *(arr.shape[0] for arr in temperature_profiles))
-    if n_levels < 2:
-        return None
-    stacked = np.stack([arr[:n_levels, :] for arr in temperature_profiles], axis=0)
-    mean_temp, _ = nanmean_with_count(stacked, axis=(0,))
-    threshold = infer_freezing_threshold(mean_temp)
-    if threshold is None:
-        return None
-
-    y = np.asarray(axis.values[:n_levels], dtype=np.float64)
-    order = np.argsort(y)
-    y_sorted = y[order]
-    t_sorted = mean_temp[order, :]
-    line = np.full((24,), np.nan, dtype=np.float64)
-    for hour in range(24):
-        col = t_sorted[:, hour]
-        finite = np.isfinite(col) & np.isfinite(y_sorted)
-        if np.sum(finite) < 2:
-            continue
-        yy = y_sorted[finite]
-        tt = col[finite]
-        for idx in range(yy.size - 1):
-            t1, t2 = tt[idx], tt[idx + 1]
-            y1, y2 = yy[idx], yy[idx + 1]
-            d1 = t1 - threshold
-            d2 = t2 - threshold
-            if np.isclose(t1, threshold):
-                line[hour] = y1
-                break
-            if np.isclose(t2, threshold):
-                line[hour] = y2
-                break
-            if d1 * d2 < 0 and not np.isclose(t1, t2):
-                frac = (threshold - t1) / (t2 - t1)
-                line[hour] = y1 + frac * (y2 - y1)
-                break
-    return line
 
 
 def crop_to_axis(
@@ -954,7 +842,7 @@ def main() -> None:
         for variable in variables:
             for exp in EXPERIMENTS:
                 profiles[(period.key, variable, exp)] = load_diurnal_mean(
-                    intermediate_roots, variable, period, exp
+                    intermediate_roots, variable, period.output_subdir, exp
                 )
 
     axes_by_period: dict[str, AxisSpec] = {}
@@ -962,9 +850,11 @@ def main() -> None:
         fallback_levels = profiles[(period.key, variables[0], "control")].shape[0]
         axes_by_period[period.key] = load_height_axis(
             intermediate_roots=intermediate_roots,
-            period=period,
+            period_subdir=period.output_subdir,
+            experiment="control",
             aggregate=args.height_aggregate,
             fallback_levels=fallback_levels,
+            allow_geopotentiel_fallback=True,
         )
 
     freezing_by_period: dict[str, np.ndarray | None] = {p.key: None for p in periods}
@@ -975,7 +865,10 @@ def main() -> None:
             for exp in EXPERIMENTS:
                 try:
                     temp_profiles[(period.key, exp)] = load_diurnal_mean(
-                        intermediate_roots, args.temperature_variable, period, exp
+                        intermediate_roots,
+                        args.temperature_variable,
+                        period.output_subdir,
+                        exp,
                     )
                 except FileNotFoundError:
                     missing_temp = True

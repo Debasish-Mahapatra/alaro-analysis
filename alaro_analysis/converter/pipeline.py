@@ -9,10 +9,9 @@ Output layout:
   <output_root>/<VAR>/pfYYYYMMDD/pfABOFABOF+HHHH.nc
 """
 
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import argparse
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
@@ -23,221 +22,25 @@ import xarray as xr
 
 import faxarray as fx
 
-
-def _parse_var_block(text: str) -> List[str]:
-    vars_out: List[str] = []
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        # Allow inline comments: VAR_NAME  # explanation
-        if "#" in line:
-            line = line.split("#", 1)[0].strip()
-        if line:
-            vars_out.append(line)
-    return vars_out
-
-
-def _unique_preserve(items: Sequence[str]) -> List[str]:
-    seen: Set[str] = set()
-    out: List[str] = []
-    for item in items:
-        if item in seen:
-            continue
-        seen.add(item)
-        out.append(item)
-    return out
-
-
-def _parse_plevels_csv(text: str) -> List[int]:
-    """
-    Parse comma-separated pressure levels in Pa.
-    Note: 00000 in FA pressure-level coding corresponds to 100000 Pa.
-    """
-    out: List[int] = []
-    for token in text.split(","):
-        part = token.strip()
-        if not part:
-            continue
-        value = int(part)
-        if value == 0:
-            value = 100000
-        out.append(value)
-    return out
-
-
-def _to_pressure_aliases(items: Sequence[str]) -> List[str]:
-    out: List[str] = []
-    for item in items:
-        if item.startswith("P_"):
-            out.append(item)
-        else:
-            out.append(f"P_{item}")
-    return out
-
-
-# Default variable blocks (used when no CLI variable override is supplied).
-MODEL_LEVEL_VARS_TEXT = """
-DD_OMEGA
-DD_MESH_FRAC
-CV_PREC_FLUX
-ST_PREC_FLUX
-PRESSURE
-NC_LIQUID_WA
-# DMEANR
-KT273GRAUPEL
-KT273RAIN
-KT273SNOW
-KT273DD_OMEGA
-KT273DD_MESH_FRA
-KT273HUMI.SPECIF
-KT273TEMPERATUR
-
-# WIND.U.PHYS
-# WIND.V.PHYS
-# PNR
-# REFLEC_DBZ
-# CLOUD_FRACTI
-# HUMI.SPECIFI
-# HUMI.RELATIVE
-# TEMPERATURE
-# GEOPOTENTIEL
-# LIQUID_WATER
-# SOLID_WATER
-# GRAUPEL
-# SNOW
-# RAIN
-# RAD_LIQUID_W
-# RAD_SOLID_WA
-# VERT.VELOC
-# VITESSE_VE
-# UD_OMEGA
-# UD_MESH_FRAC
-"""
-
-# Pressure levels: 5-digit Pa values (comma-separated)
-PLEVELS_CSV = "00000,92500,85000,70000,50000,20000"
-
-# Vars at pressure levels (suffixes after P#####)
-PLEVEL_VARS_TEXT = """
-# TEMPERATUR
-# HUMI.SPECI
-# GEOPOTENTI
-# WIND.U.PHY
-# WIND.V.PHY
-# REFLEC_DBZ
-# CLOUD_FRAC
-# LIQUID_WAT
-# SOLID_WATE
-# VERT.VELOC
-# VITESSE_VE
-# CV_PREC_FL
-# ST_PREC_FL
-"""
-
-SURFACE_VARS_TEXT = """
-# SURFNEBUL.TOTALE
-# SURFNEBUL.HAUTE
-# SURFNEBUL.MOYENN
-# SURFNEBUL.BASSE
-# SURFTEMPERATURE
-# SOMMFLU.RAY.THER
-# SOMMFLU.RAY.SOLA
-# SURFCAPE.POS.F00
-# SURFCIEN.POS.F00
-# CLSHUMI.SPECIFIQ
-# CLSVENT.ZONAL
-# CLSVENT.MERIDIEN
-# SURFGEOPOTEN
-# SURFPRESSION
-# SURFPREC.EAU.GEC
-# SURFPREC.EAU.CON
-"""
-
-MODEL_LEVEL_VARS = _parse_var_block(MODEL_LEVEL_VARS_TEXT)
-PLEVELS_PA = _parse_plevels_csv(PLEVELS_CSV)
-PLEVEL_VARS = _parse_var_block(PLEVEL_VARS_TEXT)
-PRESSURE_LEVEL_VARS = _to_pressure_aliases(PLEVEL_VARS)
-SURFACE_VARS = _parse_var_block(SURFACE_VARS_TEXT)
-REQUESTED_VARS = _unique_preserve(MODEL_LEVEL_VARS + PRESSURE_LEVEL_VARS + SURFACE_VARS)
-AUX_VAR = "GEOPOTENTIEL"
-GRAVITY = 9.80665
-DERIVED_MODEL_RH_VAR = "HUMI.RELATIVE"
-MODEL_RH_Q_VAR = "HUMI.SPECIFI"
-MODEL_RH_T_VAR = "TEMPERATURE"
-MODEL_RH_PRESSURE_CANDIDATES = ("PRESSURE",)
+from .aliases import normalize_var_token, resolve_requested_vars, var_to_ds_name
+from .config import (
+    AUX_VAR,
+    DERIVED_MODEL_RH_VAR,
+    GRAVITY,
+    MODEL_LEVEL_VARS,
+    MODEL_RH_PRESSURE_CANDIDATES,
+    MODEL_RH_Q_VAR,
+    MODEL_RH_T_VAR,
+    PLEVELS_PA,
+    PRESSURE_LEVEL_VARS,
+    REQUESTED_VARS,
+    SURFACE_VARS,
+    resolve_requested_vars_from_cli,
+)
+from .models import CropWindow, FileTask, RunConfig, VariablePlan
 
 DAY_DIR_RE = re.compile(r"^pf(\d{8})$")
 HOUR_FILE_RE = re.compile(r"^pfABOFABOF\+(\d{4})$")
-MODEL_LEVEL_FIELD_RE = re.compile(r"^S(\d{3})(.+)$")
-PRESSURE_LEVEL_FIELD_RE = re.compile(r"^P(\d{5})(.+)$")
-VAR_TOKEN_SANITIZE_RE = re.compile(r"[^A-Za-z0-9]+")
-
-# Explicit fallback aliases for known FA-name variants/truncations.
-REQUESTED_VAR_FALLBACK_ALIASES: Dict[str, Tuple[str, ...]] = {
-    "KT273TEMPERATUR": (
-        "KT273TEMPERATURE",
-        "KT273TEMPERATU",
-    ),
-    "NC_LIQUID_WA": (
-        "NC_LIQUID_WAT",
-        "NC_LIQUID_WATER",
-        "NC.LIQUID.WA",
-        "NC.LIQUID.WAT",
-        "NC.LIQUID.WATER",
-    ),
-}
-
-
-def _parse_vars_tokens(tokens: Sequence[str]) -> List[str]:
-    out: List[str] = []
-    for token in tokens:
-        for part in token.split(","):
-            item = part.strip()
-            if item:
-                out.append(item)
-    return _unique_preserve(out)
-
-
-def _load_vars_file(path: Path) -> List[str]:
-    if not path.exists():
-        raise FileNotFoundError(f"Variable file not found: {path}")
-    if not path.is_file():
-        raise ValueError(f"Variable file is not a regular file: {path}")
-    lines = _parse_var_block(path.read_text())
-    return _parse_vars_tokens(lines)
-
-
-def _resolve_requested_vars_from_cli(args: argparse.Namespace) -> Tuple[List[str], str]:
-    selected = list(REQUESTED_VARS)
-    source = "built-in defaults"
-
-    if args.vars_file is not None:
-        selected = _load_vars_file(Path(args.vars_file))
-        source = f"vars-file:{Path(args.vars_file)}"
-
-    if args.vars:
-        selected = _parse_vars_tokens(args.vars)
-        source = "--vars"
-
-    if args.append_vars:
-        selected = _unique_preserve(selected + _parse_vars_tokens(args.append_vars))
-        source = f"{source}+append"
-
-    if args.drop_vars:
-        drop_norm = {_normalize_var_token(name) for name in _parse_vars_tokens(args.drop_vars)}
-        selected = [name for name in selected if _normalize_var_token(name) not in drop_norm]
-        source = f"{source}+drop"
-
-    return selected, source
-
-
-def var_to_ds_name(name: str) -> str:
-    return name.replace(".", "_")
-
-
-def _normalize_var_token(name: str) -> str:
-    return VAR_TOKEN_SANITIZE_RE.sub("", name).upper()
 
 
 def _subset_pressure_levels(out_ds: xr.Dataset, var_name: str) -> xr.Dataset:
@@ -321,229 +124,6 @@ def _coerce_pressure_to_pa(pressure: xr.DataArray, source_name: str) -> xr.DataA
         f"Cannot derive RH: unsupported pressure range for '{source_name}' "
         f"(units='{units}', p01={p01:.3g}, p99={p99:.3g})."
     )
-
-
-def _build_available_aliases(raw_field_names: Sequence[str]) -> Set[str]:
-    aliases: Set[str] = set()
-    for field in raw_field_names:
-        aliases.add(field)
-        aliases.add(var_to_ds_name(field))
-
-    model_groups: Dict[str, int] = {}
-    pressure_groups: Dict[str, int] = {}
-    for field in raw_field_names:
-        m = MODEL_LEVEL_FIELD_RE.match(field)
-        if m:
-            base = m.group(2)
-            model_groups[base] = model_groups.get(base, 0) + 1
-            continue
-        m = PRESSURE_LEVEL_FIELD_RE.match(field)
-        if m:
-            base = m.group(2)
-            pressure_groups[base] = pressure_groups.get(base, 0) + 1
-
-    for base, count in model_groups.items():
-        if count > 1:
-            aliases.add(base)
-            aliases.add(var_to_ds_name(base))
-
-    for base, count in pressure_groups.items():
-        if count > 1:
-            p_name = f"P_{base}"
-            aliases.add(p_name)
-            aliases.add(var_to_ds_name(p_name))
-
-    return aliases
-
-
-@dataclass(frozen=True)
-class VariablePlan:
-    output_vars: Tuple[str, ...]
-    read_vars: Tuple[str, ...]
-    missing_requested: Tuple[str, ...]
-    derive_model_rh: bool
-    rh_q_var: Optional[str]
-    rh_t_var: Optional[str]
-    rh_p_var: Optional[str]
-
-
-def resolve_requested_vars(sample_file: Path, requested_vars: Sequence[str]) -> VariablePlan:
-    fa = fx.FADataset(str(sample_file))
-    try:
-        raw_field_names = tuple(fa.variables)
-        aliases = _build_available_aliases(raw_field_names)
-    finally:
-        fa.close()
-    raw_field_set = set(raw_field_names)
-    normalized_aliases: Dict[str, List[str]] = {}
-    for alias in aliases:
-        norm = _normalize_var_token(alias)
-        if not norm:
-            continue
-        normalized_aliases.setdefault(norm, []).append(alias)
-
-    def _choose_best_alias(candidates: Sequence[str], requested_name: str) -> Optional[str]:
-        unique = sorted(
-            set(candidates),
-            key=lambda cand: (
-                0 if cand in raw_field_set else 1,
-                abs(len(cand) - len(requested_name)),
-                cand,
-            ),
-        )
-        if not unique:
-            return None
-        if len(unique) == 1:
-            return unique[0]
-
-        first = unique[0]
-        second = unique[1]
-        first_score = (
-            0 if first in raw_field_set else 1,
-            abs(len(first) - len(requested_name)),
-        )
-        second_score = (
-            0 if second in raw_field_set else 1,
-            abs(len(second) - len(requested_name)),
-        )
-        if first_score == second_score:
-            return None
-        return first
-
-    def _resolve_alias(name: str) -> Optional[str]:
-        if name in aliases:
-            return name
-
-        alt_candidates: List[str] = []
-        if "." in name:
-            alt_candidates.append(name.replace(".", "_"))
-        elif "_" in name and not name.startswith("P_"):
-            alt_candidates.append(name.replace("_", "."))
-        alt_candidates.extend(REQUESTED_VAR_FALLBACK_ALIASES.get(name, ()))
-
-        direct = [cand for cand in alt_candidates if cand in aliases]
-        chosen = _choose_best_alias(direct, name)
-        if chosen is not None:
-            return chosen
-
-        norm_name = _normalize_var_token(name)
-        if not norm_name:
-            return None
-
-        normalized_hits = normalized_aliases.get(norm_name, [])
-        chosen = _choose_best_alias(normalized_hits, name)
-        if chosen is not None:
-            return chosen
-
-        # Common FA issue: one-char truncation/extension in field names.
-        fuzzy_hits: List[str] = []
-        for norm_alias, alias_names in normalized_aliases.items():
-            if min(len(norm_alias), len(norm_name)) < 6:
-                continue
-            if abs(len(norm_alias) - len(norm_name)) > 2:
-                continue
-            if norm_alias.startswith(norm_name) or norm_name.startswith(norm_alias):
-                fuzzy_hits.extend(alias_names)
-
-        return _choose_best_alias(fuzzy_hits, name)
-
-    output_vars: List[str] = []
-    missing: List[str] = []
-    for name in requested_vars:
-        if name == DERIVED_MODEL_RH_VAR:
-            output_vars.append(name)
-            continue
-
-        found_alt = _resolve_alias(name)
-        if found_alt:
-            output_vars.append(found_alt)
-            continue
-
-        missing.append(name)
-
-    output_vars = _unique_preserve(output_vars)
-    read_vars = [v for v in output_vars if v != DERIVED_MODEL_RH_VAR]
-    derive_model_rh = DERIVED_MODEL_RH_VAR in output_vars
-    rh_q_var: Optional[str] = None
-    rh_t_var: Optional[str] = None
-    rh_p_var: Optional[str] = None
-
-    if derive_model_rh:
-        rh_q_var = _resolve_alias(MODEL_RH_Q_VAR)
-        rh_t_var = _resolve_alias(MODEL_RH_T_VAR)
-
-        for cand in MODEL_RH_PRESSURE_CANDIDATES:
-            resolved = _resolve_alias(cand)
-            if resolved:
-                rh_p_var = resolved
-                break
-
-        if rh_q_var is None:
-            missing.append(f"{DERIVED_MODEL_RH_VAR} requires {MODEL_RH_Q_VAR}")
-        if rh_t_var is None:
-            missing.append(f"{DERIVED_MODEL_RH_VAR} requires {MODEL_RH_T_VAR}")
-        if rh_p_var is None:
-            missing.append(
-                f"{DERIVED_MODEL_RH_VAR} requires one of: "
-                + ", ".join(MODEL_RH_PRESSURE_CANDIDATES)
-            )
-
-        for dep in (rh_q_var, rh_t_var, rh_p_var):
-            if dep and dep not in read_vars:
-                read_vars.append(dep)
-
-    return VariablePlan(
-        output_vars=tuple(output_vars),
-        read_vars=tuple(read_vars),
-        missing_requested=tuple(missing),
-        derive_model_rh=derive_model_rh,
-        rh_q_var=rh_q_var,
-        rh_t_var=rh_t_var,
-        rh_p_var=rh_p_var,
-    )
-
-
-@dataclass(frozen=True)
-class CropWindow:
-    y_start: int
-    y_stop: int
-    x_start: int
-    x_stop: int
-    source_y: int
-    source_x: int
-
-
-@dataclass(frozen=True)
-class FileTask:
-    day_name: str
-    hour: int
-    source_file: str
-
-
-@dataclass(frozen=True)
-class RunConfig:
-    input_root: str
-    output_root: str
-    workers: int
-    bbox_west: float
-    bbox_east: float
-    bbox_south: float
-    bbox_north: float
-    include_init: bool
-    compress: str
-    compress_level: int
-    overwrite: bool
-    skip_incomplete_days: bool
-    start_date: Optional[str]
-    end_date: Optional[str]
-    mask_file: Optional[str]
-    mask_var: Optional[str]
-    mask_lat_name: Optional[str]
-    mask_lon_name: Optional[str]
-    mask_threshold: float
-    quiet: bool
-
-
 def parse_yyyymmdd(value: Optional[str], name: str):
     if value is None:
         return None
@@ -1033,7 +613,7 @@ def main() -> int:
             print(name)
         return 0
 
-    requested_vars, requested_vars_source = _resolve_requested_vars_from_cli(args)
+    requested_vars, requested_vars_source = resolve_requested_vars_from_cli(args)
     if not requested_vars:
         raise ValueError(
             "No variables selected. Provide --vars/--vars-file, or remove --drop-vars."
@@ -1126,7 +706,12 @@ def main() -> int:
 
     if tasks:
         var_plan = resolve_requested_vars(
-            Path(tasks[0].source_file), requested_vars
+            Path(tasks[0].source_file),
+            requested_vars,
+            derived_model_rh_var=DERIVED_MODEL_RH_VAR,
+            model_rh_q_var=MODEL_RH_Q_VAR,
+            model_rh_t_var=MODEL_RH_T_VAR,
+            model_rh_pressure_candidates=MODEL_RH_PRESSURE_CANDIDATES,
         )
         if not var_plan.output_vars:
             raise ValueError(
