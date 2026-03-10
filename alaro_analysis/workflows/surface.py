@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Sequence
 
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
 
 from alaro_analysis.common.constants import EXPERIMENTS, EXPERIMENT_LABELS, SEASONS
@@ -115,6 +116,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="List discovered variables per experiment and exit.",
     )
+    parser.add_argument(
+        "--zoom-inset",
+        action="store_true",
+        help="Add a zoomed inset around the daytime peak to show small differences.",
+    )
     return parser.parse_args()
 
 
@@ -195,39 +201,79 @@ def plot_surface_diurnal(
     line_data: dict[str, np.ndarray],
     output_file: Path,
     utc_offset_hours: int,
+    zoom_inset: bool,
 ) -> None:
     colors = {
-        "control": "#1f77b4",
-        "graupel": "#ff7f0e",
+        "control": "#d62728",
+        "graupel": "#1f77b4",
         "2mom": "#2ca02c",
     }
     hours = np.arange(24, dtype=np.float64)
-
-    fig, ax = plt.subplots(figsize=(10.5, 5.5), constrained_layout=True)
-    for exp in EXPERIMENTS:
-        arr = line_data.get(exp)
-        if arr is None:
-            continue
-        ax.plot(
-            hours,
-            arr,
-            linewidth=2.4,
-            marker="o",
-            markersize=3.5,
-            color=colors[exp],
-            label=EXPERIMENT_LABELS[exp],
-        )
-
     ylabel = variable_label
     if variable_unit:
         ylabel = f"{ylabel} [{variable_unit}]"
+
+    def draw_lines(ax: plt.Axes, *, configure_main_axis: bool) -> None:
+        for exp in EXPERIMENTS:
+            arr = line_data.get(exp)
+            if arr is None:
+                continue
+            ax.plot(
+                hours,
+                arr,
+                linewidth=2.4,
+                marker="o",
+                markersize=3.5,
+                color=colors[exp],
+                label=EXPERIMENT_LABELS[exp],
+            )
+        ax.grid(alpha=0.25, linestyle="--")
+        ax.yaxis.set_minor_locator(mticker.AutoMinorLocator(2))
+        if configure_main_axis:
+            ax.set_xticks(np.arange(0, 24, 3))
+            ax.set_xlim(0.0, 23.0)
+
+    fig, ax = plt.subplots(figsize=(10.5, 5.5), constrained_layout=True)
+    draw_lines(ax, configure_main_axis=True)
     ax.set_ylabel(ylabel, fontsize=12)
     ax.set_xlabel(f"Hour (local UTC{utc_offset_hours:+d})", fontsize=12)
-    ax.set_xticks(np.arange(0, 24, 3))
-    ax.set_xlim(0.0, 23.0)
-    ax.grid(alpha=0.25, linestyle="--")
-    ax.legend(loc="best", fontsize=11, framealpha=0.9)
-    ax.set_title(f"{period_label} - {variable_label} diurnal cycle", fontsize=14, fontweight="bold")
+    ax.legend(loc="upper right", fontsize=11, framealpha=0.9)
+    ax.set_title(
+        f"{period_label} - {variable_label} diurnal cycle",
+        fontsize=14,
+        fontweight="bold",
+    )
+
+    if zoom_inset:
+        arrays = [
+            np.asarray(line_data[exp], dtype=np.float64)
+            for exp in EXPERIMENTS
+            if line_data.get(exp) is not None and np.isfinite(line_data[exp]).any()
+        ]
+        if arrays:
+            stacked = np.vstack(arrays)
+            mean_profile = np.nanmean(stacked, axis=0)
+            if np.isfinite(mean_profile).any():
+                peak = float(np.nanmax(mean_profile))
+                focus = np.isfinite(mean_profile) & (mean_profile >= 0.82 * peak)
+                if np.any(focus):
+                    focus_idx = np.where(focus)[0]
+                    x0 = max(0, int(focus_idx[0]) - 1)
+                    x1 = min(23, int(focus_idx[-1]) + 1)
+                    zoom_vals = stacked[:, x0 : x1 + 1]
+                    zoom_finite = zoom_vals[np.isfinite(zoom_vals)]
+                    if zoom_finite.size > 0:
+                        y0 = float(np.min(zoom_finite))
+                        y1 = float(np.max(zoom_finite))
+                        ypad = max(5.0, 0.14 * max(y1 - y0, 1.0))
+                        axins = ax.inset_axes([0.08, 0.54, 0.36, 0.34])
+                        draw_lines(axins, configure_main_axis=False)
+                        axins.set_xlim(float(x0), float(x1))
+                        axins.set_ylim(y0 - ypad, y1 + ypad)
+                        axins.set_xticks(np.arange(x0, x1 + 1, 1))
+                        axins.yaxis.set_major_locator(mticker.MaxNLocator(nbins=6))
+                        axins.tick_params(labelsize=8)
+                        ax.indicate_inset_zoom(axins, edgecolor="0.35", alpha=0.9)
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_file, dpi=450, bbox_inches="tight", facecolor="white")
@@ -363,6 +409,7 @@ def main() -> None:
             line_data=lines_by_exp,
             output_file=output_file,
             utc_offset_hours=args.utc_offset_hours,
+            zoom_inset=bool(args.zoom_inset),
         )
 
     print("\nCompleted surface diurnal diagnostics.", flush=True)
