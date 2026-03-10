@@ -209,6 +209,8 @@ def compute_alaro_lines(
         "LW_DOWN": np.zeros((24,), dtype=np.float64),
         "SW_NET": np.zeros((24,), dtype=np.float64),
         "LW_NET": np.zeros((24,), dtype=np.float64),
+        "SW_UP": np.zeros((24,), dtype=np.float64),
+        "LW_UP": np.zeros((24,), dtype=np.float64),
         "ALARO_RN": np.zeros((24,), dtype=np.float64),
     }
     counts = {key: np.zeros((24,), dtype=np.int64) for key in sums}
@@ -241,6 +243,16 @@ def compute_alaro_lines(
             lw_down_file = get_peer_file(base_file, experiment_dir, lw_down_name)
             if lw_down_file.exists():
                 values["LW_DOWN"] = read_mean_scalar(lw_down_file, lw_down_name, spatial_window)
+        values["SW_UP"] = (
+            values["SW_DOWN"] - values["SW_NET"]
+            if np.isfinite(values["SW_DOWN"]) and np.isfinite(values["SW_NET"])
+            else np.nan
+        )
+        values["LW_UP"] = (
+            values["LW_DOWN"] - values["LW_NET"]
+            if np.isfinite(values["LW_DOWN"]) and np.isfinite(values["LW_NET"])
+            else np.nan
+        )
 
         for key, value in values.items():
             if np.isfinite(value):
@@ -345,11 +357,13 @@ def plot_alaro_components(
     fig, axes = plt.subplots(1, 3, figsize=(18, 5.6), sharey=True, constrained_layout=True)
 
     component_styles = {
-        "SW_DOWN": {"color": "#f59f00", "linestyle": "-", "label": "SW down"},
-        "LW_DOWN": {"color": "#5f3dc4", "linestyle": "-", "label": "LW down"},
-        "SW_NET": {"color": "#ff922b", "linestyle": "--", "label": "SW net"},
-        "LW_NET": {"color": "#1c7ed6", "linestyle": "--", "label": "LW net"},
-        "ALARO_RN": {"color": "black", "linestyle": "-", "label": "RN = SW net + LW net"},
+        "SW_DOWN": {"color": "#f59f00", "linestyle": "-", "label": "SWD = SURFRF.SHORT.DO"},
+        "LW_DOWN": {"color": "#5f3dc4", "linestyle": "-", "label": "LWD = SURFRF.LONG.DO"},
+        "SW_NET": {"color": "#ff922b", "linestyle": "--", "label": "SWnet = SURFFLU.RAY.SOLA"},
+        "LW_NET": {"color": "#1c7ed6", "linestyle": "--", "label": "LWnet = SURFFLU.RAY.THER"},
+        "SW_UP": {"color": "#e8590c", "linestyle": ":", "label": "SWU = SWD - SWnet"},
+        "LW_UP": {"color": "#6741d9", "linestyle": ":", "label": "LWU = LWD - LWnet"},
+        "ALARO_RN": {"color": "black", "linestyle": "-", "label": "RN = SWnet + LWnet"},
     }
 
     for idx, exp in enumerate(EXPERIMENTS):
@@ -458,6 +472,7 @@ def main() -> None:
     intermediate_dir = args.intermediate_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     intermediate_dir.mkdir(parents=True, exist_ok=True)
+    required_alaro_keys = ("SW_DOWN", "LW_DOWN", "SW_NET", "LW_NET", "SW_UP", "LW_UP", "ALARO_RN")
 
     for period in periods:
         print(f"\n===== Comparing radiation for {period.label} ({period.key}) =====", flush=True)
@@ -505,14 +520,19 @@ def main() -> None:
                 experiment=exp,
                 spatial_tag=spatial_tag,
             )
-            if cache_file.exists() and not args.overwrite_intermediate:
+            use_cache = cache_file.exists() and not args.overwrite_intermediate
+            if use_cache:
                 payload = load_cache(cache_file)
-                alaro_payloads[exp] = {
-                    key: np.asarray(payload[key], dtype=np.float64)
-                    for key in ("SW_DOWN", "LW_DOWN", "SW_NET", "LW_NET", "ALARO_RN")
-                }
-                surfex_payloads[exp] = {"SURFEX_RN": np.asarray(payload["SURFEX_RN"], dtype=np.float64)}
-            else:
+                if all(key in payload for key in required_alaro_keys) and "SURFEX_RN" in payload:
+                    alaro_payloads[exp] = {
+                        key: np.asarray(payload[key], dtype=np.float64)
+                        for key in required_alaro_keys
+                    }
+                    surfex_payloads[exp] = {"SURFEX_RN": np.asarray(payload["SURFEX_RN"], dtype=np.float64)}
+                    continue
+                print(f"[{period.key}/{exp}] cache missing new radiation keys; recomputing.", flush=True)
+
+            if exp not in alaro_payloads or exp not in surfex_payloads:
                 alaro_payload = compute_alaro_lines(
                     experiment=exp,
                     experiment_dir=alaro_dirs[exp],
