@@ -4,6 +4,7 @@ from pathlib import Path
 
 from alaro_analysis.common.timeparse import (
     has_pf_subdirs,
+    is_supported_day_dir_name,
     parse_month_from_day_name,
     parse_utc_hour_from_name,
 )
@@ -32,7 +33,9 @@ def collect_file_records(
 
     allowed_set = set(allowed_months) if allowed_months is not None else None
     day_dirs = sorted(
-        path for path in variable_dir.iterdir() if path.is_dir() and path.name.startswith("pf")
+        path
+        for path in variable_dir.iterdir()
+        if path.is_dir() and is_supported_day_dir_name(path.name)
     )
     if max_days is not None:
         day_dirs = day_dirs[:max_days]

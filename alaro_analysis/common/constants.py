@@ -12,8 +12,8 @@ SEASONS = {
     "transition_dry_to_wet": {"label": "Transition Dry->Wet (Oct-Nov)", "months": (10, 11)},
 }
 
-DAY_RE = re.compile(r"^pf(\d{8})$")
-FILE_HOUR_RE = re.compile(r"\+(\d{4})\.nc$")
+DAY_RE = re.compile(r"^(?:pf|sfx)(\d{8})$")
+FILE_HOUR_RE = re.compile(r"\+(\d{4})(?:\.[^.]+)*\.nc$")
 SANITIZE_RE = re.compile(r"[^A-Za-z0-9]+")
 
 FREEZING_K = 273.15

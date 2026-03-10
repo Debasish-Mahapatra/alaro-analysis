@@ -5,6 +5,10 @@ from pathlib import Path
 from .constants import DAY_RE, FILE_HOUR_RE
 
 
+def is_supported_day_dir_name(name: str) -> bool:
+    return DAY_RE.match(name) is not None
+
+
 def parse_utc_hour_from_name(file_name: str) -> int | None:
     match = FILE_HOUR_RE.search(file_name)
     if match is None:
@@ -29,6 +33,6 @@ def has_pf_subdirs(path: Path) -> bool:
     if not path.is_dir():
         return False
     for child in path.iterdir():
-        if child.is_dir() and child.name.startswith("pf"):
+        if child.is_dir() and is_supported_day_dir_name(child.name):
             return True
     return False

@@ -3,10 +3,10 @@
 Standalone ALARO FA -> NetCDF converter using faxarray.
 
 Input layout:
-  <input_root>/pfYYYYMMDD/pfABOFABOF+HHHH
+  <input_root>/(pf|sfx)YYYYMMDD/<hourly-file>
 
 Output layout:
-  <output_root>/<VAR>/pfYYYYMMDD/pfABOFABOF+HHHH.nc
+  <output_root>/<VAR>/(pf|sfx)YYYYMMDD/<hourly-file>.nc
 """
 
 import argparse
@@ -39,8 +39,8 @@ from .config import (
 )
 from .models import CropWindow, FileTask, RunConfig, VariablePlan
 
-DAY_DIR_RE = re.compile(r"^pf(\d{8})$")
-HOUR_FILE_RE = re.compile(r"^pfABOFABOF\+(\d{4})$")
+DAY_DIR_RE = re.compile(r"^(?:pf|sfx)(\d{8})$")
+HOUR_FILE_RE = re.compile(r"^.+\+(\d{4})(?:\.[^.]+)?$")
 
 
 def _subset_pressure_levels(out_ds: xr.Dataset, var_name: str) -> xr.Dataset:
@@ -137,6 +137,21 @@ def expected_hours(include_init: bool) -> Sequence[int]:
     return tuple(range(0, 25)) if include_init else tuple(range(1, 25))
 
 
+def _hourly_file_sort_key(path: Path) -> tuple[int, int, str]:
+    suffixes = "".join(path.suffixes)
+    if suffixes == ".sfx":
+        suffix_rank = 0
+    elif suffixes == "":
+        suffix_rank = 1
+    else:
+        suffix_rank = 2
+    return (suffix_rank, len(path.name), path.name)
+
+
+def _choose_preferred_hourly_file(left: Path, right: Path) -> Path:
+    return min((left, right), key=_hourly_file_sort_key)
+
+
 def discover_days(
     input_root: Path, start_date=None, end_date=None
 ) -> List[Tuple[datetime.date, Path]]:
@@ -160,30 +175,25 @@ def discover_days(
 def validate_day(day_dir: Path, hours: Sequence[int]) -> Tuple[bool, Dict[int, Path], str]:
     expected = set(hours)
     files_by_hour: Dict[int, Path] = {}
-    invalid: List[str] = []
 
     for fp in day_dir.iterdir():
         if not fp.is_file():
             continue
-        if not fp.name.startswith("pfABOFABOF+"):
-            continue
         m = HOUR_FILE_RE.fullmatch(fp.name)
         if not m:
-            invalid.append(fp.name)
             continue
         hour = int(m.group(1))
-        if hour not in expected or hour in files_by_hour:
-            invalid.append(fp.name)
+        if hour not in expected:
+            continue
+        if hour in files_by_hour:
+            files_by_hour[hour] = _choose_preferred_hourly_file(files_by_hour[hour], fp)
             continue
         files_by_hour[hour] = fp
 
     missing = sorted(expected - set(files_by_hour))
-    if missing or invalid:
+    if missing:
         parts = []
-        if missing:
-            parts.append("missing: " + ", ".join(f"+{h:04d}" for h in missing))
-        if invalid:
-            parts.append("invalid: " + ", ".join(sorted(invalid)))
+        parts.append("missing: " + ", ".join(f"+{h:04d}" for h in missing))
         return False, {}, "; ".join(parts)
     return True, files_by_hour, ""
 
@@ -531,9 +541,12 @@ def write_lines(path: Path, lines: Sequence[str]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Convert ALARO control-run FA files to per-variable NetCDF outputs."
+        description="Convert ALARO or SURFEX hourly files to per-variable masked NetCDF outputs."
     )
-    parser.add_argument("input_root", help="Directory containing pfYYYYMMDD folders")
+    parser.add_argument(
+        "input_root",
+        help="Directory containing pfYYYYMMDD or sfxYYYYMMDD folders",
+    )
     parser.add_argument("output_root", help="Directory where NetCDF outputs will be written")
     parser.add_argument("--workers", type=int, default=16, help="Parallel worker count (default: 16)")
     parser.add_argument("--bbox-west", type=float, default=-67.0, help="ROI west bound (default: -67)")
