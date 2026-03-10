@@ -233,7 +233,8 @@ def plot_surface_diurnal(
             ax.set_xticks(np.arange(0, 24, 3))
             ax.set_xlim(0.0, 23.0)
 
-    fig, ax = plt.subplots(figsize=(10.5, 5.5), constrained_layout=True)
+    fig_width = 12.4 if zoom_inset else 10.5
+    fig, ax = plt.subplots(figsize=(fig_width, 5.5), constrained_layout=True)
     draw_lines(ax, configure_main_axis=True)
     ax.set_ylabel(ylabel, fontsize=12)
     ax.set_xlabel(f"Hour (local UTC{utc_offset_hours:+d})", fontsize=12)
@@ -260,13 +261,17 @@ def plot_surface_diurnal(
                     focus_idx = np.where(focus)[0]
                     x0 = max(0, int(focus_idx[0]) - 1)
                     x1 = min(23, int(focus_idx[-1]) + 1)
+                    peak_center = 0.5 * (x0 + x1)
                     zoom_vals = stacked[:, x0 : x1 + 1]
                     zoom_finite = zoom_vals[np.isfinite(zoom_vals)]
                     if zoom_finite.size > 0:
                         y0 = float(np.min(zoom_finite))
                         y1 = float(np.max(zoom_finite))
                         ypad = max(5.0, 0.14 * max(y1 - y0, 1.0))
-                        axins = ax.inset_axes([0.08, 0.54, 0.36, 0.34])
+                        inset_bounds = [1.02, 0.54, 0.34, 0.34]
+                        if peak_center > 11.5:
+                            inset_bounds = [-0.38, 0.54, 0.34, 0.34]
+                        axins = ax.inset_axes(inset_bounds)
                         draw_lines(axins, configure_main_axis=False)
                         axins.set_xlim(float(x0), float(x1))
                         axins.set_ylim(y0 - ypad, y1 + ypad)
