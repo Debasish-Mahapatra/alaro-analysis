@@ -216,15 +216,26 @@ def compute_alaro_lines(
     counts = {key: np.zeros((24,), dtype=np.int64) for key in sums}
 
     used = 0
+    skipped_bad = 0
     for idx, (hour, base_file) in enumerate(records, start=1):
         sw_net_file = get_peer_file(base_file, experiment_dir, names["SW_NET"])
         lw_net_file = get_peer_file(base_file, experiment_dir, names["LW_NET"])
         if not sw_net_file.exists() or not lw_net_file.exists():
             continue
 
+        try:
+            sw_net = read_mean_scalar(sw_net_file, names["SW_NET"], spatial_window)
+            lw_net = read_mean_scalar(lw_net_file, names["LW_NET"], spatial_window)
+        except Exception as exc:  # noqa: BLE001
+            skipped_bad += 1
+            print(
+                f"[warn] {experiment}/alaro: skipping unreadable net-radiation pair "
+                f"{sw_net_file.name} ({exc})",
+                flush=True,
+            )
+            continue
+
         used += 1
-        sw_net = read_mean_scalar(sw_net_file, names["SW_NET"], spatial_window)
-        lw_net = read_mean_scalar(lw_net_file, names["LW_NET"], spatial_window)
         values = {
             "SW_NET": sw_net,
             "LW_NET": lw_net,
@@ -238,11 +249,23 @@ def compute_alaro_lines(
         if sw_down_name is not None:
             sw_down_file = get_peer_file(base_file, experiment_dir, sw_down_name)
             if sw_down_file.exists():
-                values["SW_DOWN"] = read_mean_scalar(sw_down_file, sw_down_name, spatial_window)
+                try:
+                    values["SW_DOWN"] = read_mean_scalar(sw_down_file, sw_down_name, spatial_window)
+                except Exception as exc:  # noqa: BLE001
+                    print(
+                        f"[warn] {experiment}/alaro: could not read optional {sw_down_file.name} ({exc})",
+                        flush=True,
+                    )
         if lw_down_name is not None:
             lw_down_file = get_peer_file(base_file, experiment_dir, lw_down_name)
             if lw_down_file.exists():
-                values["LW_DOWN"] = read_mean_scalar(lw_down_file, lw_down_name, spatial_window)
+                try:
+                    values["LW_DOWN"] = read_mean_scalar(lw_down_file, lw_down_name, spatial_window)
+                except Exception as exc:  # noqa: BLE001
+                    print(
+                        f"[warn] {experiment}/alaro: could not read optional {lw_down_file.name} ({exc})",
+                        flush=True,
+                    )
         values["SW_UP"] = (
             values["SW_DOWN"] - values["SW_NET"]
             if np.isfinite(values["SW_DOWN"]) and np.isfinite(values["SW_NET"])
@@ -262,7 +285,7 @@ def compute_alaro_lines(
         if idx % 2000 == 0 or idx == len(records):
             print(f"[{experiment}/alaro] {idx}/{len(records)} files", flush=True)
 
-    print(f"[{experiment}/alaro] used files: {used}/{len(records)}", flush=True)
+    print(f"[{experiment}/alaro] used files: {used}/{len(records)} | unreadable skipped: {skipped_bad}", flush=True)
     return finalize_line_means(sums, counts)
 
 
@@ -277,9 +300,18 @@ def compute_single_variable_line(
     sums = {"SURFEX_RN": np.zeros((24,), dtype=np.float64)}
     counts = {"SURFEX_RN": np.zeros((24,), dtype=np.int64)}
     used = 0
+    skipped_bad = 0
 
     for idx, (hour, file_path) in enumerate(records, start=1):
-        value = read_mean_scalar(file_path, variable_name, spatial_window)
+        try:
+            value = read_mean_scalar(file_path, variable_name, spatial_window)
+        except Exception as exc:  # noqa: BLE001
+            skipped_bad += 1
+            print(
+                f"[warn] {experiment}/surfex: skipping unreadable file {file_path.name} ({exc})",
+                flush=True,
+            )
+            continue
         used += 1
         if np.isfinite(value):
             sums["SURFEX_RN"][hour] += float(value)
@@ -288,7 +320,7 @@ def compute_single_variable_line(
         if idx % 2000 == 0 or idx == len(records):
             print(f"[{experiment}/surfex] {idx}/{len(records)} files", flush=True)
 
-    print(f"[{experiment}/surfex] used files: {used}/{len(records)}", flush=True)
+    print(f"[{experiment}/surfex] used files: {used}/{len(records)} | unreadable skipped: {skipped_bad}", flush=True)
     return finalize_line_means(sums, counts)
 
 

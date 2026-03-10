@@ -118,7 +118,8 @@ def read_time_level_yx(
     token_normalizer: Callable[[str], str] | None = None,
     compact_match: bool = False,
 ) -> np.ndarray:
-    with xr.open_dataset(file_path, decode_times=False) as ds:
+    engine = "netcdf4" if "".join(file_path.suffixes).endswith(".nc") else None
+    with xr.open_dataset(file_path, decode_times=False, engine=engine) as ds:
         var_name = resolve_data_var_name(
             ds,
             requested_variable,
@@ -154,7 +155,8 @@ def read_vertical_profile(
         profile, _ = nanmean_with_count(arr, axis=(0, 2, 3))
         return np.asarray(profile, dtype=np.float64), None
 
-    with xr.open_dataset(file_path, decode_times=False) as ds:
+    engine = "netcdf4" if "".join(file_path.suffixes).endswith(".nc") else None
+    with xr.open_dataset(file_path, decode_times=False, engine=engine) as ds:
         var_name = resolve_data_var_name(
             ds,
             requested_variable,
