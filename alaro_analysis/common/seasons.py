@@ -31,6 +31,7 @@ def build_period_specs(mode_set: set[str], selected_seasons: list[str]) -> list[
             PeriodSpec(
                 key="full_2yr",
                 label="Full 2-year (all months)",
+                allowed_months=None,
                 output_subdir=Path("2years"),
             )
         )
