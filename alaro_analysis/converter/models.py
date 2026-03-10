@@ -41,6 +41,7 @@ class RunConfig:
     bbox_south: float
     bbox_north: float
     include_init: bool
+    include_hour24: bool
     compress: str
     compress_level: int
     overwrite: bool

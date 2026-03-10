@@ -133,8 +133,10 @@ def parse_yyyymmdd(value: Optional[str], name: str):
         raise ValueError(f"Invalid {name}='{value}', expected YYYYMMDD") from exc
 
 
-def expected_hours(include_init: bool) -> Sequence[int]:
-    return tuple(range(0, 25)) if include_init else tuple(range(1, 25))
+def expected_hours(include_init: bool, include_hour24: bool) -> Sequence[int]:
+    start_hour = 0 if include_init else 1
+    end_hour = 25 if include_hour24 else 24
+    return tuple(range(start_hour, end_hour))
 
 
 def _hourly_file_sort_key(path: Path) -> tuple[int, int, str]:
@@ -556,6 +558,19 @@ def main() -> int:
     parser.add_argument("--include-init", dest="include_init", action="store_true", help="Include +0000 (default)")
     parser.add_argument("--exclude-init", dest="include_init", action="store_false", help="Skip +0000")
     parser.set_defaults(include_init=True)
+    parser.add_argument(
+        "--include-hour24",
+        dest="include_hour24",
+        action="store_true",
+        help="Include +0024 files (default: skip +0024).",
+    )
+    parser.add_argument(
+        "--exclude-hour24",
+        dest="include_hour24",
+        action="store_false",
+        help="Skip +0024 files (default).",
+    )
+    parser.set_defaults(include_hour24=False)
     parser.add_argument("--compress", choices=["zlib", "none"], default="zlib", help="Compression mode")
     parser.add_argument("--level", type=int, default=1, help="Compression level when using zlib")
     parser.add_argument("--overwrite", dest="overwrite", action="store_true", help="Overwrite outputs (default)")
@@ -641,6 +656,7 @@ def main() -> int:
         bbox_south=float(args.bbox_south),
         bbox_north=float(args.bbox_north),
         include_init=bool(args.include_init),
+        include_hour24=bool(args.include_hour24),
         compress=str(args.compress).lower(),
         compress_level=int(args.level),
         overwrite=bool(args.overwrite),
@@ -671,7 +687,7 @@ def main() -> int:
     if start_date is not None and end_date is not None and start_date > end_date:
         raise ValueError("start_date must be <= end_date")
 
-    hours = list(expected_hours(cfg.include_init))
+    hours = list(expected_hours(cfg.include_init, cfg.include_hour24))
     days = discover_days(input_root, start_date=start_date, end_date=end_date)
 
     skipped_days: List[str] = []
@@ -863,6 +879,7 @@ def main() -> int:
         "failed_files": failed_files,
         "written_netcdf_files": written_netcdf_files,
         "include_init": cfg.include_init,
+        "include_hour24": cfg.include_hour24,
         "hours": [f"+{h:04d}" for h in hours],
         "workers": cfg.workers,
         "overwrite": cfg.overwrite,
