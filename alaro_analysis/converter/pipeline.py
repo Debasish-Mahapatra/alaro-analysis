@@ -541,141 +541,27 @@ def write_lines(path: Path, lines: Sequence[str]) -> None:
         path.write_text("")
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Convert ALARO or SURFEX hourly files to per-variable masked NetCDF outputs."
-    )
-    parser.add_argument(
-        "input_root",
-        help="Directory containing pfYYYYMMDD or sfxYYYYMMDD folders",
-    )
-    parser.add_argument("output_root", help="Directory where NetCDF outputs will be written")
-    parser.add_argument("--workers", type=int, default=16, help="Parallel worker count (default: 16)")
-    parser.add_argument("--bbox-west", type=float, default=-67.0, help="ROI west bound (default: -67)")
-    parser.add_argument("--bbox-east", type=float, default=-53.0, help="ROI east bound (default: -53)")
-    parser.add_argument("--bbox-south", type=float, default=-10.0, help="ROI south bound (default: -10)")
-    parser.add_argument("--bbox-north", type=float, default=4.0, help="ROI north bound (default: 4)")
-    parser.add_argument("--include-init", dest="include_init", action="store_true", help="Include +0000 (default)")
-    parser.add_argument("--exclude-init", dest="include_init", action="store_false", help="Skip +0000")
-    parser.set_defaults(include_init=True)
-    parser.add_argument(
-        "--include-hour24",
-        dest="include_hour24",
-        action="store_true",
-        help="Include +0024 files (default: skip +0024).",
-    )
-    parser.add_argument(
-        "--exclude-hour24",
-        dest="include_hour24",
-        action="store_false",
-        help="Skip +0024 files (default).",
-    )
-    parser.set_defaults(include_hour24=False)
-    parser.add_argument("--compress", choices=["zlib", "none"], default="zlib", help="Compression mode")
-    parser.add_argument("--level", type=int, default=1, help="Compression level when using zlib")
-    parser.add_argument("--overwrite", dest="overwrite", action="store_true", help="Overwrite outputs (default)")
-    parser.add_argument("--no-overwrite", dest="overwrite", action="store_false", help="Do not overwrite outputs")
-    parser.set_defaults(overwrite=True)
-    parser.add_argument(
-        "--skip-incomplete-days",
-        dest="skip_incomplete_days",
-        action="store_true",
-        help="Skip days missing required hourly files (default)",
-    )
-    parser.add_argument(
-        "--strict-days",
-        dest="skip_incomplete_days",
-        action="store_false",
-        help="Fail if any day is incomplete",
-    )
-    parser.set_defaults(skip_incomplete_days=True)
-    parser.add_argument("--start-date", metavar="YYYYMMDD", help="Process days on/after this date")
-    parser.add_argument("--end-date", metavar="YYYYMMDD", help="Process days on/before this date")
-    parser.add_argument(
-        "--vars",
-        nargs="+",
-        default=None,
-        help=(
-            "Explicit variable list (space- or comma-separated). "
-            "If provided, overrides built-in variable blocks."
-        ),
-    )
-    parser.add_argument(
-        "--vars-file",
-        type=Path,
-        default=None,
-        help="Text file with variable names (# comments supported; one name per line).",
-    )
-    parser.add_argument(
-        "--append-vars",
-        nargs="+",
-        default=None,
-        help="Extra variables to append to the selected/default list.",
-    )
-    parser.add_argument(
-        "--drop-vars",
-        nargs="+",
-        default=None,
-        help="Variables to remove from the selected/default list.",
-    )
-    parser.add_argument(
-        "--list-default-vars",
-        action="store_true",
-        help="Print built-in default variables and exit.",
-    )
-    parser.add_argument("--mask-file", default=None, help="Optional NetCDF mask file (e.g., 1 km radar mask)")
-    parser.add_argument("--mask-var", default=None, help="Mask variable name in mask NetCDF")
-    parser.add_argument("--mask-lat-name", default=None, help="Latitude coordinate name in mask file")
-    parser.add_argument("--mask-lon-name", default=None, help="Longitude coordinate name in mask file")
-    parser.add_argument(
-        "--mask-threshold",
-        type=float,
-        default=0.5,
-        help="Keep points where remapped mask > threshold (default: 0.5)",
-    )
-    parser.add_argument("--quiet", "-q", action="store_true", help="Reduce logging")
-    args = parser.parse_args()
+def run_conversion(
+    cfg: RunConfig,
+    requested_vars: list[str],
+    requested_vars_source: str = "programmatic",
+) -> dict:
+    """Run the FA-to-NetCDF conversion programmatically.
 
-    if args.list_default_vars:
-        for name in REQUESTED_VARS:
-            print(name)
-        return 0
+    Parameters
+    ----------
+    cfg : RunConfig
+        Full conversion configuration.
+    requested_vars : list[str]
+        Variable names to convert.
+    requested_vars_source : str
+        Label describing where variable list came from.
 
-    requested_vars, requested_vars_source = resolve_requested_vars_from_cli(args)
-    if not requested_vars:
-        raise ValueError(
-            "No variables selected. Provide --vars/--vars-file, or remove --drop-vars."
-        )
-
-    cfg = RunConfig(
-        input_root=str(Path(args.input_root)),
-        output_root=str(Path(args.output_root)),
-        workers=max(1, int(args.workers)),
-        bbox_west=float(args.bbox_west),
-        bbox_east=float(args.bbox_east),
-        bbox_south=float(args.bbox_south),
-        bbox_north=float(args.bbox_north),
-        include_init=bool(args.include_init),
-        include_hour24=bool(args.include_hour24),
-        compress=str(args.compress).lower(),
-        compress_level=int(args.level),
-        overwrite=bool(args.overwrite),
-        skip_incomplete_days=bool(args.skip_incomplete_days),
-        start_date=args.start_date,
-        end_date=args.end_date,
-        mask_file=args.mask_file,
-        mask_var=args.mask_var,
-        mask_lat_name=args.mask_lat_name,
-        mask_lon_name=args.mask_lon_name,
-        mask_threshold=float(args.mask_threshold),
-        quiet=bool(args.quiet),
-    )
-
-    if cfg.compress not in {"zlib", "none"}:
-        raise ValueError("compress must be one of: zlib, none")
-    if not (0 <= cfg.compress_level <= 9):
-        raise ValueError("level must be in range [0, 9]")
-
+    Returns
+    -------
+    dict
+        Summary dictionary with counts and metadata.
+    """
     input_root = Path(cfg.input_root)
     output_root = Path(cfg.output_root)
     if not input_root.exists() or not input_root.is_dir():
@@ -745,7 +631,7 @@ def main() -> int:
         if not var_plan.output_vars:
             raise ValueError(
                 "None of the requested variables were found in the sample FA file. "
-                "Check --vars/--vars-file selection."
+                "Check variable selection."
             )
 
         if any(msg.startswith(f"{DERIVED_MODEL_RH_VAR} requires") for msg in var_plan.missing_requested):
@@ -908,6 +794,145 @@ def main() -> int:
     if not cfg.quiet:
         print(f"Done. Summary written to {summary_file}", flush=True)
 
+    return summary
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Convert ALARO or SURFEX hourly files to per-variable masked NetCDF outputs."
+    )
+    parser.add_argument(
+        "input_root",
+        help="Directory containing pfYYYYMMDD or sfxYYYYMMDD folders",
+    )
+    parser.add_argument("output_root", help="Directory where NetCDF outputs will be written")
+    parser.add_argument("--workers", type=int, default=16, help="Parallel worker count (default: 16)")
+    parser.add_argument("--bbox-west", type=float, default=-67.0, help="ROI west bound (default: -67)")
+    parser.add_argument("--bbox-east", type=float, default=-53.0, help="ROI east bound (default: -53)")
+    parser.add_argument("--bbox-south", type=float, default=-10.0, help="ROI south bound (default: -10)")
+    parser.add_argument("--bbox-north", type=float, default=4.0, help="ROI north bound (default: 4)")
+    parser.add_argument("--include-init", dest="include_init", action="store_true", help="Include +0000 (default)")
+    parser.add_argument("--exclude-init", dest="include_init", action="store_false", help="Skip +0000")
+    parser.set_defaults(include_init=True)
+    parser.add_argument(
+        "--include-hour24",
+        dest="include_hour24",
+        action="store_true",
+        help="Include +0024 files (default: skip +0024).",
+    )
+    parser.add_argument(
+        "--exclude-hour24",
+        dest="include_hour24",
+        action="store_false",
+        help="Skip +0024 files (default).",
+    )
+    parser.set_defaults(include_hour24=False)
+    parser.add_argument("--compress", choices=["zlib", "none"], default="zlib", help="Compression mode")
+    parser.add_argument("--level", type=int, default=1, help="Compression level when using zlib")
+    parser.add_argument("--overwrite", dest="overwrite", action="store_true", help="Overwrite outputs (default)")
+    parser.add_argument("--no-overwrite", dest="overwrite", action="store_false", help="Do not overwrite outputs")
+    parser.set_defaults(overwrite=True)
+    parser.add_argument(
+        "--skip-incomplete-days",
+        dest="skip_incomplete_days",
+        action="store_true",
+        help="Skip days missing required hourly files (default)",
+    )
+    parser.add_argument(
+        "--strict-days",
+        dest="skip_incomplete_days",
+        action="store_false",
+        help="Fail if any day is incomplete",
+    )
+    parser.set_defaults(skip_incomplete_days=True)
+    parser.add_argument("--start-date", metavar="YYYYMMDD", help="Process days on/after this date")
+    parser.add_argument("--end-date", metavar="YYYYMMDD", help="Process days on/before this date")
+    parser.add_argument(
+        "--vars",
+        nargs="+",
+        default=None,
+        help=(
+            "Explicit variable list (space- or comma-separated). "
+            "If provided, overrides built-in variable blocks."
+        ),
+    )
+    parser.add_argument(
+        "--vars-file",
+        type=Path,
+        default=None,
+        help="Text file with variable names (# comments supported; one name per line).",
+    )
+    parser.add_argument(
+        "--append-vars",
+        nargs="+",
+        default=None,
+        help="Extra variables to append to the selected/default list.",
+    )
+    parser.add_argument(
+        "--drop-vars",
+        nargs="+",
+        default=None,
+        help="Variables to remove from the selected/default list.",
+    )
+    parser.add_argument(
+        "--list-default-vars",
+        action="store_true",
+        help="Print built-in default variables and exit.",
+    )
+    parser.add_argument("--mask-file", default=None, help="Optional NetCDF mask file (e.g., 1 km radar mask)")
+    parser.add_argument("--mask-var", default=None, help="Mask variable name in mask NetCDF")
+    parser.add_argument("--mask-lat-name", default=None, help="Latitude coordinate name in mask file")
+    parser.add_argument("--mask-lon-name", default=None, help="Longitude coordinate name in mask file")
+    parser.add_argument(
+        "--mask-threshold",
+        type=float,
+        default=0.5,
+        help="Keep points where remapped mask > threshold (default: 0.5)",
+    )
+    parser.add_argument("--quiet", "-q", action="store_true", help="Reduce logging")
+    args = parser.parse_args()
+
+    if args.list_default_vars:
+        for name in REQUESTED_VARS:
+            print(name)
+        return 0
+
+    requested_vars, requested_vars_source = resolve_requested_vars_from_cli(args)
+    if not requested_vars:
+        raise ValueError(
+            "No variables selected. Provide --vars/--vars-file, or remove --drop-vars."
+        )
+
+    cfg = RunConfig(
+        input_root=str(Path(args.input_root)),
+        output_root=str(Path(args.output_root)),
+        workers=max(1, int(args.workers)),
+        bbox_west=float(args.bbox_west),
+        bbox_east=float(args.bbox_east),
+        bbox_south=float(args.bbox_south),
+        bbox_north=float(args.bbox_north),
+        include_init=bool(args.include_init),
+        include_hour24=bool(args.include_hour24),
+        compress=str(args.compress).lower(),
+        compress_level=int(args.level),
+        overwrite=bool(args.overwrite),
+        skip_incomplete_days=bool(args.skip_incomplete_days),
+        start_date=args.start_date,
+        end_date=args.end_date,
+        mask_file=args.mask_file,
+        mask_var=args.mask_var,
+        mask_lat_name=args.mask_lat_name,
+        mask_lon_name=args.mask_lon_name,
+        mask_threshold=float(args.mask_threshold),
+        quiet=bool(args.quiet),
+    )
+
+    if cfg.compress not in {"zlib", "none"}:
+        raise ValueError("compress must be one of: zlib, none")
+    if not (0 <= cfg.compress_level <= 9):
+        raise ValueError("level must be in range [0, 9]")
+
+    run_conversion(cfg, requested_vars, requested_vars_source)
     return 0
 
 

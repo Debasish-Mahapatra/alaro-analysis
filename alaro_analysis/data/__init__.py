@@ -15,14 +15,21 @@ from .dataset_io import (
     select_data_var_name,
     to_time_level_yx,
 )
-from .discovery import collect_file_records, discover_variables
+from .discovery import (
+    collect_file_records,
+    discover_variable_maps,
+    discover_variables,
+    resolve_var_name,
+)
 
 __all__ = [
     "build_cache_file",
     "build_diurnal_cache_file",
     "build_height_cache_file",
     "collect_file_records",
+    "discover_variable_maps",
     "discover_variables",
+    "resolve_var_name",
     "load_cache",
     "nanmean_with_count",
     "read_time_level_yx",
