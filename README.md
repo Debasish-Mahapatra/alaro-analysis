@@ -10,91 +10,70 @@ pip install -e .
 
 Requires Python 3.11+ and the `epygram` conda environment for FA file access.
 
-## Package structure
-
-```
-alaro_analysis/
-    analysis/          # Composable analysis building blocks
-        profiles.py    # Diurnal profile accumulation (vertical + surface)
-        caching.py     # Cache-aware computation wrappers
-        derived.py     # Thermodynamic fields (theta_e, MSE, RH, dp)
-        experiment.py  # ExperimentSet: multi-experiment orchestration
-    common/            # Shared utilities and constants
-    converter/         # FA-to-NetCDF conversion pipeline
-    data/              # File discovery, I/O, caching
-    plotting/          # Scales, styles, reusable plot builders
-    workflows/         # Complete analysis scripts (surface, hydrometeor, etc.)
-examples/              # Top-level runner scripts
-tests/                 # Unit tests
-```
-
 ## Quick start
 
 ```python
-from alaro_analysis.analysis import ExperimentSet, compute_surface_diurnal_cycle
-from alaro_analysis.data.discovery import collect_file_records
-from alaro_analysis.plotting.panels import plot_surface_diurnal_cycle
+from alaro_analysis import ExperimentSet
 
-# Set up experiments
 exps = ExperimentSet.from_three_dirs(
     control="/path/to/control/masked-netcdf-2",
     graupel="/path/to/graupel/masked-netcdf-2",
     twomom="/path/to/2mom/masked-netcdf-2",
 )
 
-# Compute diurnal cycle for any variable
-var_maps = exps.discover_variable_maps()
-line_data = {}
-for exp in exps.experiments:
-    var_name = exps.resolve_var_name(exp, ["CLPMHAUT.MOD.XFU"], variable_maps=var_maps)
-    var_dir = exps.experiment_dirs[exp] / var_name
-    records = collect_file_records(var_dir, max_days=None, allowed_months=None, utc_offset_hours=-4)
-    mean, counts, used = compute_surface_diurnal_cycle(records, var_name)
-    line_data[exp] = mean
-
-# Plot
-plot_surface_diurnal_cycle(
-    line_data, output_file,
-    variable_label="Boundary layer height", variable_unit="m",
-    period_label="Full 2-year",
+# Compute and plot in one call
+exps.plot_surface_diurnal(
+    "CLPMHAUT.MOD.XFU", "pblh_diurnal.png",
+    label="Boundary layer height", unit="m",
 )
+
+# Or just get the data
+data = exps.compute_surface_diurnal("CLPMHAUT.MOD.XFU")
+# data["control"] -> ndarray of shape (24,)
 ```
 
 ## FA-to-NetCDF conversion
 
-From the command line:
+```python
+exps = ExperimentSet.from_three_dirs(
+    control="/path/to/control/masked-netcdf-2",
+    graupel="/path/to/graupel/masked-netcdf-2",
+    twomom="/path/to/2mom/masked-netcdf-2",
+    fa_control="/path/to/control/untar-output",
+    fa_graupel="/path/to/graupel/untar-output",
+    fa_twomom="/path/to/2mom/untar-output",
+)
+
+exps.convert("CLPMHAUT.MOD.XFU", mask_file="/path/to/Radar_mask_latlon.nc")
+```
+
+Or from the command line:
 
 ```bash
 python -m alaro_analysis.converter.cli \
     /path/to/untar-output /path/to/masked-netcdf \
     --vars "CLPMHAUT.MOD.XFU" \
-    --mask-file /path/to/Radar_mask_latlon.nc \
-    --workers 16
-```
-
-Or programmatically:
-
-```python
-from alaro_analysis.converter import run_conversion
-from alaro_analysis.converter.models import RunConfig
-
-cfg = RunConfig(
-    input_root="/path/to/untar-output",
-    output_root="/path/to/masked-netcdf",
-    workers=16,
-    mask_file="/path/to/Radar_mask_latlon.nc",
-    # ... other options
-)
-summary = run_conversion(cfg, requested_vars=["CLPMHAUT.MOD.XFU"])
+    --mask-file /path/to/Radar_mask_latlon.nc
 ```
 
 ## Experiments
 
-| Label | Name      | Description                    |
-|-------|-----------|--------------------------------|
-| C1M   | control   | 1-moment microphysics baseline |
-| G1M   | graupel   | 1-moment with graupel          |
-| G2M   | 2mom      | 2-moment microphysics          |
+| Label   | Name     | Description                    |
+|---------|----------|--------------------------------|
+| C1M     | control  | 1-moment microphysics baseline |
+| G1M     | graupel  | 1-moment with graupel          |
+| G2M     | 2mom     | 2-moment microphysics          |
+| G2M-XCU | 2mom-xcu | 2-moment with XCU (planned)    |
+
+## Advanced usage
+
+For low-level building blocks, import from submodules directly:
+
+```python
+from alaro_analysis.analysis.profiles import compute_diurnal_profile
+from alaro_analysis.analysis.derived import compute_theta_e_field
+from alaro_analysis.plotting.panels import plot_three_panel_diurnal
+```
 
 ## Tests
 

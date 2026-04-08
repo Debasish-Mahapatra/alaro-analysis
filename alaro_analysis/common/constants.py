@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import re
 
-EXPERIMENTS = ("control", "graupel", "2mom")
-EXPERIMENT_LABELS = {"control": "C1M", "graupel": "G1M", "2mom": "G2M"}
+EXPERIMENTS = ("control", "graupel", "2mom", "2mom-xcu")
+EXPERIMENT_LABELS = {"control": "C1M", "graupel": "G1M", "2mom": "G2M", "2mom-xcu": "G2M-XCU"}
 
 SEASONS = {
     "wet": {"label": "Wet (Dec-Apr)", "months": (12, 1, 2, 3, 4)},

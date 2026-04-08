@@ -1,36 +1,15 @@
-"""Reusable analysis building blocks for ALARO model outputs."""
+"""Reusable analysis building blocks for ALARO model outputs.
 
-from .caching import load_or_compute_diurnal, load_or_compute_height
-from .derived import (
-    compute_dp_pa,
-    compute_theta_e_field,
-    maybe_convert_pressure_to_pa,
-)
+Primary API::
+
+    from alaro_analysis import ExperimentSet
+
+For advanced / low-level use, import directly from submodules::
+
+    from alaro_analysis.analysis.profiles import compute_diurnal_profile
+    from alaro_analysis.analysis.derived import compute_theta_e_field
+"""
+
 from .experiment import ExperimentSet
-from .profiles import (
-    align_vertical_shapes,
-    compute_diurnal_profile,
-    compute_geopotential_height_profile,
-    compute_surface_diurnal_cycle,
-    finalize_line_means,
-    finalize_profile_means,
-    line_hour_accumulate,
-    profile_hour_accumulate,
-)
 
-__all__ = [
-    "ExperimentSet",
-    "align_vertical_shapes",
-    "compute_diurnal_profile",
-    "compute_dp_pa",
-    "compute_geopotential_height_profile",
-    "compute_surface_diurnal_cycle",
-    "compute_theta_e_field",
-    "finalize_line_means",
-    "finalize_profile_means",
-    "line_hour_accumulate",
-    "load_or_compute_diurnal",
-    "load_or_compute_height",
-    "maybe_convert_pressure_to_pa",
-    "profile_hour_accumulate",
-]
+__all__ = ["ExperimentSet"]

@@ -24,6 +24,7 @@ EXPERIMENT_COLORS: dict[str, str] = {
     "control": "#d62728",
     "graupel": "#1f77b4",
     "2mom": "#2ca02c",
+    "2mom-xcu": "#ff7f0e",
 }
 
 
