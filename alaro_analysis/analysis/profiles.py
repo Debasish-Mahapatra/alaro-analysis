@@ -151,7 +151,7 @@ def compute_diurnal_profile(
     *counts* have shape ``(n_levels, 24)``.
     """
     if spatial_window is None:
-        spatial_window = SpatialWindow()
+        spatial_window = SpatialWindow(y_start=None, y_end=None, x_start=None, x_end=None)
 
     records = collect_file_records(
         variable_dir=variable_dir,
@@ -221,7 +221,7 @@ def compute_geopotential_height_profile(
     Returns ``(height_m, n_files_used)``.
     """
     if spatial_window is None:
-        spatial_window = SpatialWindow()
+        spatial_window = SpatialWindow(y_start=None, y_end=None, x_start=None, x_end=None)
 
     records = collect_file_records(
         variable_dir=geopotential_dir,
@@ -286,7 +286,7 @@ def compute_surface_diurnal_cycle(
     Returns ``(mean, counts, n_used)`` where each has shape ``(24,)``.
     """
     if spatial_window is None:
-        spatial_window = SpatialWindow()
+        spatial_window = SpatialWindow(y_start=None, y_end=None, x_start=None, x_end=None)
 
     sums = np.zeros((24,), dtype=np.float64)
     counts = np.zeros((24,), dtype=np.int64)
