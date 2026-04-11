@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import sys
+import warnings
 from multiprocessing import Pool
 from pathlib import Path
 
@@ -49,9 +50,36 @@ HYDRO_LABELS = {
     "SOLID_WATER":  "Cloud ice (kg/kg)",
 }
 
-# Binning
-FLUX_BINS = np.linspace(-0.1, 3.0, 156)    # ~0.02 kg/m²/s bins
+# Binning — height axis shared by all stratifications
 H_BINS = np.linspace(0.0, 20.0, 101)       # 0.2 km bins (in km)
+
+# Stratification configurations: bins + labels for each x-axis variable
+STRATIFY_CONFIGS = {
+    "flux": {
+        "bins": np.linspace(-0.1, 3.0, 156),      # ~0.02 kg/m²/s
+        "label": "Updraft flux",
+        "unit": r"kg m$^{-2}$ s$^{-1}$",
+        "coarse_edges": np.array([0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]),
+        "regression_range": (0.1, 2.5),
+    },
+    "extent": {
+        "bins": np.linspace(0.0, 1.0, 101),        # 0.01 fraction
+        "label": "Updraft extent",
+        "unit": "fraction",
+        "coarse_edges": np.array([0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0]),
+        "regression_range": (0.02, 0.8),
+    },
+    "intensity": {
+        "bins": np.linspace(0.0, 150.0, 151),      # 1.0 Pa/s
+        "label": "Updraft intensity",
+        "unit": "Pa/s",
+        "coarse_edges": np.array([0.0, 10.0, 25.0, 50.0, 75.0, 100.0, 150.0]),
+        "regression_range": (5.0, 120.0),
+    },
+}
+
+# Backwards-compatible alias
+FLUX_BINS = STRATIFY_CONFIGS["flux"]["bins"]
 
 # Subsample: set to None to use all, or an int for max days
 MAX_DAYS: int | None = None
@@ -102,20 +130,31 @@ def read_field(filepath: Path) -> np.ndarray:
         return ds[var_name].values[0]  # (level, y, x)
 
 
+def _compute_stratify_variable(omega, mesh, stratify):
+    """Compute the x-axis variable from raw omega and mesh fields."""
+    if stratify == "flux":
+        return (-omega * mesh) / G
+    if stratify == "extent":
+        return mesh.copy()
+    if stratify == "intensity":
+        return np.abs(omega)
+    raise ValueError(f"Unknown stratify mode: {stratify}")
+
+
 def _process_day(args):
     """Process a single day directory. Called by multiprocessing workers."""
-    exp_dir, day_dir, hydrometeors, min_lead_hour = args
+    exp_dir, day_dir, hydrometeors, min_lead_hour, stratify, x_bins = args
     day_name = day_dir.name
     steps = list_steps(day_dir, min_lead_hour)
     if not steps:
         return None
 
-    nf = len(FLUX_BINS) - 1
+    nx = len(x_bins) - 1
     nh = len(H_BINS) - 1
 
-    sums   = {h: np.zeros((nf, nh), dtype=np.float64) for h in hydrometeors}
-    counts = {h: np.zeros((nf, nh), dtype=np.float64) for h in hydrometeors}
-    freq   = np.zeros((nf, nh), dtype=np.float64)
+    sums   = {h: np.zeros((nx, nh), dtype=np.float64) for h in hydrometeors}
+    counts = {h: np.zeros((nx, nh), dtype=np.float64) for h in hydrometeors}
+    freq   = np.zeros((nx, nh), dtype=np.float64)
     n_files = 0
 
     for step_file in steps:
@@ -127,28 +166,27 @@ def _process_day(args):
         except Exception:
             continue
 
-        # Updraft mass flux: M_u = sigma_u * (-omega_u) / g  [kg/m²/s]
-        flux = (-omega * mesh) / G
+        x_var = _compute_stratify_variable(omega, mesh, stratify)
         h_km = height / 1000.0
 
         # Mask: only where updraft is active (mesh > 0) and valid
-        mask = (mesh > 0) & np.isfinite(flux) & np.isfinite(h_km)
-        flux_flat = flux[mask]
+        mask = (mesh > 0) & np.isfinite(x_var) & np.isfinite(h_km)
+        x_flat = x_var[mask]
         h_flat = h_km[mask]
 
-        if len(flux_flat) == 0:
+        if len(x_flat) == 0:
             continue
 
-        f_idx = np.digitize(flux_flat, FLUX_BINS) - 1
+        x_idx = np.digitize(x_flat, x_bins) - 1
         h_idx = np.digitize(h_flat, H_BINS) - 1
-        valid = (f_idx >= 0) & (f_idx < nf) & (h_idx >= 0) & (h_idx < nh)
-        f_idx = f_idx[valid]
+        valid = (x_idx >= 0) & (x_idx < nx) & (h_idx >= 0) & (h_idx < nh)
+        x_idx = x_idx[valid]
         h_idx = h_idx[valid]
 
-        if len(f_idx) == 0:
+        if len(x_idx) == 0:
             continue
 
-        np.add.at(freq, (f_idx, h_idx), 1.0)
+        np.add.at(freq, (x_idx, h_idx), 1.0)
 
         for hvar in hydrometeors:
             try:
@@ -157,8 +195,8 @@ def _process_day(args):
                 continue
             h_flat_var = hydro[mask][valid]
             h_flat_var = np.maximum(h_flat_var, 0.0)
-            np.add.at(sums[hvar], (f_idx, h_idx), h_flat_var)
-            np.add.at(counts[hvar], (f_idx, h_idx), 1.0)
+            np.add.at(sums[hvar], (x_idx, h_idx), h_flat_var)
+            np.add.at(counts[hvar], (x_idx, h_idx), 1.0)
 
         n_files += 1
 
@@ -172,27 +210,35 @@ def accumulate_histograms(
     experiment: str,
     hydrometeors: list[str],
     max_days: int | None = None,
+    stratify: str = "flux",
 ) -> dict:
     """
     Accumulate 2D histograms using multiprocessing over days.
+
+    Parameters
+    ----------
+    stratify : str
+        Stratification variable: ``"flux"``, ``"extent"``, or ``"intensity"``.
     """
+    x_bins = STRATIFY_CONFIGS[stratify]["bins"]
     exp_dir = DATA_ROOT / experiment
 
-    nf = len(FLUX_BINS) - 1
+    nx = len(x_bins) - 1
     nh = len(H_BINS) - 1
 
     days = list_days(exp_dir, "UD_OMEGA")
     if max_days is not None:
         days = days[:max_days]
 
-    # Build task list
-    tasks = [(exp_dir, d, hydrometeors, MIN_LEAD_HOUR) for d in days]
+    # Build task list — pass stratify mode and bins to workers
+    tasks = [(exp_dir, d, hydrometeors, MIN_LEAD_HOUR, stratify, x_bins) for d in days]
 
-    print(f"  {experiment}: processing {len(days)} days with {N_WORKERS} workers...", flush=True)
+    print(f"  {experiment} [{stratify}]: processing {len(days)} days with {N_WORKERS} workers...",
+          flush=True)
 
-    sums   = {h: np.zeros((nf, nh), dtype=np.float64) for h in hydrometeors}
-    counts = {h: np.zeros((nf, nh), dtype=np.float64) for h in hydrometeors}
-    freq   = np.zeros((nf, nh), dtype=np.float64)
+    sums   = {h: np.zeros((nx, nh), dtype=np.float64) for h in hydrometeors}
+    counts = {h: np.zeros((nx, nh), dtype=np.float64) for h in hydrometeors}
+    freq   = np.zeros((nx, nh), dtype=np.float64)
     n_files = 0
 
     with Pool(N_WORKERS) as pool:
@@ -205,28 +251,32 @@ def accumulate_histograms(
                 sums[h]   += result["sums"][h]
                 counts[h] += result["counts"][h]
             if (i + 1) % 100 == 0:
-                print(f"  {experiment}: {i+1}/{len(days)} days done, {n_files} files", flush=True)
+                print(f"  {experiment} [{stratify}]: {i+1}/{len(days)} days done, "
+                      f"{n_files} files", flush=True)
 
-    print(f"  {experiment}: DONE - {n_files} files from {len(days)} days", flush=True)
+    print(f"  {experiment} [{stratify}]: DONE - {n_files} files from {len(days)} days", flush=True)
 
     return {
         "sums": sums,
         "counts": counts,
         "freq": freq,
         "n_files": n_files,
-        "flux_bins": FLUX_BINS,
+        "x_bins": x_bins,
         "h_bins": H_BINS,
+        "stratify": stratify,
     }
 
 
-def save_cache(experiment: str, result: dict):
+def save_cache(experiment: str, result: dict, stratify: str = "flux"):
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    outpath = CACHE_DIR / f"{experiment}.npz"
+    suffix = "" if stratify == "flux" else f"_{stratify}"
+    outpath = CACHE_DIR / f"{experiment}{suffix}.npz"
     save_dict = {
         "freq": result["freq"],
         "n_files": np.array(result["n_files"]),
-        "flux_bins": FLUX_BINS,
+        "x_bins": result["x_bins"],
         "h_bins": H_BINS,
+        "stratify": np.array(stratify),
     }
     for hvar in result["sums"]:
         save_dict[f"sum_{hvar}"] = result["sums"][hvar]
@@ -235,19 +285,23 @@ def save_cache(experiment: str, result: dict):
     print(f"  Saved cache: {outpath}")
 
 
-def load_cache(experiment: str) -> dict | None:
-    path = CACHE_DIR / f"{experiment}.npz"
+def load_cache(experiment: str, stratify: str = "flux") -> dict | None:
+    suffix = "" if stratify == "flux" else f"_{stratify}"
+    path = CACHE_DIR / f"{experiment}{suffix}.npz"
     if not path.exists():
         return None
-    data = np.load(path)
+    data = np.load(path, allow_pickle=True)
     hydros = [k.replace("sum_", "") for k in data.files if k.startswith("sum_")]
+    # Backwards-compatible: old caches stored "flux_bins" instead of "x_bins"
+    x_bins = data["x_bins"] if "x_bins" in data.files else data["flux_bins"]
     return {
         "sums":   {h: data[f"sum_{h}"] for h in hydros},
         "counts": {h: data[f"cnt_{h}"] for h in hydros},
         "freq":   data["freq"],
         "n_files": int(data["n_files"]),
-        "flux_bins": data["flux_bins"],
+        "x_bins": x_bins,
         "h_bins": data["h_bins"],
+        "stratify": stratify,
     }
 
 
@@ -293,6 +347,233 @@ FS_TITLE = 24  # panel titles
 FS_CBAR = 20   # colorbar label + ticks
 FS_MARG = 16   # marginal axis labels/ticks
 FS_LEG = 16    # legend
+
+
+def plot_binned_means(
+    results: dict[str, dict],
+    hydrometeors: list[str],
+    experiments: list[str],
+    output_path: Path,
+    stratify: str = "flux",
+    coarse_edges: np.ndarray | None = None,
+):
+    """
+    Analysis 1: Binned means at constant updraft.
+
+    Stratify the data by coarse bins of a chosen updraft variable and compare
+    mean hydrometeor content across schemes within each bin.  The bin acts as a
+    control variable so that remaining differences are purely microphysical.
+
+    Parameters
+    ----------
+    results : dict
+        ``{experiment: result_dict}`` as returned by `accumulate_histograms`
+        or `load_cache`.
+    stratify : str
+        Which variable was used for stratification
+        (``"flux"``, ``"extent"``, ``"intensity"``).
+    coarse_edges : array, optional
+        Edges of the coarse bins.  Defaults taken from ``STRATIFY_CONFIGS``.
+    """
+    cfg = STRATIFY_CONFIGS[stratify]
+    if coarse_edges is None:
+        coarse_edges = cfg["coarse_edges"]
+    x_label = cfg["label"]
+    x_unit  = cfg["unit"]
+
+    n_coarse = len(coarse_edges) - 1
+    n_vars = len(hydrometeors)
+    ncols = 3
+    nrows = 2
+    fig, axes = plt.subplots(nrows, ncols, figsize=(8 * ncols, 5.5 * nrows), squeeze=False)
+
+    bar_width = 0.8 / len(experiments)
+
+    for i, hvar in enumerate(hydrometeors):
+        r_idx, c_idx = divmod(i, ncols)
+        ax = axes[r_idx, c_idx]
+        x_positions = np.arange(n_coarse)
+
+        for j, exp in enumerate(experiments):
+            r = results[exp]
+            fine_bins = r["x_bins"]
+            s = r["sums"].get(hvar)
+            c = r["counts"].get(hvar)
+            if s is None:
+                continue
+
+            # Aggregate fine bins into coarse bins
+            # s and c have shape (n_fine_x, n_height) — sum over height first
+            s_x = np.nansum(s, axis=1)  # shape (n_fine_x,)
+            c_x = np.nansum(c, axis=1)
+
+            fine_centers = 0.5 * (fine_bins[:-1] + fine_bins[1:])
+            coarse_means = np.full(n_coarse, np.nan)
+            for k in range(n_coarse):
+                mask = (fine_centers >= coarse_edges[k]) & (fine_centers < coarse_edges[k + 1])
+                total_s = s_x[mask].sum()
+                total_c = c_x[mask].sum()
+                if total_c > 0:
+                    coarse_means[k] = total_s / total_c
+
+            ax.bar(
+                x_positions + j * bar_width,
+                coarse_means,
+                width=bar_width,
+                color=EXP_LINE_COLORS[exp],
+                label=EXPERIMENTS[exp],
+                edgecolor="k",
+                linewidth=0.5,
+            )
+
+        label = HYDRO_SHORT.get(hvar, hvar)
+        ax.set_ylabel(f"Mean {label} (kg/kg)", fontsize=14)
+        ax.set_xticks(x_positions + bar_width * (len(experiments) - 1) / 2)
+        ax.set_xticklabels(
+            [f"{coarse_edges[k]:.2g}–{coarse_edges[k+1]:.2g}" for k in range(n_coarse)],
+            fontsize=12,
+        )
+        ax.set_xlabel(f"{x_label} bin ({x_unit})", fontsize=14)
+        ax.tick_params(axis="y", labelsize=12)
+        ax.set_title(f"{label} — binned means at constant {x_label.lower()}",
+                      fontsize=16, fontweight="bold")
+        ax.legend(fontsize=12)
+        ax.grid(axis="y", alpha=0.3)
+
+    # Hide unused subplot(s)
+    for i in range(n_vars, nrows * ncols):
+        r_idx, c_idx = divmod(i, ncols)
+        axes[r_idx, c_idx].axis("off")
+
+    fig.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=450, bbox_inches="tight")
+    print(f"Saved binned-means figure: {output_path}")
+    plt.close(fig)
+
+
+def plot_regression_slopes(
+    results: dict[str, dict],
+    hydrometeors: list[str],
+    experiments: list[str],
+    output_path: Path,
+    stratify: str = "flux",
+    regression_range: tuple[float, float] | None = None,
+):
+    """
+    Analysis 2: Regression slope of hydrometeor content vs a stratification variable.
+
+    For each scheme, fit  Hydrometeor = a + b × X  using the fine-bin marginal
+    means (height-collapsed).  The slope *b* measures microphysical efficiency:
+    how much condensate is retained per unit of dynamical work.  Slope
+    differences *are* the microphysical fingerprint.
+
+    Parameters
+    ----------
+    results : dict
+        ``{experiment: result_dict}`` as returned by `accumulate_histograms`
+        or `load_cache`.
+    stratify : str
+        Which variable was used for stratification
+        (``"flux"``, ``"extent"``, ``"intensity"``).
+    regression_range : tuple, optional
+        (min, max) x-values to include in the regression.
+        Defaults taken from ``STRATIFY_CONFIGS``.
+    """
+    cfg = STRATIFY_CONFIGS[stratify]
+    x_label = cfg["label"]
+    x_unit  = cfg["unit"]
+    if regression_range is None:
+        regression_range = cfg["regression_range"]
+
+    n_vars = len(hydrometeors)
+    ncols = 3
+    nrows = 2
+    fig, axes = plt.subplots(nrows, ncols, figsize=(8 * ncols, 5.5 * nrows), squeeze=False)
+
+    slope_table: dict[str, dict[str, float]] = {}  # hvar -> {exp: slope}
+
+    for i, hvar in enumerate(hydrometeors):
+        r_idx, c_idx = divmod(i, ncols)
+        ax = axes[r_idx, c_idx]
+        slope_table[hvar] = {}
+
+        for exp in experiments:
+            r = results[exp]
+            fine_bins = r["x_bins"]
+            s = r["sums"].get(hvar)
+            c = r["counts"].get(hvar)
+            if s is None:
+                continue
+
+            # Height-collapsed mean vs x
+            s_x = np.nansum(s, axis=1)
+            c_x = np.nansum(c, axis=1)
+            fine_centers = 0.5 * (fine_bins[:-1] + fine_bins[1:])
+
+            with np.errstate(invalid="ignore"):
+                mean_vs_x = np.where(c_x > 0, s_x / c_x, np.nan)
+
+            # Select valid range for regression
+            sel = (
+                (fine_centers >= regression_range[0])
+                & (fine_centers <= regression_range[1])
+                & np.isfinite(mean_vs_x)
+            )
+            x = fine_centers[sel]
+            y = mean_vs_x[sel]
+            if len(x) < 3:
+                continue
+
+            # Weighted linear regression (weight by sample count)
+            w = c_x[sel]
+            coeffs = np.polyfit(x, y, 1, w=np.sqrt(w))
+            slope, intercept = coeffs
+            slope_table[hvar][exp] = slope
+
+            # Plot data and fit
+            ax.scatter(
+                x, y, s=12, color=EXP_LINE_COLORS[exp], alpha=0.5, zorder=2,
+            )
+            x_fit = np.linspace(regression_range[0], regression_range[1], 100)
+            ax.plot(
+                x_fit, intercept + slope * x_fit,
+                color=EXP_LINE_COLORS[exp],
+                linewidth=2.5,
+                label=f"{EXPERIMENTS[exp]}  slope={slope:.2e}",
+                zorder=3,
+            )
+
+        label = HYDRO_SHORT.get(hvar, hvar)
+        ax.set_ylabel(f"Mean {label} (kg/kg)", fontsize=14)
+        ax.set_xlabel(f"{x_label} ({x_unit})", fontsize=14)
+        ax.tick_params(labelsize=12)
+        ax.set_title(
+            f"{label} — regression vs {x_label.lower()}",
+            fontsize=16, fontweight="bold",
+        )
+        ax.legend(fontsize=11, loc="upper left")
+        ax.grid(alpha=0.3)
+        ax.set_xlim(*regression_range)
+
+    # Hide unused subplot(s)
+    for i in range(n_vars, nrows * ncols):
+        r_idx, c_idx = divmod(i, ncols)
+        axes[r_idx, c_idx].axis("off")
+
+    fig.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=450, bbox_inches="tight")
+    print(f"Saved regression-slopes figure: {output_path}")
+    plt.close(fig)
+
+    # Print slope summary
+    print(f"\n=== Regression slopes (hydrometeor per unit {x_label.lower()}) ===")
+    for hvar in hydrometeors:
+        print(f"\n  {HYDRO_SHORT.get(hvar, hvar)}:")
+        for exp, sl in slope_table.get(hvar, {}).items():
+            print(f"    {EXPERIMENTS[exp]:8s}  slope = {sl:.4e}")
+    print()
 
 
 def plot_figure(
@@ -350,7 +631,7 @@ def plot_figure(
 
         for col, exp in enumerate(experiments):
             r = results[exp]
-            flux_bins = r["flux_bins"]
+            flux_bins = r.get("x_bins", r.get("flux_bins"))
             h_bins = r["h_bins"]
             freq = r["freq"]
             nf, nh = len(flux_bins) - 1, len(h_bins) - 1
@@ -386,12 +667,14 @@ def plot_figure(
             ax = fig.add_subplot(inner[0, 0])
             plot_data = np.where(np.isfinite(mean_hydro), mean_hydro, 0.0)
 
-            cf = ax.contourf(
-                f_centers, h_centers, plot_data.T,
-                levels=cf_levels,
-                norm=mcolors.LogNorm(vmin=vmin, vmax=vmax),
-                cmap=cmaps.WhiteBlueGreenYellowRed,
-            )
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message=".*Log scale.*")
+                cf = ax.contourf(
+                    f_centers, h_centers, plot_data.T,
+                    levels=cf_levels,
+                    norm=mcolors.LogNorm(vmin=vmin, vmax=vmax),
+                    cmap=cmaps.WhiteBlueGreenYellowRed,
+                )
 
             # Frequency contours (powers of 10)
             fmax = np.nanmax(freq)
@@ -519,22 +802,47 @@ def main():
     parser.add_argument("--max-days", type=int, default=MAX_DAYS)
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--output", type=str, default=None)
+    parser.add_argument("--stratify", nargs="+",
+                        default=list(STRATIFY_CONFIGS.keys()),
+                        choices=list(STRATIFY_CONFIGS.keys()),
+                        help="Stratification variable(s): flux, extent, intensity")
     args = parser.parse_args()
 
-    results = {}
-    for exp in args.experiments:
-        print(f"Processing {exp}...")
-        cached = None if args.no_cache else load_cache(exp)
-        if cached is not None:
-            print(f"  Loaded from cache")
-            results[exp] = cached
-        else:
-            r = accumulate_histograms(exp, args.hydrometeors, max_days=args.max_days)
-            save_cache(exp, r)
-            results[exp] = r
+    stratifications = args.stratify
 
-    outpath = Path(args.output) if args.output else OUTPUT_DIR / "updraft_hydrometeor_joint.png"
-    plot_figure(results, args.hydrometeors, args.experiments, outpath)
+    for strat in stratifications:
+        print(f"\n{'='*60}")
+        print(f"  Stratification: {strat}")
+        print(f"{'='*60}")
+
+        results = {}
+        for exp in args.experiments:
+            print(f"Processing {exp} [{strat}]...")
+            cached = None if args.no_cache else load_cache(exp, stratify=strat)
+            if cached is not None:
+                print(f"  Loaded from cache")
+                results[exp] = cached
+            else:
+                r = accumulate_histograms(exp, args.hydrometeors,
+                                          max_days=args.max_days, stratify=strat)
+                save_cache(exp, r, stratify=strat)
+                results[exp] = r
+
+        outpath = Path(args.output) if args.output else OUTPUT_DIR / f"updraft_hydrometeor_{strat}.png"
+
+        # Joint distribution figure (only for flux — original layout)
+        if strat == "flux":
+            plot_figure(results, args.hydrometeors, args.experiments, outpath)
+
+        # Analysis 1: Binned means
+        binned_path = OUTPUT_DIR / f"updraft_hydrometeor_{strat}_binned_means.png"
+        plot_binned_means(results, args.hydrometeors, args.experiments, binned_path,
+                          stratify=strat)
+
+        # Analysis 2: Regression slopes
+        regr_path = OUTPUT_DIR / f"updraft_hydrometeor_{strat}_regression_slopes.png"
+        plot_regression_slopes(results, args.hydrometeors, args.experiments, regr_path,
+                               stratify=strat)
 
 
 if __name__ == "__main__":
