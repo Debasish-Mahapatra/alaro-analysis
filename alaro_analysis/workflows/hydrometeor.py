@@ -23,6 +23,7 @@ from pathlib import Path
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
 import xarray as xr
 import cmaps
@@ -1243,7 +1244,8 @@ def plot_three_panels(
             )
             ax.legend(loc="upper right", fontsize=legend_fs, framealpha=0.9)
 
-    fig.suptitle(f"{period_label} - {var_label}", fontsize=16, fontweight="bold")
+    title = f"{period_label} - {var_label}" if period_label else var_label
+    fig.suptitle(title, fontsize=16, fontweight="bold")
 
     cbar_abs = fig.colorbar(
         pcm_abs,
@@ -1260,6 +1262,7 @@ def plot_three_panels(
         abs_label = f"Mean {var_label} (Absolute)"
     cbar_abs.set_label(abs_label, fontsize=cbar_label_fs)
     cbar_abs.ax.tick_params(labelsize=cbar_tick_fs)
+    cbar_abs.ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:g}"))
 
     cbar_diff = fig.colorbar(
         pcm_diff, ax=axes[2] if is_special_graupel else axes[1:], orientation="horizontal", fraction=0.08, pad=0.16
@@ -1272,6 +1275,7 @@ def plot_three_panels(
         diff_label = f"{var_label} anomaly"
     cbar_diff.set_label(diff_label, fontsize=cbar_label_fs)
     cbar_diff.ax.tick_params(labelsize=cbar_tick_fs)
+    cbar_diff.ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:g}"))
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_file, dpi=450, bbox_inches="tight", facecolor="white")
@@ -1382,6 +1386,27 @@ def run_profile_job(
     return mean, str(sample_file), count_min, count_max
 
 
+def _figure_subdir(period: PeriodSpec) -> Path:
+    """Figure output subdir for a period.
+
+    Seasonal figures share a single flat `seasonal/` directory per variable
+    (season name goes into the filename instead).  All other periods use
+    their native output_subdir.
+    """
+    parts = period.output_subdir.parts
+    if parts and parts[0] == "seasonal" and len(parts) > 1:
+        return Path("seasonal")
+    return period.output_subdir
+
+
+def _figure_filename(variable: str, period: PeriodSpec) -> str:
+    base = safe_name(variable)
+    parts = period.output_subdir.parts
+    if parts and parts[0] == "seasonal" and len(parts) > 1:
+        return f"{base}_panel_{period.key}_c1m_g1m-c1m_g2m-g1m.png"
+    return f"{base}_panel_c1m_g1m-c1m_g2m-g1m.png"
+
+
 def ensure_output_tree(
     output_dir: Path,
     intermediate_dir: Path,
@@ -1393,7 +1418,7 @@ def ensure_output_tree(
 
     for variable in variables:
         for period in periods:
-            (output_dir / safe_name(variable) / period.output_subdir).mkdir(
+            (output_dir / safe_name(variable) / _figure_subdir(period)).mkdir(
                 parents=True, exist_ok=True
             )
             (intermediate_dir / safe_name(variable) / period.output_subdir).mkdir(
@@ -1826,7 +1851,7 @@ def main() -> None:
                         temp_profile = results[t_key][0]
                         freezing_lines_km[exp] = compute_freezing_line_km(
                             axis=axis_by_exp[exp],
-                            temperature_profile=temp_profile,
+                            temperature_profiles=temp_profile,
                         )
                     else:
                         if t_key in errors:
@@ -1836,10 +1861,10 @@ def main() -> None:
                             )
                         freezing_lines_km[exp] = None
 
-            output_base = output_dir / safe_name(variable) / period.output_subdir
+            output_base = output_dir / safe_name(variable) / _figure_subdir(period)
             if spatial_tag != "full-domain":
                 output_base = output_base / spatial_tag
-            output_file = output_base / f"{safe_name(variable)}_panel_c1m_g1m-c1m_g2m-g1m.png"
+            output_file = output_base / _figure_filename(variable, period)
             scale_group = scale_group_map[variable]
             fixed_scale = global_scales[scale_group]
             plot_three_panels(
@@ -1850,7 +1875,7 @@ def main() -> None:
                 axis=axis,
                 output_file=output_file,
                 max_height_km=args.max_height_km,
-                period_label=period.label,
+                period_label="" if period.key == "full_2yr" else period.label,
                 freezing_lines_km=freezing_lines_km,
                 fixed_abs_limits=fixed_scale["abs_limits"],
                 fixed_anom_scale=fixed_scale["anom_scale"],

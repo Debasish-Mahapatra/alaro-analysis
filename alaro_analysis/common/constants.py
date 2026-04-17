@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-EXPERIMENTS = ("control", "graupel", "2mom", "2mom-xcu")
+EXPERIMENTS = ("control", "graupel", "2mom")
 EXPERIMENT_LABELS = {"control": "C1M", "graupel": "G1M", "2mom": "G2M", "2mom-xcu": "G2M-XCU"}
 
 SEASONS = {
