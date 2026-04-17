@@ -27,6 +27,7 @@ from multiprocessing import Pool
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
 import xarray as xr
 
@@ -55,7 +56,7 @@ HYDROMETEORS = ["RAIN", "SNOW", "GRAUPEL", "LIQUID_WATER", "SOLID_WATER"]
 
 G = 9.80665
 MIN_LEAD_HOUR = 3
-N_WORKERS = 8
+N_WORKERS = 24
 
 
 # ---------------------------------------------------------------------------
@@ -811,6 +812,391 @@ def plot_h3(results: dict[str, dict], experiments: list[str], output_path: Path)
 
 
 # =========================================================================
+# H4 — MOISTURE FLUX DIVERGENCE PROFILE
+# =========================================================================
+#
+# Same large-scale circulation acts on different moisture profiles.
+# G1M deposits moisture at 600-800 hPa (graupel evaporation).
+# C1M/G2M deposit moisture at the surface (rain).
+#
+# If there is mean divergence aloft and convergence in the BL (typical
+# tropical convective regime), then:
+#   G1M: more moisture at 600-800 hPa × divergence = net EXPORT
+#   C1M: more moisture in BL × convergence = net RETENTION
+#
+# Diagnostics:
+#   (a) Wind divergence profile:  div = ∂u/∂x + ∂v/∂y
+#   (b) Moisture flux divergence: ∂(qu)/∂x + ∂(qv)/∂y
+#   (c) Moisture profile (q)
+#   (d) Effective moisture tendency: q × div  (the "divergence acting on
+#       moisture" term — shows where divergence exports more moisture)
+#
+# Variables: WIND.U.PHYS, WIND.V.PHYS, HUMI.SPECIFI, GEOPOTENTIEL
+# Grid: ~4 km Lambert conformal, lat/lon in NetCDF coords.
+# =========================================================================
+
+H4_H_BINS = np.linspace(0.0, 20.0, 101)
+
+
+def _estimate_grid_spacing(filepath: Path) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Return (dx, dy) arrays in metres from the lat/lon coordinates.
+
+    dx and dy vary with latitude; returned arrays have shape (ny, nx)
+    matching the spatial grid (broadcast as needed).
+    """
+    with xr.open_dataset(filepath, decode_times=False) as ds:
+        lat = ds["lat"].values  # (ny, nx)
+        lon = ds["lon"].values
+
+    # Central differences in degrees, converted to metres
+    # dy: along y-axis (column-wise)
+    dlat_dy = np.gradient(lat, axis=0)  # degrees per grid cell in y
+    dy = dlat_dy * 111_000.0            # metres
+
+    # dx: along x-axis (row-wise), scaled by cos(lat)
+    dlon_dx = np.gradient(lon, axis=1)
+    dx = dlon_dx * 111_000.0 * np.cos(np.radians(lat))
+
+    return np.abs(dx), np.abs(dy)
+
+
+def _h4_process_day(args):
+    """
+    Accumulate wind divergence and moisture flux divergence profiles.
+
+    For each timestep, compute at every model level:
+      - div   = ∂u/∂x + ∂v/∂y                (wind divergence)
+      - mf_div = ∂(qu)/∂x + ∂(qv)/∂y         (moisture flux divergence)
+      - q_div  = q × div                       (divergence acting on moisture)
+      - q                                       (specific humidity)
+
+    Then bin by height and accumulate domain-mean profiles.
+    """
+    exp_dir, day_dir, min_lead_hour, dx, dy = args
+    day_name = day_dir.name
+    steps = list_steps(day_dir, min_lead_hour)
+    if not steps:
+        return None
+
+    nh = len(H4_H_BINS) - 1
+
+    # Accumulators: profile sums and counts
+    acc = {
+        k: np.zeros(nh, dtype=np.float64)
+        for k in ("div_sum", "div_cnt",
+                   "mfdiv_sum", "mfdiv_cnt",
+                   "qdiv_sum", "qdiv_cnt",
+                   "q_sum", "q_cnt")
+    }
+    n_files = 0
+
+    for step_file in steps:
+        step_name = step_file.name
+        try:
+            u = read_field(exp_dir / "masked-netcdf" / "WIND.U.PHYS"   / day_name / step_name)
+            v = read_field(exp_dir / "masked-netcdf" / "WIND.V.PHYS"   / day_name / step_name)
+            q = read_field(exp_dir / "masked-netcdf" / "HUMI.SPECIFI"  / day_name / step_name)
+            h = read_field(exp_dir / "masked-netcdf" / "GEOPOTENTIEL"  / day_name / step_name)
+        except Exception:
+            continue
+
+        h_km = h / 1000.0
+
+        # Compute divergence fields level by level
+        nlev = u.shape[0]
+        for lev in range(nlev):
+            u_lev = u[lev]
+            v_lev = v[lev]
+            q_lev = q[lev]
+            h_lev = h_km[lev]
+
+            # Mean height for this level → bin index
+            h_val = np.nanmean(h_lev)
+            if not np.isfinite(h_val):
+                continue
+            h_idx = np.digitize(h_val, H4_H_BINS) - 1
+            if h_idx < 0 or h_idx >= nh:
+                continue
+
+            # Finite-difference derivatives (NaN-safe via nanmean at the end)
+            du_dx = np.gradient(u_lev, axis=1) / dx   # ∂u/∂x
+            dv_dy = np.gradient(v_lev, axis=0) / dy   # ∂v/∂y
+
+            div = du_dx + dv_dy  # wind divergence (s⁻¹)
+
+            qu = q_lev * u_lev
+            qv = q_lev * v_lev
+            dqu_dx = np.gradient(qu, axis=1) / dx
+            dqv_dy = np.gradient(qv, axis=0) / dy
+
+            mf_div = dqu_dx + dqv_dy  # moisture flux divergence (kg/kg/s)
+            q_times_div = q_lev * div  # divergence acting on moisture
+
+            # Domain means (ignoring NaN from masked points)
+            div_mean = np.nanmean(div)
+            mf_mean  = np.nanmean(mf_div)
+            qd_mean  = np.nanmean(q_times_div)
+            q_mean   = np.nanmean(q_lev)
+
+            if np.isfinite(div_mean):
+                acc["div_sum"][h_idx] += div_mean
+                acc["div_cnt"][h_idx] += 1.0
+            if np.isfinite(mf_mean):
+                acc["mfdiv_sum"][h_idx] += mf_mean
+                acc["mfdiv_cnt"][h_idx] += 1.0
+            if np.isfinite(qd_mean):
+                acc["qdiv_sum"][h_idx] += qd_mean
+                acc["qdiv_cnt"][h_idx] += 1.0
+            if np.isfinite(q_mean):
+                acc["q_sum"][h_idx] += q_mean
+                acc["q_cnt"][h_idx] += 1.0
+
+        n_files += 1
+
+    acc["n_files"] = n_files
+    return acc
+
+
+def accumulate_h4(experiment: str, max_days: int | None = None) -> dict:
+    exp_dir = DATA_ROOT / experiment
+    days = list_days(exp_dir, "WIND.U.PHYS")
+    if max_days is not None:
+        days = days[:max_days]
+
+    # Pre-compute grid spacing from one sample file
+    sample_step = list_steps(days[0], MIN_LEAD_HOUR)[0]
+    sample_path = exp_dir / "masked-netcdf" / "WIND.U.PHYS" / days[0].name / sample_step.name
+    dx, dy = _estimate_grid_spacing(sample_path)
+
+    tasks = [(exp_dir, d, MIN_LEAD_HOUR, dx, dy) for d in days]
+    print(f"  H4 {experiment}: processing {len(days)} days ...", flush=True)
+
+    nh = len(H4_H_BINS) - 1
+    totals = {
+        k: np.zeros(nh, dtype=np.float64)
+        for k in ("div_sum", "div_cnt", "mfdiv_sum", "mfdiv_cnt",
+                   "qdiv_sum", "qdiv_cnt", "q_sum", "q_cnt")
+    }
+    n_files = 0
+
+    with Pool(N_WORKERS) as pool:
+        for i, res in enumerate(pool.imap_unordered(_h4_process_day, tasks)):
+            if res is None:
+                continue
+            for k in totals:
+                totals[k] += res[k]
+            n_files += res["n_files"]
+            if (i + 1) % 100 == 0:
+                print(f"  H4 {experiment}: {i+1}/{len(days)} days", flush=True)
+
+    print(f"  H4 {experiment}: DONE — {n_files} files", flush=True)
+    totals["n_files"] = n_files
+    totals["h_bins"] = H4_H_BINS
+    return totals
+
+
+def save_h4(experiment: str, result: dict):
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = CACHE_DIR / f"h4_{experiment}.npz"
+    save_dict = {k: np.array(v) for k, v in result.items()}
+    np.savez_compressed(path, **save_dict)
+    print(f"  Saved: {path}")
+
+
+def load_h4(experiment: str) -> dict | None:
+    path = CACHE_DIR / f"h4_{experiment}.npz"
+    if not path.exists():
+        return None
+    d = np.load(path)
+    return {k: d[k] for k in d.files}
+
+
+def _compute_freezing_levels(experiments: list[str]) -> dict[str, float]:
+    """
+    Compute the mean freezing level (km) for each experiment from H3 cache.
+
+    Interpolates the mean temperature profile to find T = 273.15 K.
+    Returns {experiment: freezing_level_km}.
+    """
+    freezing = {}
+    for exp in experiments:
+        h3 = load_h3(exp)
+        if h3 is None:
+            continue
+        h_bins = h3["h_bins"]
+        h_centers = 0.5 * (h_bins[:-1] + h_bins[1:])
+        s = h3["sums"]["TEMPERATURE"]
+        c = h3["counts"]["TEMPERATURE"]
+        with np.errstate(invalid="ignore"):
+            t_profile = np.where(c > 0, s / c, np.nan)
+
+        # Find where temperature crosses 273.15 K (scanning upward)
+        valid = np.isfinite(t_profile)
+        h_v = h_centers[valid]
+        t_v = t_profile[valid]
+        if len(t_v) < 2:
+            continue
+        for k in range(len(t_v) - 1):
+            if t_v[k] >= 273.15 and t_v[k + 1] < 273.15:
+                # Linear interpolation
+                frac = (273.15 - t_v[k]) / (t_v[k + 1] - t_v[k])
+                freezing[exp] = float(h_v[k] + frac * (h_v[k + 1] - h_v[k]))
+                break
+    return freezing
+
+
+def _add_freezing_level(ax, freezing_levels: dict[str, float], experiments: list[str]):
+    """Draw a horizontal dashed line for each experiment's freezing level."""
+    for exp in experiments:
+        if exp not in freezing_levels:
+            continue
+        fl = freezing_levels[exp]
+        ax.axhline(
+            fl, color=EXP_COLORS[exp], linewidth=1.5, linestyle=":",
+            alpha=0.7,
+        )
+    # Single label annotation using the mean freezing level
+    if freezing_levels:
+        mean_fl = np.mean(list(freezing_levels.values()))
+        ax.annotate(
+            f"0 °C ≈ {mean_fl:.1f} km",
+            xy=(1.0, mean_fl), xycoords=("axes fraction", "data"),
+            fontsize=10, ha="right", va="bottom", color="0.3",
+            bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="0.7", alpha=0.8),
+        )
+
+
+def plot_h4(results: dict[str, dict], experiments: list[str], output_path: Path):
+    """
+    H4 plot: moisture flux divergence profiles.
+
+    4 panels:
+      (a) Wind divergence ∂u/∂x + ∂v/∂y — should be ~same for all schemes
+      (b) Moisture profile q — differs between schemes
+      (c) q × div — divergence acting on moisture (where schemes differ)
+      (d) Full moisture flux divergence ∂(qu)/∂x + ∂(qv)/∂y
+
+    Positive = divergence (moisture export), Negative = convergence (moisture import).
+    """
+    freezing_levels = _compute_freezing_levels(experiments)
+
+    fig, axes = plt.subplots(1, 4, figsize=(28, 8), squeeze=False)
+
+    panel_configs = [
+        ("div",   r"Wind divergence (s$^{-1}$)",
+         "Wind divergence profile\n(same dynamics?)"),
+        ("q",     "Specific humidity (g/kg)",
+         "Moisture profile\n(where is the moisture?)"),
+        ("qdiv",  r"q $\times$ div (kg kg$^{-1}$ s$^{-1}$)",
+         "Divergence $\\times$ moisture\n(where is moisture exported?)"),
+        ("mfdiv", r"$\nabla \cdot (q\mathbf{v})$ (kg kg$^{-1}$ s$^{-1}$)",
+         "Full moisture flux divergence"),
+    ]
+
+    for col, (var, xlabel, title) in enumerate(panel_configs):
+        ax = axes[0, col]
+
+        for exp in experiments:
+            r = results[exp]
+            h_bins = r["h_bins"]
+            h_centers = 0.5 * (h_bins[:-1] + h_bins[1:])
+
+            s = r[f"{var}_sum"]
+            c = r[f"{var}_cnt"]
+            with np.errstate(invalid="ignore"):
+                profile = np.where(c > 0, s / c, np.nan)
+
+            # Scale q to g/kg for readability
+            if var == "q":
+                profile = profile * 1000.0
+
+            ax.plot(
+                profile, h_centers,
+                color=EXP_COLORS[exp], linewidth=2.5, label=EXPERIMENTS[exp],
+            )
+
+        ax.set_ylabel("Height (km)", fontsize=14)
+        ax.set_xlabel(xlabel, fontsize=14)
+        ax.set_ylim(0, 18)
+        ax.legend(fontsize=12)
+        ax.grid(alpha=0.3)
+        ax.set_title(title, fontsize=14, fontweight="bold")
+        ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:g}"))
+
+        # Vertical zero line for divergence panels
+        if var != "q":
+            ax.axvline(0, color="k", linewidth=0.8, linestyle="--")
+
+        # Freezing level
+        _add_freezing_level(ax, freezing_levels, experiments)
+
+    fig.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=450, bbox_inches="tight")
+    print(f"Saved H4 figure: {output_path}")
+    plt.close(fig)
+
+    # Also plot anomalies relative to control
+    fig2, axes2 = plt.subplots(1, 3, figsize=(22, 8), squeeze=False)
+    ref_exp = experiments[0]
+
+    for col, (var, xlabel, title) in enumerate([
+        ("q",     "$\\Delta$ Specific humidity (g/kg)",
+         "Moisture anomaly vs C1M"),
+        ("qdiv",  r"$\Delta$ q $\times$ div (kg kg$^{-1}$ s$^{-1}$)",
+         "Divergence $\\times$ moisture\nanomaly vs C1M"),
+        ("mfdiv", r"$\Delta$ $\nabla \cdot (q\mathbf{v})$ (kg kg$^{-1}$ s$^{-1}$)",
+         "Moisture flux divergence\nanomaly vs C1M"),
+    ]):
+        ax = axes2[0, col]
+        r_ref = results[ref_exp]
+        h_bins = r_ref["h_bins"]
+        h_centers = 0.5 * (h_bins[:-1] + h_bins[1:])
+
+        s_ref = r_ref[f"{var}_sum"]
+        c_ref = r_ref[f"{var}_cnt"]
+        with np.errstate(invalid="ignore"):
+            prof_ref = np.where(c_ref > 0, s_ref / c_ref, np.nan)
+        if var == "q":
+            prof_ref = prof_ref * 1000.0
+
+        for exp in experiments:
+            if exp == ref_exp:
+                continue
+            r = results[exp]
+            s = r[f"{var}_sum"]
+            c = r[f"{var}_cnt"]
+            with np.errstate(invalid="ignore"):
+                prof = np.where(c > 0, s / c, np.nan)
+            if var == "q":
+                prof = prof * 1000.0
+
+            anom = prof - prof_ref
+            ax.plot(
+                anom, h_centers,
+                color=EXP_COLORS[exp], linewidth=2.5,
+                label=f"{EXPERIMENTS[exp]} − C1M",
+            )
+
+        ax.axvline(0, color="k", linewidth=0.8, linestyle="--")
+        _add_freezing_level(ax, freezing_levels, experiments)
+        ax.set_ylabel("Height (km)", fontsize=14)
+        ax.set_xlabel(xlabel, fontsize=14)
+        ax.set_ylim(0, 18)
+        ax.legend(fontsize=12)
+        ax.grid(alpha=0.3)
+        ax.set_title(title, fontsize=14, fontweight="bold")
+        ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:g}"))
+
+    anom_path = output_path.with_name(output_path.stem + "_anomaly.png")
+    fig2.tight_layout()
+    fig2.savefig(anom_path, dpi=450, bbox_inches="tight")
+    print(f"Saved H4 anomaly figure: {anom_path}")
+    plt.close(fig2)
+
+
+# =========================================================================
 # Main
 # =========================================================================
 
@@ -819,8 +1205,8 @@ def main():
 
     parser = argparse.ArgumentParser(description="Convective feedback diagnostics")
     parser.add_argument("--experiments", nargs="+", default=list(EXPERIMENTS.keys()))
-    parser.add_argument("--hypotheses", nargs="+", default=["h1", "h2", "h3"],
-                        choices=["h1", "h2", "h3"])
+    parser.add_argument("--hypotheses", nargs="+", default=["h1", "h2", "h3", "h4"],
+                        choices=["h1", "h2", "h3", "h4"])
     parser.add_argument("--max-days", type=int, default=None)
     parser.add_argument("--no-cache", action="store_true")
     args = parser.parse_args()
@@ -872,6 +1258,22 @@ def main():
                 save_h3(exp, r)
                 h3_results[exp] = r
         plot_h3(h3_results, args.experiments, OUTPUT_DIR / "convective_feedback_h3_moisture.png")
+
+    if "h4" in args.hypotheses:
+        print("\n" + "=" * 60)
+        print("  H4: Moisture flux divergence")
+        print("=" * 60)
+        h4_results = {}
+        for exp in args.experiments:
+            cached = None if args.no_cache else load_h4(exp)
+            if cached is not None:
+                print(f"  {exp}: loaded from cache")
+                h4_results[exp] = cached
+            else:
+                r = accumulate_h4(exp, max_days=args.max_days)
+                save_h4(exp, r)
+                h4_results[exp] = r
+        plot_h4(h4_results, args.experiments, OUTPUT_DIR / "convective_feedback_h4_moist_divergence.png")
 
 
 if __name__ == "__main__":
