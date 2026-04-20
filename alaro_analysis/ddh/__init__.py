@@ -15,4 +15,11 @@ Python entry points:
     python -m alaro_analysis.ddh.extract_temperature
     python -m alaro_analysis.ddh.plot_budgets
     python -m alaro_analysis.ddh.plot_case_study --species QL --tag QL
+
+Shared helpers (paths, experiments, IO, plot primitives) live in
+:mod:`alaro_analysis.ddh.io`.
 """
+
+from . import io  # re-export so callers can do `from alaro_analysis.ddh import io`
+
+__all__ = ["io"]

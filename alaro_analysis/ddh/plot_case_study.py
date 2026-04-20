@@ -34,65 +34,18 @@ from multiprocessing import Pool
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
 import numpy as np
 
-PROCESSED_BASE = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/DDH-processed"
-)
-AGG_DIR = PROCESSED_BASE / "_aggregated"
-FIG_DIR = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/figures/DDH-figures/neg"
+from .io import (
+    BLOCK_COLORS, EXPERIMENTS, FIG_DIR as FIG_DIR_BASE, PROCESSED_BASE,
+    Z_MAX_KM, freezing_level_km, load_temperature, pretty_block_label,
+    tick_formatter,
 )
 
-EXPERIMENTS = {"control": "C1M", "graupel": "G1M", "2mom": "G2M"}
-EXP_COLORS = {"control": "#d62728", "graupel": "#1f77b4", "2mom": "#2ca02c"}
+FIG_DIR = FIG_DIR_BASE / "neg"
 SPECIES_DEFAULT = ("QV", "QL", "QI")
 SPECIES = SPECIES_DEFAULT
-T_FREEZE_K = 273.15
-Z_MAX_KM = 20.0
 N_WORKERS = 32
-
-BLOCK_COLORS = {
-    "cond-cv": "#1f77b4", "cond-rs": "#4e79b9",
-    "evap-cv": "#d62728", "evap-rs": "#d4a6a7",
-    "auto-cv": "#2ca02c", "auto-rs": "#83d083",
-    "prec-cv": "#9467bd", "prec-rs": "#bfa3d2",
-    "turdiff": "#17becf", "turconv": "#6ec6ce",
-    "dynam":   "#ff7f0e",
-    "neg":     "#000000",
-    "TQVRESIDUAL": "#bcbd22", "TQLRESIDUAL": "#bcbd22",
-    "TQIRESIDUAL": "#bcbd22", "TQNRESIDUAL": "#bcbd22",
-    "TQRRESIDUAL": "#bcbd22", "TQSRESIDUAL": "#bcbd22",
-    "TQGRESIDUAL": "#bcbd22",
-    "TQLCOMPSUM": "#888888", "TQICOMPSUM": "#888888",
-    "TQNCOMPSUM": "#888888", "TQRCOMPSUM": "#888888",
-    "TQSCOMPSUM": "#888888", "TQGCOMPSUM": "#888888",
-}
-
-BLOCK_LABELS = {
-    "cond-cv":   "condensation (convective)",
-    "cond-rs":   "condensation (resolved)",
-    "evap-cv":   "evaporation (convective)",
-    "evap-rs":   "evaporation (resolved)",
-    "auto-cv":   "autoconversion (convective)",
-    "auto-rs":   "autoconversion (resolved)",
-    "prec-cv":   "precipitation flux (convective)",
-    "prec-rs":   "precipitation flux (resolved)",
-    "turdiff":   "turbulent diffusion",
-    "turconv":   "turbulent convection",
-    "dynam":     "dynamics",
-    "neg":       "negative correction",
-}
-
-def _pretty_label(block: str) -> str:
-    if block in BLOCK_LABELS:
-        return BLOCK_LABELS[block]
-    if block.endswith("RESIDUAL"):
-        return "residual"
-    if block.endswith("COMPSUM"):
-        return "sum of components"
-    return block
 
 _DTA_RE = re.compile(r"^([A-Z]+)\.DHFDLABOF\+\d+\.([^.]+)\.dta$")
 
@@ -168,38 +121,6 @@ def select_case(days_per_exp: dict[str, list[str]]) -> tuple[str, dict[str, floa
     return best, {d: min(scores[d][e] for e in EXPERIMENTS) for d in ranked[:20]}
 
 
-def load_temperature(exp: str):
-    path = AGG_DIR / f"temperature_{exp}.npz"
-    if not path.exists():
-        return None
-    d = np.load(path, allow_pickle=True)
-    return {"altitude_km": d["altitude_km"],
-            "temperature_k": d["temperature_k"]}
-
-
-def freezing_level_km(temp) -> float:
-    if temp is None:
-        return float("nan")
-    z = np.asarray(temp["altitude_km"], dtype=np.float64)
-    t = np.asarray(temp["temperature_k"], dtype=np.float64)
-    m = np.isfinite(z) & np.isfinite(t)
-    z, t = z[m], t[m]
-    if z.size < 2:
-        return float("nan")
-    o = np.argsort(z); z, t = z[o], t[o]
-    diff = t - T_FREEZE_K
-    sc = np.where(np.sign(diff[:-1]) != np.sign(diff[1:]))[0]
-    if sc.size == 0:
-        return float("nan")
-    i = int(sc[0])
-    w = diff[i] / (diff[i] - diff[i + 1])
-    return float(z[i] + w * (z[i + 1] - z[i]))
-
-
-def tick_formatter():
-    return mticker.FuncFormatter(lambda v, _: f"{v:g}")
-
-
 def plot_grid(case_data: dict[str, dict[str, dict[str, np.ndarray]]],
               temps, path: Path, title: str, is_diff: bool = False):
     """case_data: exp -> species -> block -> profile (includes __altitude_km__).
@@ -232,7 +153,7 @@ def plot_grid(case_data: dict[str, dict[str, dict[str, np.ndarray]]],
                 lw = 2.0 if block == "neg" else 1.0
                 zorder = 6 if block == "neg" else 2
                 ax.plot(profile, z, color=color, lw=lw,
-                        label=_pretty_label(block), zorder=zorder)
+                        label=pretty_block_label(block), zorder=zorder)
             z0 = freezing_level_km(temps.get(exp))
             if np.isfinite(z0):
                 ax.axhline(z0, color="k", lw=1.0, ls="--", alpha=0.8, zorder=1)

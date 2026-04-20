@@ -30,34 +30,11 @@ from pathlib import Path
 
 import numpy as np
 
-PROCESSED_BASE = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/DDH-processed"
-)
-AGG_DIR = PROCESSED_BASE / "_aggregated"
+from .io import AGG_DIR, EXPERIMENTS, LOG_ROOT, PROCESSED_BASE, read_dta
 
-EXPERIMENTS = ("control", "graupel", "2mom")
+# Variables that the aggregator can consume.  Controlled via --variables.
 VARIABLES = ("QL", "QI", "QR", "QS", "QG", "QV", "UU", "VV")
-LOG_ROOT = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/alaro-analysis/cache/logs")
 N_WORKERS = 32
-
-
-# --------------------------------------------------------------------------
-# IO helpers
-# --------------------------------------------------------------------------
-
-def read_dta(path: Path, ycoor: str = "VZ") -> tuple[np.ndarray, np.ndarray]:
-    """Return (coord, value) arrays from a 2-column .dta file.
-
-    * ycoor == "VZ": first column is altitude in km (positive, top-first).
-    * ycoor == "VP": first column is pressure in hPa with a display minus sign;
-      we flip the sign.
-    """
-    arr = np.loadtxt(path)
-    if ycoor == "VZ":
-        coord = arr[:, 0]
-    else:
-        coord = -arr[:, 0]
-    return coord.astype(np.float64), arr[:, 1].astype(np.float64)
 
 
 _DTA_RE = re.compile(r"^(?P<var>\w+)\.DHFDLABOF\+\d+\.(?P<block>[^.]+)\.dta$")

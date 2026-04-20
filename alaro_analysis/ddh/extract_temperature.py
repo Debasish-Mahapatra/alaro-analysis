@@ -24,15 +24,12 @@ from pathlib import Path
 import numpy as np
 import epygram
 
-UNTAR_ROOT = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/DDH-untar")
-AGG_DIR    = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/DDH-processed/_aggregated")
-ALT_SRC    = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/DDH-processed/lead0024_VZ")
-LOG_PATH   = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/alaro-analysis/cache/logs/extract_temperature.log")
-EXPERIMENTS = ("control", "graupel", "2mom")
+from .io import AGG_DIR, CP_DRY, EXPERIMENTS, LOG_ROOT, PROCESSED_BASE, UNTAR_ROOT
+
+ALT_SRC  = PROCESSED_BASE / "lead0024_VZ"
+LOG_PATH = LOG_ROOT / "extract_temperature.log"
 N_WORKERS = 32
 
-
-CP_DRY = 1004.5  # J/kg/K
 
 def _read_temperature_k(path: Path) -> np.ndarray | None:
     """Read temperature in K from one DDH LFA file.

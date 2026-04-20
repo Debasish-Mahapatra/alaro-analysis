@@ -25,98 +25,15 @@ Usage:
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 
 import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
 import numpy as np
 
-AGG_BASE = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/DDH-processed/_aggregated"
+from .io import (
+    EXP_COLORS, EXPERIMENTS, FIG_DIR, T_FREEZE_K, Z_MAX_KM,
+    draw_freeze_lines, freezing_level_km, load_budget, load_temperature,
+    set_altitude_axis, tick_formatter,
 )
-FIG_DIR = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/figures/DDH-figures"
-)
-
-EXPERIMENTS = {"control": "C1M", "graupel": "G1M", "2mom": "G2M"}
-EXP_COLORS = {"control": "#d62728", "graupel": "#1f77b4", "2mom": "#2ca02c"}
-
-G = 9.80665
-Z_MAX_KM = 20.0
-T_FREEZE_K = 273.15
-
-
-# --------------------------------------------------------------------------
-# Loaders
-# --------------------------------------------------------------------------
-
-def load_budget(exp: str, var: str, lead: str = "0024") -> dict | None:
-    path = AGG_BASE / f"lead{lead}_VZ" / f"{exp}_{var}.npz"
-    if not path.exists():
-        return None
-    d = np.load(path, allow_pickle=True)
-    alt_km = d["altitude_km"] if "altitude_km" in d.files else None
-    blocks = {k[len("block__"):]: d[k]
-              for k in d.files if k.startswith("block__")}
-    return {"altitude_km": alt_km, "blocks": blocks,
-            "n_days": int(d["days"].shape[0])}
-
-
-def load_temperature(exp: str) -> dict | None:
-    path = AGG_BASE / f"temperature_{exp}.npz"
-    if not path.exists():
-        return None
-    d = np.load(path, allow_pickle=True)
-    return {"altitude_km": d["altitude_km"],
-            "temperature_k": d["temperature_k"],
-            "n_days": int(d["n_days"])}
-
-
-def freezing_level_km(temp: dict) -> float:
-    """Linear interpolation of altitude where T_mean == 273.15 K.
-
-    Returns NaN if the profile does not cross freezing.
-    """
-    if temp is None:
-        return float("nan")
-    z = np.asarray(temp["altitude_km"], dtype=np.float64)
-    t = np.asarray(temp["temperature_k"], dtype=np.float64)
-    mask = np.isfinite(z) & np.isfinite(t)
-    z, t = z[mask], t[mask]
-    if z.size < 2:
-        return float("nan")
-    # Sort by altitude ascending for interpolation.
-    order = np.argsort(z)
-    z, t = z[order], t[order]
-    diff = t - T_FREEZE_K
-    # find sign change (lowest crossing from ground up)
-    sc = np.where(np.sign(diff[:-1]) != np.sign(diff[1:]))[0]
-    if sc.size == 0:
-        return float("nan")
-    i = int(sc[0])
-    w = diff[i] / (diff[i] - diff[i + 1])
-    return float(z[i] + w * (z[i + 1] - z[i]))
-
-
-def tick_formatter():
-    return mticker.FuncFormatter(lambda v, _: f"{v:g}")
-
-
-def set_altitude_axis(ax):
-    ax.set_ylim(0, Z_MAX_KM)
-    ax.set_ylabel("Altitude (km)")
-
-
-def draw_freeze_lines(ax, temps: dict[str, dict]):
-    """Draw a per-experiment horizontal dashed line at mean 0 C altitude."""
-    for exp, tdata in temps.items():
-        z0 = freezing_level_km(tdata)
-        if np.isfinite(z0):
-            ax.axhline(z0, color=EXP_COLORS[exp], lw=1.0, ls="--",
-                       alpha=0.7, zorder=1)
-    # Single neutral legend stub.
-    ax.plot([], [], color="k", lw=1.0, ls="--", alpha=0.7,
-            label=r"0 $^{\circ}$C isotherm")
 
 
 # --------------------------------------------------------------------------
