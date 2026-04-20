@@ -5,6 +5,15 @@ import re
 EXPERIMENTS = ("control", "graupel", "2mom")
 EXPERIMENT_LABELS = {"control": "C1M", "graupel": "G1M", "2mom": "G2M", "2mom-xcu": "G2M-XCU"}
 
+# Line/marker colour per base experiment.  Kept here so every workflow
+# (main plots, convective_feedback, microphysics_budget, kt273_diurnal,
+# updraft_hydrometeor, ddh) renders the three models in the same palette.
+EXPERIMENT_COLORS = {
+    "control": "#d62728",
+    "graupel": "#1f77b4",
+    "2mom":    "#2ca02c",
+}
+
 SEASONS = {
     "wet": {"label": "Wet (Dec-Apr)", "months": (12, 1, 2, 3, 4)},
     "transition_wet_to_dry": {"label": "Transition Wet->Dry (May-Jun)", "months": (5, 6)},

@@ -13,6 +13,7 @@ import numpy as np
 
 from ..common.constants import (
     CP_D as CP_DRY,
+    EXPERIMENT_COLORS as EXP_COLORS,
     EXPERIMENT_LABELS,
     FREEZING_K as T_FREEZE_K,
 )
@@ -35,11 +36,7 @@ LOG_ROOT       = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/alaro-analysis/cache/logs")
 EXPERIMENTS: dict[str, str] = {
     k: EXPERIMENT_LABELS[k] for k in ("control", "graupel", "2mom")
 }
-EXP_COLORS: dict[str, str] = {
-    "control": "#d62728",
-    "graupel": "#1f77b4",
-    "2mom":    "#2ca02c",
-}
+# EXP_COLORS imported from common.constants.EXPERIMENT_COLORS (see import above).
 SPECIES_ALL: tuple[str, ...] = ("QV", "QL", "QI", "QR", "QS", "QG")
 
 # ---------------------------------------------------------------------------

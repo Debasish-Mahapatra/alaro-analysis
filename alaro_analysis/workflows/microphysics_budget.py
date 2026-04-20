@@ -69,6 +69,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 
+from alaro_analysis.common.constants import EXPERIMENT_COLORS as EXP_COLORS
+
 # ---------------------------------------------------------------------------
 # Configuration (mirrors convective_feedback.py so caches sit side-by-side)
 # ---------------------------------------------------------------------------
@@ -82,12 +84,6 @@ EXPERIMENTS = {
     "control": "C1M",
     "graupel": "G1M",
     "2mom":    "G2M",
-}
-
-EXP_COLORS = {
-    "control": "#d62728",
-    "graupel": "#1f77b4",
-    "2mom":    "#2ca02c",
 }
 
 # Hydrometeor species layout.  Precipitating species first so residence-time

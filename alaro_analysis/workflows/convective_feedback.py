@@ -31,6 +31,8 @@ import matplotlib.ticker as mticker
 import numpy as np
 import xarray as xr
 
+from alaro_analysis.common.constants import EXPERIMENT_COLORS as EXP_COLORS
+
 # ---------------------------------------------------------------------------
 # Configuration (shared with updraft_hydrometeor)
 # ---------------------------------------------------------------------------
@@ -44,12 +46,6 @@ EXPERIMENTS = {
     "control": "C1M",
     "graupel": "G1M",
     "2mom":    "G2M",
-}
-
-EXP_COLORS = {
-    "control": "#d62728",
-    "graupel": "#1f77b4",
-    "2mom":    "#2ca02c",
 }
 
 HYDROMETEORS = ["RAIN", "SNOW", "GRAUPEL", "LIQUID_WATER", "SOLID_WATER"]
