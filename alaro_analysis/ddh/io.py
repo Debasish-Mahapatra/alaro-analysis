@@ -11,6 +11,12 @@ from pathlib import Path
 import matplotlib.ticker as mticker
 import numpy as np
 
+from ..common.constants import (
+    CP_D as CP_DRY,
+    EXPERIMENT_LABELS,
+    FREEZING_K as T_FREEZE_K,
+)
+
 # ---------------------------------------------------------------------------
 # Filesystem layout
 # ---------------------------------------------------------------------------
@@ -23,10 +29,11 @@ LOG_ROOT       = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/alaro-analysis/cache/logs")
 # ---------------------------------------------------------------------------
 # Experiments
 # ---------------------------------------------------------------------------
+# The ddh pipeline runs on the three base experiments.  Label map reuses
+# :data:`alaro_analysis.common.constants.EXPERIMENT_LABELS` so adding a new
+# variant only requires editing the shared table.
 EXPERIMENTS: dict[str, str] = {
-    "control": "C1M",
-    "graupel": "G1M",
-    "2mom":    "G2M",
+    k: EXPERIMENT_LABELS[k] for k in ("control", "graupel", "2mom")
 }
 EXP_COLORS: dict[str, str] = {
     "control": "#d62728",
@@ -38,9 +45,8 @@ SPECIES_ALL: tuple[str, ...] = ("QV", "QL", "QI", "QR", "QS", "QG")
 # ---------------------------------------------------------------------------
 # Physical constants & plot limits
 # ---------------------------------------------------------------------------
-T_FREEZE_K = 273.15
+# T_FREEZE_K and CP_DRY come from common.constants (see import above).
 Z_MAX_KM   = 20.0
-CP_DRY     = 1004.5  # J/kg/K, for DDH T = VCT0/VPP0/cp
 
 # ---------------------------------------------------------------------------
 # Budget-component colouring and human-readable labels
