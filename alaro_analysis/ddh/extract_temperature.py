@@ -79,7 +79,11 @@ def _mean_altitude(exp: str) -> np.ndarray | None:
     return np.mean(stacked, axis=0)
 
 
-def main():
+def run() -> Path:
+    """Compute and save per-experiment annual-mean T(z) and altitude.
+
+    Returns the path to the log file for inspection.
+    """
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     epygram.init_env()
 
@@ -132,6 +136,11 @@ def main():
             logf.flush()
         logf.write(f"DONE in {time.time() - t0:.1f}s\n")
     print(f"Log: {LOG_PATH}")
+    return LOG_PATH
+
+
+def main():
+    run()
 
 
 if __name__ == "__main__":

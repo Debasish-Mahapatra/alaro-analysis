@@ -343,17 +343,14 @@ def plot_species_storage(all_data, temps, path):
 # Orchestration
 # --------------------------------------------------------------------------
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--lead", default="0024")
-    args = parser.parse_args()
-
+def run(lead: str = "0024") -> list:
+    """Produce the seven main budget figures.  Returns output paths in order."""
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     all_data, temps = {}, {}
     for exp in EXPERIMENTS:
         all_data[exp] = {}
         for var in ("QL", "QI", "QR", "QS", "QG", "QV", "UU", "VV"):
-            d = load_budget(exp, var, lead=args.lead)
+            d = load_budget(exp, var, lead=lead)
             if d is not None:
                 all_data[exp][var] = d
         temps[exp] = load_temperature(exp)
@@ -361,13 +358,28 @@ def main():
         print(f"  {exp:<8} 0 C isotherm: {z0:.2f} km"
               if np.isfinite(z0) else f"  {exp:<8} no T data")
 
-    plot_total_condensation(all_data, temps, FIG_DIR / "1_condensation_profile.png")
-    plot_evap_sublim_by_species(all_data, temps, FIG_DIR / "2_evap_sublim_by_species.png")
-    plot_condense_vs_evap(all_data, temps, FIG_DIR / "3_condense_vs_evap.png")
-    plot_precip_per_species(all_data, temps, FIG_DIR / "4_precip_flux_by_species.png")
-    plot_column_budget_bars(all_data, temps, FIG_DIR / "5_column_budget_bars.png")
-    plot_precip_efficiency(all_data, temps, FIG_DIR / "6_evap_over_condensation_ratio.png")
-    plot_species_storage(all_data, temps, FIG_DIR / "7_species_storage_profile.png")
+    plan = [
+        ("1_condensation_profile.png",        plot_total_condensation),
+        ("2_evap_sublim_by_species.png",      plot_evap_sublim_by_species),
+        ("3_condense_vs_evap.png",            plot_condense_vs_evap),
+        ("4_precip_flux_by_species.png",      plot_precip_per_species),
+        ("5_column_budget_bars.png",          plot_column_budget_bars),
+        ("6_evap_over_condensation_ratio.png", plot_precip_efficiency),
+        ("7_species_storage_profile.png",     plot_species_storage),
+    ]
+    out_paths = []
+    for name, fn in plan:
+        path = FIG_DIR / name
+        fn(all_data, temps, path)
+        out_paths.append(path)
+    return out_paths
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--lead", default="0024")
+    args = parser.parse_args()
+    run(lead=args.lead)
 
 
 if __name__ == "__main__":

@@ -201,6 +201,75 @@ def diff_case(case_0024: dict, case_0012: dict) -> dict:
     return out
 
 
+def run(day: str | None = None,
+        species: tuple[str, ...] | list[str] = SPECIES_DEFAULT,
+        tag: str | None = None) -> Path:
+    """Make the +0024 minus +0012 case-study figure.
+
+    Parameters
+    ----------
+    day : str or None
+        Force a specific day (e.g. ``"DDH20140716"``).  If ``None`` the day
+        with the most prominent negative-correction term across experiments
+        is picked automatically.
+    species : tuple of str
+        Which species to include as figure rows.  Default ``('QV','QL','QI')``.
+    tag : str or None
+        Filename suffix (e.g. ``"QL"``).  Default no suffix.
+
+    Returns the path to the generated figure.
+    """
+    global SPECIES
+    SPECIES = tuple(species)
+
+    days_per_exp = {}
+    for exp in EXPERIMENTS:
+        root = PROCESSED_BASE / "lead0024_VZ" / exp
+        days_per_exp[exp] = sorted(
+            d.name for d in root.iterdir()
+            if d.is_dir() and d.name.startswith("DDH20")
+        )
+    # Defensive intersection: only rank days present in every experiment.
+    common = set(days_per_exp["control"])
+    for e in ("graupel", "2mom"):
+        common &= set(days_per_exp[e])
+    for e in EXPERIMENTS:
+        days_per_exp[e] = sorted(common)
+
+    if day:
+        best_day = day
+        ranking: dict[str, float] = {}
+    else:
+        best_day, ranking = select_case(days_per_exp)
+    print(f"Selected case day: {best_day}")
+
+    case_0024 = {e: load_day(e, best_day, "0024") for e in EXPERIMENTS}
+    case_0012 = {e: load_day(e, best_day, "0012") for e in EXPERIMENTS}
+    case_diff = diff_case(case_0024, case_0012)
+    temps = {e: load_temperature(e) for e in EXPERIMENTS}
+
+    FIG_DIR.mkdir(parents=True, exist_ok=True)
+    date_tag = best_day.replace("DDH", "")
+    suffix = f"_{tag}" if tag else ""
+    fig_path = FIG_DIR / f"case_{date_tag}_diff_0024_minus_0012{suffix}.png"
+    plot_grid(case_diff, temps, fig_path,
+              f"Budget change between +0024 and +0012 on {date_tag}",
+              is_diff=True)
+
+    if ranking:
+        report = FIG_DIR / f"case_{date_tag}_report.txt"
+        with open(report, "w") as f:
+            f.write(f"Selected case day: {best_day}\n")
+            f.write("Metric: for each day, min over experiments of the max "
+                    "|neg| rate across species in 0-20 km (+0024 data).\n\n")
+            f.write("Top-20 days by that metric:\n")
+            for day_, score in sorted(ranking.items(),
+                                      key=lambda kv: -kv[1])[:20]:
+                f.write(f"  {day_}  {score:10.3f}\n")
+        print(f"  report: {report}")
+    return fig_path
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--day", default=None,
@@ -213,54 +282,7 @@ def main():
                         help="Output filename suffix, e.g. 'QL' -> "
                              "case_<day>_diff_0024_minus_0012_QL.png.")
     args = parser.parse_args()
-
-    global SPECIES
-    SPECIES = tuple(args.species)
-
-    days_per_exp = {}
-    for exp in EXPERIMENTS:
-        root = PROCESSED_BASE / "lead0024_VZ" / exp
-        days_per_exp[exp] = sorted(
-            d.name for d in root.iterdir()
-            if d.is_dir() and d.name.startswith("DDH20")
-        )
-    # use the intersection (defensive)
-    common = set(days_per_exp["control"])
-    for e in ("graupel", "2mom"):
-        common &= set(days_per_exp[e])
-    for e in EXPERIMENTS:
-        days_per_exp[e] = sorted(common)
-
-    if args.day:
-        best_day = args.day
-        ranking = {}
-    else:
-        best_day, ranking = select_case(days_per_exp)
-
-    print(f"Selected case day: {best_day}")
-
-    case_0024 = {e: load_day(e, best_day, "0024") for e in EXPERIMENTS}
-    case_0012 = {e: load_day(e, best_day, "0012") for e in EXPERIMENTS}
-    case_diff = diff_case(case_0024, case_0012)
-    temps = {e: load_temperature(e) for e in EXPERIMENTS}
-
-    FIG_DIR.mkdir(parents=True, exist_ok=True)
-    date_tag = best_day.replace("DDH", "")
-    suffix = f"_{args.tag}" if args.tag else ""
-    plot_grid(case_diff, temps,
-              FIG_DIR / f"case_{date_tag}_diff_0024_minus_0012{suffix}.png",
-              f"Budget change between +0024 and +0012 on {date_tag}",
-              is_diff=True)
-
-    report = FIG_DIR / f"case_{date_tag}_report.txt"
-    with open(report, "w") as f:
-        f.write(f"Selected case day: {best_day}\n")
-        f.write("Metric: for each day, min over experiments of the max |neg| "
-                "rate across species in 0-20 km (+0024 data).\n\n")
-        f.write("Top-20 days by that metric:\n")
-        for day, score in sorted(ranking.items(), key=lambda kv: -kv[1])[:20]:
-            f.write(f"  {day}  {score:10.3f}\n")
-    print(f"  report: {report}")
+    run(day=args.day, species=tuple(args.species), tag=args.tag)
 
 
 if __name__ == "__main__":

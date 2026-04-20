@@ -128,6 +128,39 @@ def _aggregate_one(args):
 # Orchestration
 # --------------------------------------------------------------------------
 
+def run(experiments: list[str] | None = None,
+        variables:   list[str] | None = None,
+        lead:        str = "0024",
+        ycoor:       str = "VZ") -> list[tuple[str, str, int, str]]:
+    """Aggregate per-day .dta into per-(exp, var) npz.  Returns summary tuples."""
+    experiments = experiments if experiments is not None else list(EXPERIMENTS)
+    variables   = variables   if variables   is not None else list(VARIABLES)
+    tasks = [(exp, var, lead, ycoor)
+             for exp in experiments
+             for var in variables
+             if not (exp == "control" and var == "QG")]
+
+    LOG_ROOT.mkdir(parents=True, exist_ok=True)
+    log_path = LOG_ROOT / f"aggregate_budgets_{lead}_{ycoor}.log"
+    t0 = time.time()
+    results: list[tuple[str, str, int, str]] = []
+    with open(log_path, "w") as logf:
+        logf.write(f"aggregate_budgets (lead={lead} ycoor={ycoor}): "
+                   f"{len(tasks)} (exp,var) pairs, {N_WORKERS} workers\n")
+        logf.flush()
+        with Pool(N_WORKERS) as pool:
+            for exp, var, n_days, note in pool.imap_unordered(_aggregate_one, tasks):
+                results.append((exp, var, n_days, note))
+                line = f"  {exp:<8} {var:<3}  {n_days:>4} days  {note}\n"
+                logf.write(line)
+                logf.flush()
+                sys.stdout.write(line)
+                sys.stdout.flush()
+        logf.write(f"DONE in {time.time() - t0:.1f}s\n")
+    print(f"DONE in {time.time() - t0:.1f}s")
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--experiments", nargs="+", default=list(EXPERIMENTS),
@@ -139,28 +172,8 @@ def main():
                              "directory name lead<LEAD>_<YCOOR> in DDH-processed.")
     parser.add_argument("--ycoor", default="VZ", choices=("VZ", "VP"))
     args = parser.parse_args()
-
-    tasks = [(exp, var, args.lead, args.ycoor)
-             for exp in args.experiments
-             for var in args.variables
-             if not (exp == "control" and var == "QG")]
-
-    LOG_ROOT.mkdir(parents=True, exist_ok=True)
-    log_path = LOG_ROOT / f"aggregate_budgets_{args.lead}_{args.ycoor}.log"
-    t0 = time.time()
-    with open(log_path, "w") as logf:
-        logf.write(f"aggregate_budgets (lead={args.lead} ycoor={args.ycoor}): "
-                   f"{len(tasks)} (exp,var) pairs, {N_WORKERS} workers\n")
-        logf.flush()
-        with Pool(N_WORKERS) as pool:
-            for exp, var, n_days, note in pool.imap_unordered(_aggregate_one, tasks):
-                line = f"  {exp:<8} {var:<3}  {n_days:>4} days  {note}\n"
-                logf.write(line)
-                logf.flush()
-                sys.stdout.write(line)
-                sys.stdout.flush()
-        logf.write(f"DONE in {time.time() - t0:.1f}s\n")
-    print(f"DONE in {time.time() - t0:.1f}s")
+    run(experiments=args.experiments, variables=args.variables,
+        lead=args.lead, ycoor=args.ycoor)
 
 
 if __name__ == "__main__":
