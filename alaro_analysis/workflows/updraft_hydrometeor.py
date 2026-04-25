@@ -91,7 +91,7 @@ G = 9.80665
 
 # Output
 OUTPUT_DIR = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/figures")
-CACHE_DIR  = Path("/gpfs/me01/me/CLIMATE/CLIMATE/deba/alaro-analysis/cache/updraft_hydrometeor")
+CACHE_DIR  = Path("/gpfs/me01/me/CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/updraft_hydrometeor")
 
 
 # ---------------------------------------------------------------------------
@@ -581,6 +581,7 @@ def plot_figure(
     hydrometeors: list[str],
     experiments: list[str],
     output_path: Path,
+    stratify: str = "flux",
 ):
     """
     Figure-9-style multi-panel plot using contourf (no smoothing).
@@ -756,7 +757,8 @@ def plot_figure(
             else:
                 ax_b.set_ylabel(f"{label}\n(kg kg$^{{-1}}$)", fontsize=FS_MARG)
 
-            ax_b.set_xlabel(r"Updraft flux (kg m$^{-2}$ s$^{-1}$)", fontsize=FS)
+            _cfg = STRATIFY_CONFIGS.get(stratify, STRATIFY_CONFIGS["flux"])
+            ax_b.set_xlabel(f"{_cfg['label']} ({_cfg['unit']})", fontsize=FS)
 
             # ============ EMPTY CORNER ============
             ax_e = fig.add_subplot(inner[1, 1])
@@ -830,9 +832,8 @@ def main():
 
         outpath = Path(args.output) if args.output else OUTPUT_DIR / f"updraft_hydrometeor_{strat}.png"
 
-        # Joint distribution figure (only for flux — original layout)
-        if strat == "flux":
-            plot_figure(results, args.hydrometeors, args.experiments, outpath)
+        # Joint distribution heatmap (one per stratification).
+        plot_figure(results, args.hydrometeors, args.experiments, outpath, stratify=strat)
 
         # Analysis 1: Binned means
         binned_path = OUTPUT_DIR / f"updraft_hydrometeor_{strat}_binned_means.png"

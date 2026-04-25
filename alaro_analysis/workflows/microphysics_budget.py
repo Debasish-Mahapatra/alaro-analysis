@@ -77,7 +77,7 @@ from alaro_analysis.common.constants import EXPERIMENT_COLORS as EXP_COLORS
 DATA_ROOT = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/ALARO")
 OUTPUT_DIR = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/figures/microphysics_budget")
 CACHE_DIR = Path(
-    "/gpfs/me01/me/CLIMATE/CLIMATE/deba/alaro-analysis/cache/microphysics_budget"
+    "/gpfs/me01/me/CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/microphysics_budget"
 )
 
 EXPERIMENTS = {

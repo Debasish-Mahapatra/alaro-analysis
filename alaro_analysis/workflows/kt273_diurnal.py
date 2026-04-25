@@ -55,7 +55,7 @@ warnings.filterwarnings("ignore", message="Mean of empty slice", category=Runtim
 DATA_ROOT = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/ALARO")
 OUTPUT_DIR = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/figures/kt273_diurnal")
 CACHE_DIR = Path(
-    "/gpfs/me01/me/CLIMATE/CLIMATE/deba/alaro-analysis/cache/kt273_diurnal"
+    "/gpfs/me01/me/CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/kt273_diurnal"
 )
 
 EXPERIMENTS = {"control": "C1M", "graupel": "G1M", "2mom": "G2M"}
