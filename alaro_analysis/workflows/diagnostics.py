@@ -677,9 +677,12 @@ def compute_kt273_lines(
                 )
                 vals[key] = mean_scalar(np.asarray(ds[vn].values, dtype=np.float64))
 
+        # Downdraft mass flux: M_dd = -omega_dd * sigma_dd / g  [kg m-2 s-1]
+        # omega_dd is downward-positive in pressure coords (ω > 0 = subsidence),
+        # so the negative sign makes M_dd positive for active downdrafts.
         return {
             "KT273GRAUPEL": vals["KT273GRAUPEL"],
-            "KT273DD_FLUX": vals["KT273DD_OMEGA"] * vals["KT273DD_MESH_FRA"],
+            "KT273DD_FLUX": -(vals["KT273DD_OMEGA"] * vals["KT273DD_MESH_FRA"]) / G,
             "KT273RAIN": vals["KT273RAIN"],
             "KT273HUMI_SPECIF": vals["KT273HUMI.SPECIF"],
         }
@@ -1678,9 +1681,9 @@ def main() -> None:
                         "KT273HUMI_SPECIF": "KT273HUMI.SPECIF",
                     },
                     unit_map={
-                        "KT273GRAUPEL": "",
-                        "KT273DD_FLUX": "Pa/s",
-                        "KT273RAIN": "",
+                        "KT273GRAUPEL": "kg/kg",
+                        "KT273DD_FLUX": "kg m$^{-2}$ s$^{-1}$",
+                        "KT273RAIN": "kg/kg",
                         "KT273HUMI_SPECIF": "kg/kg",
                     },
                     line_data=line_data,
