@@ -23,6 +23,7 @@ import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 
+from alaro_analysis.common.cli_config import add_config_argument, parse_configured_args
 from alaro_analysis.common.constants import (
     EXPERIMENTS,
     EXPERIMENT_LABELS,
@@ -55,10 +56,11 @@ DEFAULT_OUTPUT_DIR = Path(
 ABS_CMAP = cmaps.WhiteBlueGreenYellowRed if cmaps is not None else "turbo"
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Pair workflow plots for LIQUID/SOLID water vs RAD variables."
     )
+    add_config_argument(parser)
     parser.add_argument(
         "--intermediate-dirs",
         type=Path,
@@ -173,7 +175,7 @@ def parse_args() -> argparse.Namespace:
             "'experiments' saves one figure with C1M/G1M/G2M side-by-side."
         ),
     )
-    return parser.parse_args()
+    return parse_configured_args(parser, "pair_analysis", argv=argv)
 
 
 def variable_label(name: str) -> str:
@@ -748,7 +750,7 @@ def plot_sum_diff_grid(
                 ax.set_ylim(0.0, max_height_km)
             add_panel_tag(ax, panel_idx, 13)
             ax.set_title(
-                f"{EXPERIMENT_LABELS[exp]} — {col_titles[col_idx]}",
+                f"{EXPERIMENT_LABELS[exp]} - {col_titles[col_idx]}",
                 fontsize=12, fontweight="bold",
             )
 
@@ -766,7 +768,7 @@ def plot_sum_diff_grid(
             panel_idx += 1
 
     fig.suptitle(
-        f"{period.label} — {n_label} / {r_label} sum & difference",
+        f"{period.label} - {n_label} / {r_label} sum & difference",
         fontsize=15, fontweight="bold",
     )
 

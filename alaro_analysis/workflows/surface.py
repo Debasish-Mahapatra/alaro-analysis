@@ -20,6 +20,7 @@ import matplotlib.ticker as mticker
 import numpy as np
 
 from alaro_analysis.common.constants import EXPERIMENTS, EXPERIMENT_LABELS, SEASONS
+from alaro_analysis.common.cli_config import add_config_argument, parse_configured_args
 from alaro_analysis.common.naming import safe_name
 from alaro_analysis.common.seasons import build_period_specs, resolve_seasons
 from alaro_analysis.common.spatial import build_spatial_window, spatial_window_tag
@@ -46,10 +47,11 @@ DEFAULT_INTERMEDIATE_DIR = Path(
 VAR_TOKEN_RE = re.compile(r"[^A-Za-z0-9]+")
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Plot diurnal cycles for masked 2D surface fields such as SURFEX SFX.RN."
     )
+    add_config_argument(parser)
     parser.add_argument("--control-dir", type=Path, default=DEFAULT_CONTROL_DIR)
     parser.add_argument("--graupel-dir", type=Path, default=DEFAULT_GRAUPEL_DIR)
     parser.add_argument("--twomom-dir", type=Path, default=DEFAULT_2MOM_DIR)
@@ -121,7 +123,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Add a zoomed inset around the daytime peak to show small differences.",
     )
-    return parser.parse_args()
+    return parse_configured_args(parser, "surface", argv=argv)
 
 
 def normalize_var_token(name: str) -> str:

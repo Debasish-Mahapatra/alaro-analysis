@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "alaro-analysis"
-version = "0.1.0"
-description = "Reusable analysis toolkit for ALARO NWP model outputs, built on faxarray."
+version = "0.2.0"
+description = "Reusable analysis toolkit for ALARO NWP model outputs."
 requires-python = ">=3.11"
 license = "MIT"
 dependencies = [
@@ -13,15 +13,22 @@ dependencies = [
     "xarray",
     "netCDF4",
     "matplotlib",
-    "faxarray",
 ]
 
 [project.optional-dependencies]
-full = ["cmaps", "cartopy", "scipy"]
+fa = ["faxarray"]
+full = ["faxarray", "cmaps", "cartopy", "scipy"]
 dev = ["pytest"]
 
 [project.scripts]
 alaro-convert = "alaro_analysis.converter:main"
+alaro-surface = "alaro_analysis.workflows.surface:main"
+alaro-temperature = "alaro_analysis.workflows.temperature:main"
+alaro-hydrometeor = "alaro_analysis.workflows.hydrometeor:main"
+alaro-diagnostics = "alaro_analysis.workflows.diagnostics:main"
+alaro-radiation-compare = "alaro_analysis.workflows.radiation_compare:main"
+alaro-pair-analysis = "alaro_analysis.workflows.pair_analysis:main"
+alaro-panel-anomaly = "alaro_analysis.workflows.panel_anomaly:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["alaro_analysis"]

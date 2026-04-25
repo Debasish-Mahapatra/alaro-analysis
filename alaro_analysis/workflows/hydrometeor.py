@@ -28,6 +28,7 @@ import numpy as np
 import xarray as xr
 import cmaps
 
+from alaro_analysis.common.cli_config import add_config_argument, parse_configured_args
 from alaro_analysis.common.constants import (
     EXPERIMENTS,
     EXPERIMENT_LABELS,
@@ -161,10 +162,11 @@ UNIT_INTERVAL_VARIABLE_KEYS = {
     "TOTAL_UPDRAFT_EXTENT",
 }
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build full+seasonal hydrometeor diurnal panels from masked-netcdf-2."
     )
+    add_config_argument(parser)
     parser.add_argument("--control-dir", type=Path, default=DEFAULT_CONTROL_DIR)
     parser.add_argument("--graupel-dir", type=Path, default=DEFAULT_GRAUPEL_DIR)
     parser.add_argument("--twomom-dir", type=Path, default=DEFAULT_2MOM_DIR)
@@ -352,7 +354,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional Python-style X slice start:end for spatial averaging.",
     )
-    return parser.parse_args()
+    return parse_configured_args(parser, "hydrometeor", argv=argv)
 
 
 def variable_label(name: str) -> str:

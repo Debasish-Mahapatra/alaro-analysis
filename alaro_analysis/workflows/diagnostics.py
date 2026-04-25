@@ -47,6 +47,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 
+from alaro_analysis.common.cli_config import add_config_argument, parse_configured_args
 from alaro_analysis.common.constants import (
     CP_D,
     EPS,
@@ -103,10 +104,11 @@ DEFAULT_INTERMEDIATE_DIR = Path(
 
 ANALYSIS_CHOICES = ("downdraft", "precip", "thermo", "kt273", "column")
 VAR_TOKEN_RE = re.compile(r"[^A-Za-z0-9]+")
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Extended diagnostics (downdraft/precip/thermo/KT273/column) from masked NetCDF."
     )
+    add_config_argument(parser)
     parser.add_argument("--control-dir", type=Path, default=DEFAULT_CONTROL_DIR)
     parser.add_argument("--graupel-dir", type=Path, default=DEFAULT_GRAUPEL_DIR)
     parser.add_argument("--twomom-dir", type=Path, default=DEFAULT_2MOM_DIR)
@@ -183,7 +185,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="List discovered variables per experiment and exit.",
     )
-    return parser.parse_args()
+    return parse_configured_args(parser, "diagnostics", argv=argv)
 
 
 def normalize_var_token(name: str) -> str:

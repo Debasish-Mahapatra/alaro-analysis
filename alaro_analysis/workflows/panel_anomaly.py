@@ -16,11 +16,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-import cmaps
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 
+from alaro_analysis.common.cli_config import add_config_argument, parse_configured_args
 from alaro_analysis.common.constants import EXPERIMENTS, EXPERIMENT_LABELS
 from alaro_analysis.common.models import AxisSpec
 from alaro_analysis.common.vertical import (
@@ -34,6 +34,11 @@ from alaro_analysis.data.cache import (
     load_temperature_profile,
 )
 from alaro_analysis.plotting.scales import robust_anomaly_scale
+
+try:
+    import cmaps  # type: ignore
+except Exception:
+    cmaps = None
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -207,7 +212,7 @@ def plot_abs_anomaly_panel(
         ax.set_facecolor("#d3d3d3")
 
         if idx == 0:
-            # Absolute panel — log scale
+            # Absolute panel, log scale
             data_plot = np.ma.masked_where(data_plot <= 0, data_plot)
             valid = data_plot.compressed()
             if valid.size > 0:
@@ -221,10 +226,12 @@ def plot_abs_anomaly_panel(
             norm = mcolors.LogNorm(vmin=vmin, vmax=vmax)
             pcm = ax.pcolormesh(
                 hour_edges, y_edges, data_plot,
-                cmap=cmaps.WhiteBlueGreenYellowRed, norm=norm, shading="auto",
+                cmap=cmaps.WhiteBlueGreenYellowRed if cmaps is not None else "turbo",
+                norm=norm,
+                shading="auto",
             )
         else:
-            # Anomaly panel — diverging
+            # Anomaly panel, diverging
             if fixed_anom_scale is not None:
                 anom_scale = fixed_anom_scale
             else:
@@ -280,13 +287,14 @@ def plot_abs_anomaly_panel(
 # CLI
 # ---------------------------------------------------------------------------
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Multi-variable anomaly panel from cached diurnal profiles. "
             "Produces a single figure with 3 pcolormesh subplots."
         ),
     )
+    add_config_argument(parser)
     parser.add_argument(
         "--intermediate-dir",
         type=Path,
@@ -337,7 +345,7 @@ def parse_args() -> argparse.Namespace:
         default="multi_variable_anomaly_panel.png",
         help="Output filename.",
     )
-    return parser.parse_args()
+    return parse_configured_args(parser, "panel_anomaly", argv=argv)
 
 
 # ---------------------------------------------------------------------------

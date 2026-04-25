@@ -12,7 +12,6 @@ Quick start::
 
 __version__ = "0.2.0"
 
-from .analysis.experiment import ExperimentSet
 from .common.models import AxisSpec, PeriodSpec, SpatialWindow, VerticalAxis
 
 __all__ = [
@@ -22,3 +21,11 @@ __all__ = [
     "SpatialWindow",
     "VerticalAxis",
 ]
+
+
+def __getattr__(name: str):
+    if name == "ExperimentSet":
+        from .analysis.experiment import ExperimentSet
+
+        return ExperimentSet
+    raise AttributeError(f"module 'alaro_analysis' has no attribute {name!r}")

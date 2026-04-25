@@ -19,6 +19,7 @@ from typing import Sequence
 import matplotlib.pyplot as plt
 import numpy as np
 
+from alaro_analysis.common.cli_config import add_config_argument, parse_configured_args
 from alaro_analysis.common.constants import DAY_RE, EXPERIMENTS, EXPERIMENT_LABELS, FILE_HOUR_RE, SEASONS
 from alaro_analysis.common.seasons import build_period_specs, resolve_seasons
 from alaro_analysis.common.spatial import build_spatial_window, spatial_window_tag
@@ -64,10 +65,11 @@ class AlaroDaySteps:
     step_files: tuple[tuple[int, Path], ...]
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Compare de-accumulated ALARO radiation-derived net radiation against SURFEX SFX.RN."
     )
+    add_config_argument(parser)
     parser.add_argument("--alaro-control-dir", type=Path, default=DEFAULT_ALARO_CONTROL_DIR)
     parser.add_argument("--alaro-graupel-dir", type=Path, default=DEFAULT_ALARO_GRAUPEL_DIR)
     parser.add_argument("--alaro-twomom-dir", type=Path, default=DEFAULT_ALARO_2MOM_DIR)
@@ -130,7 +132,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="List discovered variables per experiment/root and exit.",
     )
-    return parser.parse_args()
+    return parse_configured_args(parser, "radiation_compare", argv=argv)
 
 
 def normalize_var_token(name: str) -> str:

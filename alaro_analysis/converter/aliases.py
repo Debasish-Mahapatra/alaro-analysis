@@ -4,8 +4,6 @@ from pathlib import Path
 import re
 from typing import Optional, Sequence
 
-import faxarray as fx
-
 from .models import VariablePlan
 
 MODEL_LEVEL_FIELD_RE = re.compile(r"^S(\d{3})(.+)$")
@@ -33,6 +31,18 @@ def var_to_ds_name(name: str) -> str:
 
 def normalize_var_token(name: str) -> str:
     return VAR_TOKEN_SANITIZE_RE.sub("", name).upper()
+
+
+def _require_faxarray():
+    try:
+        import faxarray as fx
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "faxarray is required for FA file conversion. Install the FA stack "
+            "inside the HPC epygram environment with: "
+            "python -m pip install -e '.[fa]'"
+        ) from exc
+    return fx
 
 
 def build_available_aliases(raw_field_names: Sequence[str]) -> set[str]:
@@ -77,6 +87,7 @@ def resolve_requested_vars(
     model_rh_t_var: str,
     model_rh_pressure_candidates: Sequence[str],
 ) -> VariablePlan:
+    fx = _require_faxarray()
     fa = fx.FADataset(str(sample_file))
     try:
         raw_field_names = tuple(fa.variables)

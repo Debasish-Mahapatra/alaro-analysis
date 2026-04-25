@@ -20,8 +20,6 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 import numpy as np
 import xarray as xr
 
-import faxarray as fx
-
 from .aliases import normalize_var_token, resolve_requested_vars, var_to_ds_name
 from .config import (
     AUX_VAR,
@@ -41,6 +39,18 @@ from .models import CropWindow, FileTask, RunConfig, VariablePlan
 
 DAY_DIR_RE = re.compile(r"^(?:pf|sfx)(\d{8})$")
 HOUR_FILE_RE = re.compile(r"^.+\+(\d{4})(?:\.[^.]+)?$")
+
+
+def _require_faxarray():
+    try:
+        import faxarray as fx
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "faxarray is required for FA file conversion. Install the FA stack "
+            "inside the HPC epygram environment with: "
+            "python -m pip install -e '.[fa]'"
+        ) from exc
+    return fx
 
 
 def _subset_pressure_levels(out_ds: xr.Dataset, var_name: str) -> xr.Dataset:
@@ -201,6 +211,7 @@ def validate_day(day_dir: Path, hours: Sequence[int]) -> Tuple[bool, Dict[int, P
 
 
 def compute_crop_window(sample_file: Path, cfg: RunConfig, reference_var: str) -> CropWindow:
+    fx = _require_faxarray()
     ds = fx.open_dataset(str(sample_file), variables=[reference_var], stack_levels=True)
     try:
         lon = ds["lon"]
@@ -367,6 +378,7 @@ def compute_crop_and_spatial_mask(
     cfg: RunConfig,
     reference_var: str,
 ) -> Tuple[CropWindow, np.ndarray, Dict[str, object]]:
+    fx = _require_faxarray()
     ds = fx.open_dataset(str(sample_file), variables=[reference_var], stack_levels=True)
     try:
         lon = ds["lon"]
@@ -443,6 +455,7 @@ def process_task(
 ) -> Dict[str, object]:
     ds = None
     try:
+        fx = _require_faxarray()
         ds = fx.open_dataset(str(task.source_file), variables=list(var_plan.read_vars), stack_levels=True)
         read_var_to_ds_name = {name: var_to_ds_name(name) for name in var_plan.read_vars}
         output_var_to_ds_name = {name: var_to_ds_name(name) for name in var_plan.output_vars}

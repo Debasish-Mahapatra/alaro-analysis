@@ -24,6 +24,7 @@ import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 
+from alaro_analysis.common.cli_config import add_config_argument, parse_configured_args
 from alaro_analysis.common.constants import (
     EXPERIMENTS,
     EXPERIMENT_LABELS,
@@ -71,10 +72,11 @@ DEFAULT_INTERMEDIATE_DIR = Path(
     "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data"
 )
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build full+seasonal temperature diurnal panels from masked-netcdf-2."
     )
+    add_config_argument(parser)
     parser.add_argument("--control-dir", type=Path, default=DEFAULT_CONTROL_DIR)
     parser.add_argument("--graupel-dir", type=Path, default=DEFAULT_GRAUPEL_DIR)
     parser.add_argument("--twomom-dir", type=Path, default=DEFAULT_2MOM_DIR)
@@ -167,7 +169,7 @@ def parse_args() -> argparse.Namespace:
         default=98.0,
         help="Upper percentile for fixed absolute colorbar range (default: 98).",
     )
-    return parser.parse_args()
+    return parse_configured_args(parser, "temperature", argv=argv)
 
 
 def compute_diurnal_profile(
