@@ -35,6 +35,8 @@ alaro-radiosonde-profiles = "alaro_analysis.workflows.radiosonde_profiles:main"
 alaro-plot-radiosonde-profiles = "alaro_analysis.workflows.plot_radiosonde_profiles:main"
 alaro-precip-distribution = "alaro_analysis.workflows.precip_distribution:main"
 alaro-precip-diurnal-cycle = "alaro_analysis.workflows.precip_diurnal_cycle:main"
+alaro-precip-spatial-bias-maps = "alaro_analysis.workflows.precip_spatial_bias_maps:main"
+alaro-precip-intensity-heatmaps = "alaro_analysis.workflows.precip_intensity_heatmaps:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["alaro_analysis"]

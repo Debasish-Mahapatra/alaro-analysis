@@ -44,6 +44,12 @@ def test_expected_console_scripts_are_declared():
     assert scripts["alaro-precip-diurnal-cycle"] == (
         "alaro_analysis.workflows.precip_diurnal_cycle:main"
     )
+    assert scripts["alaro-precip-spatial-bias-maps"] == (
+        "alaro_analysis.workflows.precip_spatial_bias_maps:main"
+    )
+    assert scripts["alaro-precip-intensity-heatmaps"] == (
+        "alaro_analysis.workflows.precip_intensity_heatmaps:main"
+    )
 
 
 def test_fa_stack_is_optional():
@@ -75,6 +81,8 @@ def test_fa_stack_is_optional():
         "alaro_analysis.workflows.plot_radiosonde_profiles",
         "alaro_analysis.workflows.precip_distribution",
         "alaro_analysis.workflows.precip_diurnal_cycle",
+        "alaro_analysis.workflows.precip_spatial_bias_maps",
+        "alaro_analysis.workflows.precip_intensity_heatmaps",
     ],
 )
 def test_command_module_help_smoke(module: str):
