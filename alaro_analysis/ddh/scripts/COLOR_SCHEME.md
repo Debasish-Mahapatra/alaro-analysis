@@ -2,8 +2,9 @@
 
 ## Overview
 - **One color per physical process** across all plots
-- **Resolved processes**: Solid line (`-`)
-- **Parametrized/Convective processes**: Dashed line (`- -`)
+- **Resolved processes**: Dashed line
+- **Parametrized/Convective processes**: Dash-dot line
+- **0 °C isotherm**: Dotted neutral grey line
 - This ensures consistency and easy visual distinction
 
 ## Process Color Map
@@ -30,8 +31,10 @@
 
 ## Line Style Convention
 
-- **Resolved** (physical/grid-scale): `—` solid line, α=0.95
-- **Parametrized/Conv** (sub-grid-scale): `- -` dashed line, α=0.85
+- **Resolved** (physical/grid-scale): dashed line, α=0.95
+- **Parametrized/Conv** (sub-grid-scale): dash-dot line, α=0.85
+- **0 °C isotherm**: dotted neutral grey line, α=0.95
+- **Partition figures**: convection uses red, resolved uses blue, and total uses black
 - **Dynamics/Single variant**: `—` solid line, α=0.92
 - **Tendency**: `—` solid black, α=1.0, linewidth=2.4
 - **Residual**: `· · ·` dotted grey, α=0.85
@@ -40,34 +43,38 @@
 ## Examples
 
 ### QI, QL, QR, QS Budgets
-- Condensation (resolved) = Green solid
-- Condensation (conv) = Green dashed
-- Autoconversion (resolved) = Orange solid
-- Autoconversion (conv) = Orange dashed
-- Precipitation (resolved) = Bright Red solid
-- Precipitation (conv) = Bright Red dashed
-- Evaporation (resolved) = Purple solid
-- Evaporation (conv) = Purple dashed
+- Condensation (resolved) = Green dashed
+- Condensation (conv) = Green dash-dot
+- Autoconversion (resolved) = Orange dashed
+- Autoconversion (conv) = Orange dash-dot
+- Precipitation (resolved) = Bright Red dashed
+- Precipitation (conv) = Bright Red dash-dot
+- Evaporation (resolved) = Purple dashed
+- Evaporation (conv) = Purple dash-dot
 
 ### CT Budget
 - Dynamics = Blue solid
-- Micro (resolved) = Red solid
+- Micro (resolved) = Red dashed
 - Micro (convective) = Red solid (no dashed variant in this context)
 
 ### QV Budget
 - Dynamics = Blue solid
-- Condensation (resolved) = Green solid
-- Condensation (conv) = Green dashed
-- Evaporation (resolved) = Purple solid
-- Evaporation (conv) = Purple dashed
+- Condensation (resolved) = Green dashed
+- Condensation (conv) = Green dash-dot
+- Evaporation (resolved) = Purple dashed
+- Evaporation (conv) = Purple dash-dot
 
 ## Implementation Details
 
-The color scheme is defined in `plot_time_average.py`:
-- `PROCESS_COLOURS`: Maps process name → hex color code
+The color scheme is defined in `alaro_analysis/ddh/plot_style.py`:
+- `PROCESS_COLORS` / `PROCESS_COLOURS`: Maps process name → hex color code
 - `get_process_name()`: Extracts process name from full label
 - `get_line_style()`: Returns (color, linewidth, linestyle, alpha, zorder)
-  - Checks if label contains "resolved" → solid line
-  - Checks if label contains "conv" → dashed line
+- `partition_line_style()`: Styles total/convection/resolved partition curves
+- `pathway_from_block()` / `pathway_line_attributes()`: Styles raw DDH block names like `cond-cv` and `cond-rs`
+  - Checks if label contains "resolved" → dashed line
+  - Checks if label contains "conv" → dash-dot line
   - Otherwise → solid line
 
+`alaro_analysis/ddh/io.py` derives `BLOCK_COLORS` from this same palette so
+case-study and budget plots do not silently drift away from the chosen colors.

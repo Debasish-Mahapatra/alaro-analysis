@@ -13,3 +13,9 @@ run.log
 run_analysis.sh
 note.md
 CLAUDE.md
+
+# Local agent/session artifacts and generated logs.
+.codex
+.claude/
+cache/
+*.log

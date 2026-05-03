@@ -26,6 +26,24 @@ def test_expected_console_scripts_are_declared():
     )
     assert scripts["alaro-pair-analysis"] == "alaro_analysis.workflows.pair_analysis:main"
     assert scripts["alaro-panel-anomaly"] == "alaro_analysis.workflows.panel_anomaly:main"
+    assert scripts["alaro-disdrometer-masked-domain"] == (
+        "alaro_analysis.workflows.disdrometer_masked_domain:main"
+    )
+    assert scripts["alaro-disdrometer-dsd"] == (
+        "alaro_analysis.workflows.disdrometer_dsd:main"
+    )
+    assert scripts["alaro-radiosonde-profiles"] == (
+        "alaro_analysis.workflows.radiosonde_profiles:main"
+    )
+    assert scripts["alaro-plot-radiosonde-profiles"] == (
+        "alaro_analysis.workflows.plot_radiosonde_profiles:main"
+    )
+    assert scripts["alaro-precip-distribution"] == (
+        "alaro_analysis.workflows.precip_distribution:main"
+    )
+    assert scripts["alaro-precip-diurnal-cycle"] == (
+        "alaro_analysis.workflows.precip_diurnal_cycle:main"
+    )
 
 
 def test_fa_stack_is_optional():
@@ -48,6 +66,15 @@ def test_fa_stack_is_optional():
         "alaro_analysis.workflows.radiation_compare",
         "alaro_analysis.workflows.pair_analysis",
         "alaro_analysis.workflows.panel_anomaly",
+        "alaro_analysis.ddh.plot_condensation_partition",
+        "alaro_analysis.ddh.plot_phase_changes",
+        "alaro_analysis.workflows.disdrometer_comparison",
+        "alaro_analysis.workflows.disdrometer_masked_domain",
+        "alaro_analysis.workflows.disdrometer_dsd",
+        "alaro_analysis.workflows.radiosonde_profiles",
+        "alaro_analysis.workflows.plot_radiosonde_profiles",
+        "alaro_analysis.workflows.precip_distribution",
+        "alaro_analysis.workflows.precip_diurnal_cycle",
     ],
 )
 def test_command_module_help_smoke(module: str):

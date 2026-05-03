@@ -17,6 +17,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
+from alaro_analysis.ddh.plot_style import (
+    PROCESS_COLOURS,
+    get_line_style,
+    get_process_name,
+)
+
 # ── Font / rcParams ──────────────────────────────────────────────────────────
 plt.rcParams.update({
     "font.family": "sans-serif",
@@ -196,93 +202,6 @@ EXP_LABELS = {
     "graupel": "Graupel (G1M)",
     "2mom":    "2-Moment (G2M)",
 }
-
-# ── Process-based colour map: each PROCESS gets a unique colour ────────────────
-# Resolved vs. Parametrized is shown via line style, not colour
-PROCESS_COLOURS = {
-    "Dynamics":              "#1B6EC2",   # Blue
-    "Micro":                 "#D93425",   # Red
-    "Condensation":          "#228B22",   # Green
-    "Evaporation":           "#9B59B6",   # Purple
-    "Autoconversion":        "#E8891D",   # Orange
-    "Precipitation":         "#FF6B6B",   # Bright Red
-    "Turbulence (diff)":     "#00A6A6",   # Teal
-    "Turbulence (conv)":     "#E84393",   # Magenta
-    "Radiation (solar)":     "#FFD700",   # Gold
-    "Radiation (thermal)":   "#17B890",   # Emerald
-    "Shear":                 "#6C3483",   # Dark Purple
-    "Buoyancy":              "#F39C12",   # Amber
-    "Dissipation":           "#C70039",   # Dark Red
-    "Advection":             "#0066CC",   # Navy Blue
-    "Diffusion":             "#FF8C00",   # Dark Orange
-    "GWD drag":              "#20B2AA",   # Light Sea Green
-    "Negativity correction": "#8B4513",   # Saddle Brown
-}
-
-
-def get_process_name(label):
-    """Extract the base process name from a label."""
-    lower = label.lower()
-    
-    # Special cases with exact matching
-    if label in ("Dynamics", "Advection", "GWD drag", "Negativity correction"):
-        return label
-    
-    # Handle special names (not in "X (conv/resolved)" format)
-    if label in ("Turbulence (diff)", "Turbulence (conv)"):
-        return label
-    if label in ("Radiation (solar)", "Radiation (thermal)"):
-        return label
-    if label in ("Shear", "Buoyancy", "Dissipation", "Diffusion"):
-        return label
-    
-    # Extract process from "Process (variant)" format
-    if "(" in label and ")" in label:
-        process = label.split("(")[0].strip()
-        return process
-    
-    return label
-
-
-def get_line_style(label):
-    """Return (colour, linewidth, linestyle, alpha, zorder) for a term.
-    
-    Special rules:
-    - Tendency: solid black, bold
-    - Residual: dotted grey
-    - Sum of: dash-dot grey
-    - Resolved processes: solid line, full opacity
-    - Convective/parametrized processes: dashed line, slightly reduced opacity
-    """
-    lower = label.lower()
-    
-    if label == "Tendency":
-        return "#111111", 2.4, "-", 1.0, 10
-    elif "residual" in lower:
-        return "#666666", 1.8, (0, (5, 3)), 0.85, 9
-    elif "sum of" in lower:
-        return "#333333", 1.8, (0, (2, 2)), 0.85, 8
-    else:
-        # Get base process name and look up color
-        process = get_process_name(label)
-        colour = PROCESS_COLOURS.get(process, "#777777")
-        
-        # Determine line style based on resolved vs parametrized
-        if "resolved" in lower:
-            # Resolved: solid line, full opacity
-            linestyle = "-"
-            alpha = 0.95
-        elif "conv" in lower or "convective" in lower:
-            # Parametrized/Convective: dashed line, slightly reduced opacity
-            linestyle = (0, (5, 5))  # Medium dashes
-            alpha = 0.85
-        else:
-            # Other processes (Dynamics, Advection, etc.): solid line
-            linestyle = "-"
-            alpha = 0.92
-        
-        return colour, 1.5, linestyle, alpha, 3
-
 
 def read_dta(path: Path):
     if not path.is_file():

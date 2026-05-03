@@ -17,6 +17,7 @@ from ..common.constants import (
     EXPERIMENT_LABELS,
     FREEZING_K as T_FREEZE_K,
 )
+from .plot_style import process_color
 
 # ---------------------------------------------------------------------------
 # Filesystem layout
@@ -49,13 +50,18 @@ Z_MAX_KM   = 20.0
 # Budget-component colouring and human-readable labels
 # ---------------------------------------------------------------------------
 BLOCK_COLORS: dict[str, str] = {
-    "cond-cv":     "#1f77b4", "cond-rs":     "#4e79b9",
-    "evap-cv":     "#d62728", "evap-rs":     "#d4a6a7",
-    "auto-cv":     "#2ca02c", "auto-rs":     "#83d083",
-    "prec-cv":     "#9467bd", "prec-rs":     "#bfa3d2",
-    "turdiff":     "#17becf", "turconv":     "#6ec6ce",
-    "dynam":       "#ff7f0e",
-    "neg":         "#000000",
+    "cond-cv":     process_color("Condensation"),
+    "cond-rs":     process_color("Condensation"),
+    "evap-cv":     process_color("Evaporation"),
+    "evap-rs":     process_color("Evaporation"),
+    "auto-cv":     process_color("Autoconversion"),
+    "auto-rs":     process_color("Autoconversion"),
+    "prec-cv":     process_color("Precipitation"),
+    "prec-rs":     process_color("Precipitation"),
+    "turdiff":     process_color("Turbulence (diff)"),
+    "turconv":     process_color("Turbulence (conv)"),
+    "dynam":       process_color("Dynamics"),
+    "neg":         process_color("Negativity correction"),
     # Residuals / component sums across all species share a neutral colour.
     "TQVRESIDUAL": "#bcbd22", "TQLRESIDUAL": "#bcbd22",
     "TQIRESIDUAL": "#bcbd22", "TQNRESIDUAL": "#bcbd22",

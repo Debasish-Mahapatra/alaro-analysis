@@ -41,6 +41,7 @@ from .io import (
     Z_MAX_KM, freezing_level_km, load_temperature, pretty_block_label,
     tick_formatter,
 )
+from .plot_style import pathway_from_block, pathway_line_attributes
 
 FIG_DIR = FIG_DIR_BASE / "neg"
 SPECIES_DEFAULT = ("QV", "QL", "QI")
@@ -152,7 +153,8 @@ def plot_grid(case_data: dict[str, dict[str, dict[str, np.ndarray]]],
                 color = BLOCK_COLORS.get(block, "#999999")
                 lw = 2.0 if block == "neg" else 1.0
                 zorder = 6 if block == "neg" else 2
-                ax.plot(profile, z, color=color, lw=lw,
+                ls, alpha = pathway_line_attributes(pathway_from_block(block))
+                ax.plot(profile, z, color=color, lw=lw, ls=ls, alpha=alpha,
                         label=pretty_block_label(block), zorder=zorder)
             z0 = freezing_level_km(temps.get(exp))
             if np.isfinite(z0):

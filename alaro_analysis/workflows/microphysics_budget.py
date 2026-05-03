@@ -20,6 +20,10 @@ diagnostics:
        Tests Kwinten's G1M-graupel-aloft hypothesis: does G1M store more
        frozen mass at high altitude than C1M/G2M?
 
+  B1 amount — Species storage amount.  Actual condensate mass in each
+       hydrometeor, by height and hour-of-day, with a shared x-axis maximum
+       across simulations.
+
   B2 — Surface-reach fraction.  surface_flux / max(column_flux) per hour.
        If the model produces a large column-max flux but only a small fraction
        reaches the surface, a lot is being re-evaporated below cloud base.
@@ -64,6 +68,7 @@ import argparse
 import warnings
 from multiprocessing import Pool
 from pathlib import Path
+from typing import Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -76,6 +81,7 @@ from alaro_analysis.common.constants import EXPERIMENT_COLORS as EXP_COLORS
 # ---------------------------------------------------------------------------
 DATA_ROOT = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/ALARO")
 OUTPUT_DIR = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/figures/microphysics_budget")
+DATA_TXT_DIR = OUTPUT_DIR / "data_txt"
 CACHE_DIR = Path(
     "/gpfs/me01/me/CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/microphysics_budget"
 )
@@ -108,6 +114,10 @@ G = 9.80665
 MIN_LEAD_HOUR = 0
 N_WORKERS = 24
 T_FREEZE = 273.15  # K
+PANEL_LABELS = ("(a)", "(b)", "(c)", "(d)", "(e)", "(f)")
+PANEL_TITLE_FONTSIZE = 16
+PANEL_LABEL_FONTSIZE = 14
+B1_LEGEND_FONTSIZE = 12
 
 
 # ---------------------------------------------------------------------------
@@ -500,6 +510,309 @@ def _mean_scalar_over_hours(vec: np.ndarray, hours: slice) -> float:
         return float(np.nanmean(vec[hours]))
 
 
+def _txt_path_for_plot(output_path: Path) -> Path:
+    return DATA_TXT_DIR / f"{output_path.stem}.txt"
+
+
+def _fmt(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    numeric = float(value)
+    if not np.isfinite(numeric):
+        return "nan"
+    return f"{numeric:.10g}"
+
+
+def _write_headline(fh, title: str, output_path: Path, notes: Sequence[str] = ()):
+    fh.write(f"{title}\n")
+    fh.write(f"{'=' * len(title)}\n")
+    fh.write(f"Source plot: {output_path}\n")
+    fh.write(f"Hour averaging: {HOUR_BAND_LABEL} ({HOUR_BAND_DEFAULT.start or 0}-23 UTC)\n")
+    for note in notes:
+        fh.write(f"{note}\n")
+    fh.write("\n")
+
+
+def _write_csv_section(fh, title: str, columns: Sequence[str], rows: Sequence[Sequence[object]]):
+    fh.write(f"{title}\n")
+    fh.write(f"{'-' * len(title)}\n")
+    fh.write(",".join(columns) + "\n")
+    for row in rows:
+        fh.write(",".join(_fmt(value) for value in row) + "\n")
+    fh.write("\n")
+
+
+def _write_plot_txt(output_path: Path, writer):
+    txt_path = _txt_path_for_plot(output_path)
+    txt_path.parent.mkdir(parents=True, exist_ok=True)
+    with txt_path.open("w", encoding="utf-8") as fh:
+        writer(fh)
+    print(f"  txt: {txt_path}")
+
+
+def _write_freezing_level_section(fh, finals: dict[str, dict[str, np.ndarray]]):
+    rows = []
+    for exp, label in EXPERIMENTS.items():
+        if exp not in finals:
+            continue
+        z0 = _mean_scalar_over_hours(finals[exp]["z_freeze"], HOUR_BAND_DEFAULT)
+        rows.append((exp, label, z0 / 1000.0 if np.isfinite(z0) else np.nan))
+    _write_csv_section(fh, "Freezing-level data", ("experiment", "label", "z_freeze_km"), rows)
+
+
+def write_b1_species_fraction_txt(finals: dict[str, dict[str, np.ndarray]], output_path: Path):
+    def _writer(fh):
+        _write_headline(
+            fh,
+            "B1 Species Fraction Plot Data",
+            output_path,
+            (
+                "Values are fractional hydrometeor mass per model layer.",
+                "Each species is divided by total hydrometeor mass at the same height.",
+            ),
+        )
+        _write_freezing_level_section(fh, finals)
+        for exp, label in EXPERIMENTS.items():
+            if exp not in finals:
+                continue
+            f = finals[exp]
+            z_km = _mean_over_hours(f["height_m"], HOUR_BAND_DEFAULT) / 1000.0
+            total = _mean_over_hours(f["mass_per_level_total"], HOUR_BAND_DEFAULT)
+            total_safe = np.where(total > 0, total, np.nan)
+            species_profiles = {
+                sp: _mean_over_hours(f[f"mass_per_level_{sp}"], HOUR_BAND_DEFAULT) / total_safe
+                for sp in SPECIES
+            }
+            rows = [
+                (z_km[i], *(species_profiles[sp][i] for sp in SPECIES))
+                for i in range(z_km.size)
+            ]
+            _write_csv_section(
+                fh,
+                f"{label} fractional profiles",
+                ("height_km", *(f"{sp}_fraction" for sp in SPECIES)),
+                rows,
+            )
+
+    _write_plot_txt(output_path, _writer)
+
+
+def write_b1_species_amount_txt(finals: dict[str, dict[str, np.ndarray]], output_path: Path):
+    xlim = _b1_global_mass_xlim(finals)
+
+    def _writer(fh):
+        _write_headline(
+            fh,
+            "B1 Species Amount Plot Data",
+            output_path,
+            (
+                "Values are actual hydrometeor mass per model layer.",
+                "Units: kg m-2.",
+                f"Shared plot x-axis limits: {_fmt(xlim[0])}, {_fmt(xlim[1])} kg m-2.",
+            ),
+        )
+        _write_freezing_level_section(fh, finals)
+        for exp, label in EXPERIMENTS.items():
+            if exp not in finals:
+                continue
+            f = finals[exp]
+            z_km = _mean_over_hours(f["height_m"], HOUR_BAND_DEFAULT) / 1000.0
+            species_profiles = {
+                sp: _mean_over_hours(f[f"mass_per_level_{sp}"], HOUR_BAND_DEFAULT)
+                for sp in SPECIES
+            }
+            total = sum(np.nan_to_num(species_profiles[sp], nan=0.0) for sp in SPECIES)
+            rows = [
+                (z_km[i], *(species_profiles[sp][i] for sp in SPECIES), total[i])
+                for i in range(z_km.size)
+            ]
+            _write_csv_section(
+                fh,
+                f"{label} mass profiles",
+                ("height_km", *(f"{sp}_kg_m-2" for sp in SPECIES), "total_kg_m-2"),
+                rows,
+            )
+
+    _write_plot_txt(output_path, _writer)
+
+
+def write_b1b_mass_above_species_txt(finals: dict[str, dict[str, np.ndarray]], output_path: Path):
+    def _writer(fh):
+        _write_headline(
+            fh,
+            "B1b Mass Above Species Plot Data",
+            output_path,
+            (
+                "Values are integrated condensate mass above height.",
+                "Units in this file match the plot axis: g m-2.",
+            ),
+        )
+        _write_freezing_level_section(fh, finals)
+        for exp, label in EXPERIMENTS.items():
+            if exp not in finals:
+                continue
+            f = finals[exp]
+            z_km = _mean_over_hours(f["height_m"], HOUR_BAND_DEFAULT) / 1000.0
+            species_profiles = {
+                sp: _mean_over_hours(f[f"mass_above_{sp}"], HOUR_BAND_DEFAULT) * 1000.0
+                for sp in SPECIES
+            }
+            rows = [
+                (z_km[i], *(species_profiles[sp][i] for sp in SPECIES))
+                for i in range(z_km.size)
+            ]
+            _write_csv_section(
+                fh,
+                f"{label} mass-above profiles",
+                ("height_km", *(f"{sp}_g_m-2" for sp in SPECIES)),
+                rows,
+            )
+
+    _write_plot_txt(output_path, _writer)
+
+
+def write_b2_surface_reach_txt(finals: dict[str, dict[str, np.ndarray]], output_path: Path):
+    def _writer(fh):
+        _write_headline(
+            fh,
+            "B2 Surface-Reach Fraction Plot Data",
+            output_path,
+            (
+                "Surface-reach fraction = surface_flux / max_column_flux.",
+                "Flux units: kg m-2 s-1.",
+            ),
+        )
+        for exp, label in EXPERIMENTS.items():
+            if exp not in finals:
+                continue
+            f = finals[exp]
+            surf = f["surface_flux"]
+            col = f["max_column_flux"]
+            with np.errstate(divide="ignore", invalid="ignore"):
+                frac = np.where(col > 0, surf / col, np.nan)
+            rows = [(hour, surf[hour], col[hour], frac[hour]) for hour in range(24)]
+            _write_csv_section(
+                fh,
+                f"{label} hourly surface-reach data",
+                (
+                    "hour_utc",
+                    "surface_flux_kg_m-2_s-1",
+                    "max_column_flux_kg_m-2_s-1",
+                    "surface_reach_fraction",
+                ),
+                rows,
+            )
+
+    _write_plot_txt(output_path, _writer)
+
+
+def write_b3_residence_time_txt(finals: dict[str, dict[str, np.ndarray]], output_path: Path):
+    def _writer(fh):
+        _write_headline(
+            fh,
+            "B3 Residence Time Plot Data",
+            output_path,
+            (
+                r"Residence time tau(z) = mass_above(z) / flux(z).",
+                f"Flux floor used before tau is plotted: {FLUX_FLOOR:g} kg m-2 s-1.",
+                "Residence-time units: seconds.",
+            ),
+        )
+        _write_freezing_level_section(fh, finals)
+        for exp, label in EXPERIMENTS.items():
+            if exp not in finals:
+                continue
+            f = finals[exp]
+            z_km = _mean_over_hours(f["height_m"], HOUR_BAND_DEFAULT) / 1000.0
+            mass_tot = _mean_over_hours(f["mass_above_total"], HOUR_BAND_DEFAULT)
+            flux = _mean_over_hours(f["flux_total"], HOUR_BAND_DEFAULT)
+            mass_snow = _mean_over_hours(
+                f.get("mass_above_SNOW", np.zeros_like(flux)), HOUR_BAND_DEFAULT
+            )
+            mass_graupel = _mean_over_hours(
+                f.get("mass_above_GRAUPEL", np.zeros_like(flux)), HOUR_BAND_DEFAULT
+            )
+            flux_ok = flux > FLUX_FLOOR
+            with np.errstate(divide="ignore", invalid="ignore"):
+                tau_total = np.where(flux_ok, mass_tot / flux, np.nan)
+                tau_snow = np.where(flux_ok, mass_snow / flux, np.nan)
+                tau_graupel = np.where(flux_ok, mass_graupel / flux, np.nan)
+            rows = [
+                (
+                    z_km[i],
+                    flux[i],
+                    mass_tot[i],
+                    mass_snow[i],
+                    mass_graupel[i],
+                    tau_total[i],
+                    tau_snow[i],
+                    tau_graupel[i],
+                )
+                for i in range(z_km.size)
+            ]
+            _write_csv_section(
+                fh,
+                f"{label} residence-time profiles",
+                (
+                    "height_km",
+                    "flux_total_kg_m-2_s-1",
+                    "mass_above_total_kg_m-2",
+                    "mass_above_SNOW_kg_m-2",
+                    "mass_above_GRAUPEL_kg_m-2",
+                    "tau_total_s",
+                    "tau_snow_s",
+                    "tau_graupel_s",
+                ),
+                rows,
+            )
+
+    _write_plot_txt(output_path, _writer)
+
+
+def write_b4_flux_divergence_txt(finals: dict[str, dict[str, np.ndarray]], output_path: Path):
+    def _writer(fh):
+        _write_headline(
+            fh,
+            "B4 Flux Divergence Plot Data",
+            output_path,
+            (
+                "Positive values indicate a net source; negative values indicate a net sink.",
+                "Raw plot values are -dF/dz in 10^-6 kg m-3 s-1.",
+                "Normalized plot values are (-dF/dz / surface_flux) in 10^-3 m-1.",
+            ),
+        )
+        _write_freezing_level_section(fh, finals)
+        for exp, label in EXPERIMENTS.items():
+            if exp not in finals:
+                continue
+            f = finals[exp]
+            z_km = _mean_over_hours(f["height_m"], HOUR_BAND_DEFAULT) / 1000.0
+            fdiv = _mean_over_hours(f["flux_div"], HOUR_BAND_DEFAULT)
+            surf = _mean_scalar_over_hours(f["surface_flux"], HOUR_BAND_DEFAULT)
+            if np.isfinite(surf) and surf > 0:
+                normalized = fdiv / surf * 1000.0
+            else:
+                normalized = np.full_like(fdiv, np.nan)
+            rows = [
+                (z_km[i], fdiv[i], fdiv[i] * 1e6, surf, normalized[i])
+                for i in range(z_km.size)
+            ]
+            _write_csv_section(
+                fh,
+                f"{label} flux-divergence profiles",
+                (
+                    "height_km",
+                    "flux_divergence_kg_m-3_s-1",
+                    "flux_divergence_1e-6_kg_m-3_s-1",
+                    "surface_flux_kg_m-2_s-1",
+                    "normalized_flux_divergence_1e-3_m-1",
+                ),
+                rows,
+            )
+
+    _write_plot_txt(output_path, _writer)
+
+
 def _draw_freeze_line(ax, finals: dict[str, dict[str, np.ndarray]]):
     """Draw a dashed horizontal line at the per-experiment mean 0 C isotherm.
 
@@ -515,13 +828,39 @@ def _draw_freeze_line(ax, finals: dict[str, dict[str, np.ndarray]]):
     ax.plot([], [], color="k", lw=1.0, ls="--", alpha=0.7, label=r"0 $^\circ$C isotherm")
 
 
+def _set_panel_title(ax, title: str) -> None:
+    ax.set_title(title, color="black", fontsize=PANEL_TITLE_FONTSIZE)
+
+
+def _add_panel_label(ax, index: int) -> None:
+    label = PANEL_LABELS[index] if index < len(PANEL_LABELS) else f"({index + 1})"
+    ax.text(
+        0.03,
+        0.96,
+        label,
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=PANEL_LABEL_FONTSIZE,
+        fontweight="bold",
+        color="black",
+        bbox={
+            "facecolor": "white",
+            "edgecolor": "none",
+            "alpha": 0.6,
+            "boxstyle": "round,pad=0.18",
+        },
+        zorder=10,
+    )
+
+
 def plot_b1_species_fraction(finals: dict[str, dict[str, np.ndarray]], output_path: Path):
     """B1 — fractional storage partition by species."""
     fig, axes = plt.subplots(1, len(EXPERIMENTS), figsize=(5.5 * len(EXPERIMENTS), 6.5),
                              sharey=True, squeeze=False)
     axes = axes[0]
 
-    for ax, (exp, label) in zip(axes, EXPERIMENTS.items()):
+    for col, (ax, (exp, label)) in enumerate(zip(axes, EXPERIMENTS.items())):
         f = finals[exp]
         z_km = _mean_over_hours(f["height_m"], HOUR_BAND_DEFAULT) / 1000.0
         total = _mean_over_hours(f["mass_per_level_total"], HOUR_BAND_DEFAULT)
@@ -553,14 +892,86 @@ def plot_b1_species_fraction(finals: dict[str, dict[str, np.ndarray]], output_pa
         ax.set_xlim(0.0, 1.0)
         ax.set_ylim(0.0, 18.0)
         ax.set_xlabel("Fraction of total condensate mass")
-        ax.set_title(label)
+        _set_panel_title(ax, label)
+        _add_panel_label(ax, col)
         ax.grid(alpha=0.3)
 
     axes[0].set_ylabel("Height (km)")
-    axes[-1].legend(loc="upper right", fontsize=9, framealpha=0.9)
+    axes[-1].legend(loc="upper right", fontsize=B1_LEGEND_FONTSIZE, framealpha=0.9)
     fig.suptitle(
         "Species partition of column condensate mass",
-        fontsize=14, fontweight="bold",
+        fontsize=PANEL_TITLE_FONTSIZE, fontweight="bold", color="black",
+    )
+    fig.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=450, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  fig: {output_path}")
+
+
+def _b1_global_mass_xlim(finals: dict[str, dict[str, np.ndarray]]) -> tuple[float, float]:
+    """Shared x-axis limit for stacked species mass panels."""
+    vmax = 0.0
+    for exp in finals:
+        f = finals[exp]
+        stack_total: np.ndarray | None = None
+        for sp in SPECIES:
+            prof = _mean_over_hours(f[f"mass_per_level_{sp}"], HOUR_BAND_DEFAULT)
+            prof = np.nan_to_num(prof, nan=0.0)
+            stack_total = prof if stack_total is None else stack_total + prof
+        if stack_total is not None and np.any(np.isfinite(stack_total)):
+            vmax = max(vmax, float(np.nanmax(stack_total)))
+    if vmax <= 0.0:
+        vmax = 1.0
+    return (0.0, vmax * 1.05)
+
+
+def plot_b1_species_amount(finals: dict[str, dict[str, np.ndarray]], output_path: Path):
+    """B1 — actual hydrometeor storage amount by species."""
+    fig, axes = plt.subplots(1, len(EXPERIMENTS), figsize=(5.5 * len(EXPERIMENTS), 6.5),
+                             sharey=True, squeeze=False)
+    axes = axes[0]
+    xlim = _b1_global_mass_xlim(finals)
+
+    for col, (ax, (exp, label)) in enumerate(zip(axes, EXPERIMENTS.items())):
+        f = finals[exp]
+        z_km = _mean_over_hours(f["height_m"], HOUR_BAND_DEFAULT) / 1000.0
+
+        # Build absolute mass columns per species; stacked-area-style plot.
+        sp_mass: dict[str, np.ndarray] = {}
+        for sp in SPECIES:
+            sp_mass[sp] = _mean_over_hours(f[f"mass_per_level_{sp}"], HOUR_BAND_DEFAULT)
+
+        order = list(SPECIES)
+        lower = np.zeros_like(z_km)
+        for sp in order:
+            upper = lower + np.nan_to_num(sp_mass[sp], nan=0.0)
+            ax.fill_betweenx(
+                z_km, lower, upper,
+                color=SPECIES_COLOR[sp], alpha=0.85,
+                label=SPECIES_LABEL[sp],
+            )
+            lower = upper
+
+        # 0 C isotherm for this experiment only (panel per experiment).
+        z0 = _mean_scalar_over_hours(f["z_freeze"], HOUR_BAND_DEFAULT)
+        if np.isfinite(z0):
+            ax.axhline(z0 / 1000.0, color="k", lw=1.2, ls="--", alpha=0.85,
+                       label=r"0 $^\circ$C isotherm")
+
+        ax.set_xlim(*xlim)
+        ax.set_ylim(0.0, 18.0)
+        ax.set_xlabel(r"Hydrometeor mass per model layer (kg m$^{-2}$)")
+        ax.ticklabel_format(axis="x", style="sci", scilimits=(-2, 2))
+        _set_panel_title(ax, label)
+        _add_panel_label(ax, col)
+        ax.grid(alpha=0.3)
+
+    axes[0].set_ylabel("Height (km)")
+    axes[-1].legend(loc="upper right", fontsize=B1_LEGEND_FONTSIZE, framealpha=0.9)
+    fig.suptitle(
+        f"Hydrometeor mass by species ({HOUR_BAND_LABEL})",
+        fontsize=PANEL_TITLE_FONTSIZE, fontweight="bold", color="black",
     )
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -587,7 +998,8 @@ def plot_b2_surface_reach(finals: dict[str, dict[str, np.ndarray]], output_path:
     ax.set_ylabel("Surface flux / max column flux")
     ax.grid(alpha=0.3)
     ax.legend()
-    ax.set_title("Fraction of precipitation flux reaching the surface")
+    _set_panel_title(ax, "Fraction of precipitation flux reaching the surface")
+    _add_panel_label(ax, 0)
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=450, bbox_inches="tight")
@@ -631,13 +1043,15 @@ def plot_b3_residence_time(finals: dict[str, dict[str, np.ndarray]], output_path
         ax.set_xlabel(r"Residence time $\tau$ (s)")
         ax.grid(which="both", alpha=0.3)
     ax_total.set_ylabel("Height (km)")
-    ax_total.set_title("All condensate")
-    ax_frozen.set_title("Snow (solid) vs graupel (dashed)")
+    _set_panel_title(ax_total, "All condensate")
+    _add_panel_label(ax_total, 0)
+    _set_panel_title(ax_frozen, "Snow (solid) vs graupel (dashed)")
+    _add_panel_label(ax_frozen, 1)
     ax_total.legend(loc="upper right")
     ax_frozen.legend(loc="upper right", fontsize=9)
     fig.suptitle(
         r"Per-level condensate residence time $\tau(z) = m_{>z} / F(z)$",
-        fontsize=14, fontweight="bold",
+        fontsize=PANEL_TITLE_FONTSIZE, fontweight="bold", color="black",
     )
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -668,14 +1082,16 @@ def plot_b4_flux_divergence(finals: dict[str, dict[str, np.ndarray]], output_pat
         ax.grid(alpha=0.3)
     ax_raw.set_ylabel("Height (km)")
     ax_raw.set_xlabel(r"$-dF/dz$ ($10^{-6}$ kg m$^{-3}$ s$^{-1}$)")
-    ax_raw.set_title("Raw divergence")
+    _set_panel_title(ax_raw, "Raw divergence")
+    _add_panel_label(ax_raw, 0)
     ax_norm.set_xlabel(r"$-dF/dz \, / \, F_{\mathrm{surf}}$ ($10^{-3}$ m$^{-1}$)")
-    ax_norm.set_title("Normalized by surface flux")
+    _set_panel_title(ax_norm, "Normalized by surface flux")
+    _add_panel_label(ax_norm, 1)
     ax_raw.legend(loc="upper right")
     fig.suptitle(
         "Precipitation flux divergence  |  "
         "positive = net source, negative = net sink",
-        fontsize=14, fontweight="bold",
+        fontsize=PANEL_TITLE_FONTSIZE, fontweight="bold", color="black",
     )
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -690,7 +1106,7 @@ def plot_b1b_mass_above_species(finals: dict[str, dict[str, np.ndarray]], output
                              sharey=True, squeeze=False)
     axes = axes[0]
 
-    for ax, (exp, label) in zip(axes, EXPERIMENTS.items()):
+    for col, (ax, (exp, label)) in enumerate(zip(axes, EXPERIMENTS.items())):
         f = finals[exp]
         z_km = _mean_over_hours(f["height_m"], HOUR_BAND_DEFAULT) / 1000.0
         for sp in SPECIES:
@@ -706,14 +1122,15 @@ def plot_b1b_mass_above_species(finals: dict[str, dict[str, np.ndarray]], output
         ax.set_xlim(1e-3, 1e2)
         ax.set_ylim(0.0, 18.0)
         ax.set_xlabel(r"Mass above level (g m$^{-2}$)")
-        ax.set_title(label)
+        _set_panel_title(ax, label)
+        _add_panel_label(ax, col)
         ax.grid(which="both", alpha=0.3)
 
     axes[0].set_ylabel("Height (km)")
-    axes[-1].legend(loc="upper right", fontsize=9, framealpha=0.9)
+    axes[-1].legend(loc="upper right", fontsize=B1_LEGEND_FONTSIZE, framealpha=0.9)
     fig.suptitle(
         "Integrated condensate mass above height, per species",
-        fontsize=14, fontweight="bold",
+        fontsize=PANEL_TITLE_FONTSIZE, fontweight="bold", color="black",
     )
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -753,11 +1170,25 @@ def main():
         print(f"  note: plotting with subset {list(finals)} only", flush=True)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    plot_b1_species_fraction(finals,  OUTPUT_DIR / "B1_species_fraction.png")
-    plot_b1b_mass_above_species(finals, OUTPUT_DIR / "B1b_mass_above_species.png")
-    plot_b2_surface_reach(finals,     OUTPUT_DIR / "B2_surface_reach_fraction.png")
-    plot_b3_residence_time(finals,    OUTPUT_DIR / "B3_residence_time.png")
-    plot_b4_flux_divergence(finals,   OUTPUT_DIR / "B4_flux_divergence.png")
+    b1_fraction = OUTPUT_DIR / "B1_species_fraction.png"
+    b1_amount = OUTPUT_DIR / "B1_species_amount.png"
+    b1b_mass_above = OUTPUT_DIR / "B1b_mass_above_species.png"
+    b2_surface = OUTPUT_DIR / "B2_surface_reach_fraction.png"
+    b3_residence = OUTPUT_DIR / "B3_residence_time.png"
+    b4_divergence = OUTPUT_DIR / "B4_flux_divergence.png"
+
+    plot_b1_species_fraction(finals, b1_fraction)
+    write_b1_species_fraction_txt(finals, b1_fraction)
+    plot_b1_species_amount(finals, b1_amount)
+    write_b1_species_amount_txt(finals, b1_amount)
+    plot_b1b_mass_above_species(finals, b1b_mass_above)
+    write_b1b_mass_above_species_txt(finals, b1b_mass_above)
+    plot_b2_surface_reach(finals, b2_surface)
+    write_b2_surface_reach_txt(finals, b2_surface)
+    plot_b3_residence_time(finals, b3_residence)
+    write_b3_residence_time_txt(finals, b3_residence)
+    plot_b4_flux_divergence(finals, b4_divergence)
+    write_b4_flux_divergence_txt(finals, b4_divergence)
 
 
 if __name__ == "__main__":

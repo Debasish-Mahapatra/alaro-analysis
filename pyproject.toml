@@ -29,6 +29,12 @@ alaro-diagnostics = "alaro_analysis.workflows.diagnostics:main"
 alaro-radiation-compare = "alaro_analysis.workflows.radiation_compare:main"
 alaro-pair-analysis = "alaro_analysis.workflows.pair_analysis:main"
 alaro-panel-anomaly = "alaro_analysis.workflows.panel_anomaly:main"
+alaro-disdrometer-masked-domain = "alaro_analysis.workflows.disdrometer_masked_domain:main"
+alaro-disdrometer-dsd = "alaro_analysis.workflows.disdrometer_dsd:main"
+alaro-radiosonde-profiles = "alaro_analysis.workflows.radiosonde_profiles:main"
+alaro-plot-radiosonde-profiles = "alaro_analysis.workflows.plot_radiosonde_profiles:main"
+alaro-precip-distribution = "alaro_analysis.workflows.precip_distribution:main"
+alaro-precip-diurnal-cycle = "alaro_analysis.workflows.precip_diurnal_cycle:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["alaro_analysis"]
