@@ -511,7 +511,7 @@ def _mean_scalar_over_hours(vec: np.ndarray, hours: slice) -> float:
 
 
 def _txt_path_for_plot(output_path: Path) -> Path:
-    return DATA_TXT_DIR / f"{output_path.stem}.txt"
+    return output_path.parent / "data_txt" / f"{output_path.stem}.txt"
 
 
 def _fmt(value: object) -> str:
@@ -949,9 +949,14 @@ def plot_b1_species_amount(finals: dict[str, dict[str, np.ndarray]], output_path
             ax.fill_betweenx(
                 z_km, lower, upper,
                 color=SPECIES_COLOR[sp], alpha=0.85,
+                edgecolor="none", linewidth=0.0,
                 label=SPECIES_LABEL[sp],
             )
             lower = upper
+
+        # Draw the total-mass outline explicitly so the outer boundary is not
+        # inherited from the top species color.
+        ax.plot(lower, z_km, color="black", lw=1.2, alpha=0.95, zorder=4)
 
         # 0 C isotherm for this experiment only (panel per experiment).
         z0 = _mean_scalar_over_hours(f["z_freeze"], HOUR_BAND_DEFAULT)

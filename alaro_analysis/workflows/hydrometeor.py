@@ -94,30 +94,12 @@ DEFAULT_INTERMEDIATE_DIR = Path(
 
 UPDRAFT_OMEGA_VAR = "UD_OMEGA"
 UPDRAFT_MESH_VAR = "UD_MESH_FRAC"
-# VITESSE_VERT is the true NH omega (Dpi/Dt) written in Pa/s despite its
-# "m s-1" units attribute being incorrect.  Using it directly avoids the
-# hydrostatic approximation omega = -rho g w that VERT_VELOCIT would
-# require.
-VITESSE_VERT_VAR = "VITESSE_VERT"
 UPDRAFT_DERIVED_VARIABLES = (
     "UPDRAFT_FLUX",
     "UPDRAFT_EXTENT",
     "UPDRAFT_INTENSITY",
-    "GRID_MASS_FLUX",
-    "TOTAL_MASS_FLUX",
-    "TOTAL_UPDRAFT_FLUX",
-    "TOTAL_UPDRAFT_EXTENT",
-    "TOTAL_UPDRAFT_INTENSITY",
 )
 UPDRAFT_DERIVED_SET = set(UPDRAFT_DERIVED_VARIABLES)
-# Derived variables that need the NH resolved omega (VITESSE_VERT) on top
-# of the parameterized draft (UD_OMEGA, UD_MESH_FRAC).
-GRID_MASS_FLUX_EXTRA_VARS = (VITESSE_VERT_VAR,)
-# Resolved-updraft threshold: a cell's resolved omega must be more strongly
-# upward than this (Pa/s; recall negative omega = upward motion) to count
-# as a "resolved updraft".  -5 Pa/s approximately matches w > 1 m/s at
-# mid-tropospheric density (rho ~ 0.5 kg/m^3, g = 9.81).
-TOTAL_UPDRAFT_OMEGA_THRESHOLD = -5.0
 DEFAULT_SHARED_SCALE_GROUPS = (
     ("LIQUID_WATER", "RAD_LIQUID_W"),
     ("SOLID_WATER", "RAD_SOLID_WA"),
@@ -133,11 +115,6 @@ LINEAR_ABSOLUTE_VARIABLE_KEYS = {
     "UPDRAFT_EXTENT",
     "UPDRAFT_INTENSITY",
     "UPDRAFT_FLUX",
-    "GRID_MASS_FLUX",
-    "TOTAL_MASS_FLUX",
-    "TOTAL_UPDRAFT_FLUX",
-    "TOTAL_UPDRAFT_EXTENT",
-    "TOTAL_UPDRAFT_INTENSITY",
     "TEMPERATURE",
     "HUMI.SPECIFI",
     "RAIN",
@@ -159,7 +136,6 @@ UNIT_INTERVAL_VARIABLE_KEYS = {
     "SURFNEBUL.TOTALE",
     "UD_MESH_FRAC",
     "UPDRAFT_EXTENT",
-    "TOTAL_UPDRAFT_EXTENT",
 }
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -365,16 +341,6 @@ def variable_label(name: str) -> str:
         return "Updraft Extent"
     if key == "UPDRAFT_INTENSITY":
         return "Updraft Intensity"
-    if key == "GRID_MASS_FLUX":
-        return "Grid-scale Mass Flux"
-    if key == "TOTAL_MASS_FLUX":
-        return "Total Vertical Mass Flux"
-    if key == "TOTAL_UPDRAFT_FLUX":
-        return "Total Updraft Flux"
-    if key == "TOTAL_UPDRAFT_EXTENT":
-        return "Total Updraft Extent"
-    if key == "TOTAL_UPDRAFT_INTENSITY":
-        return "Total Updraft Intensity"
     return name
 
 
@@ -390,12 +356,6 @@ def variable_unit(name: str) -> str:
         return "Pa/s"
     if key == "UPDRAFT_EXTENT":
         return "Fraction"
-    if key in ("GRID_MASS_FLUX", "TOTAL_MASS_FLUX", "TOTAL_UPDRAFT_FLUX"):
-        return "kg/(m^2 s)"
-    if key == "TOTAL_UPDRAFT_EXTENT":
-        return "Fraction"
-    if key == "TOTAL_UPDRAFT_INTENSITY":
-        return "Pa/s"
     return ""
 
 
@@ -694,83 +654,13 @@ def as_time_level_yx(arr: np.ndarray, file_path: Path) -> np.ndarray:
     raise ValueError(f"Expected 3D/4D array in {file_path}, got shape {arr.shape}")
 
 
-def needs_grid_scale_inputs(variable: str) -> bool:
-    return variable.strip().upper() in {
-        "GRID_MASS_FLUX",
-        "TOTAL_MASS_FLUX",
-        "TOTAL_UPDRAFT_FLUX",
-        "TOTAL_UPDRAFT_EXTENT",
-        "TOTAL_UPDRAFT_INTENSITY",
-    }
-
-
-def _build_total_updraft_omega_and_sigma(
-    omega: np.ndarray,
-    mesh: np.ndarray,
-    omega_grid: np.ndarray,
-    omega_threshold: float = TOTAL_UPDRAFT_OMEGA_THRESHOLD,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Per-cell (omega_tot, sigma_tot) used by the TOTAL_UPDRAFT_* trio.
-
-    Area-weighted additive combination that avoids double-counting: the
-    parameterized draft occupies a sub-grid fraction f_UD of the cell,
-    and any resolved updraft is attributed only to the remaining
-    (1 - f_UD) area.  Resolved motion counts as an updraft where
-    omega_grid < omega_threshold (Pa/s; more-negative-than is more-upward).
-
-    Per cell:
-        sigma_tot         = f_UD + (1 - f_UD) * [omega_grid < thr]
-        omega_tot·sigma_tot = omega_UD·f_UD  +  omega_grid·(1 - f_UD)·[omega_grid < thr]
-
-    Plug (omega_tot, sigma_tot) into the usual formulas to get
-    flux, extent, intensity (Pa/s for intensity, kg/(m^2 s) for flux,
-    fraction for extent).
-
-    NaN in any input (masked / out-of-domain cells) propagates so that
-    nanmean ignores them.
-    """
-    any_nan = (~np.isfinite(omega)) | (~np.isfinite(mesh)) | (~np.isfinite(omega_grid))
-
-    # f_UD clamped to [0, 1] so tiny negative numerical-noise values do
-    # not flip sign or exceed 1.
-    f_ud = np.clip(np.where(np.isfinite(mesh), mesh, 0.0), 0.0, 1.0)
-    remaining = 1.0 - f_ud
-    resolved = np.isfinite(omega_grid) & (omega_grid < omega_threshold)
-
-    sigma_tot = f_ud + remaining * resolved                                # fraction in [0, 1]
-    omega_sigma = omega * f_ud + omega_grid * remaining * resolved         # Pa/s · fraction
-
-    with np.errstate(divide="ignore", invalid="ignore"):
-        omega_tot = np.where(sigma_tot > 0, omega_sigma / sigma_tot, 0.0)
-
-    omega_tot[any_nan] = np.nan
-    sigma_tot[any_nan] = np.nan
-
-    return omega_tot, sigma_tot
-
-
 def compute_updraft_derived_profile_from_files(
     omega_file: Path,
     mesh_file: Path,
     derived_variable: str,
     spatial_window: SpatialWindow,
-    vitesse_vert_file: Path | None = None,
 ) -> np.ndarray:
     name = derived_variable.strip().upper()
-
-    # GRID_MASS_FLUX only needs VITESSE_VERT (NH resolved omega in Pa/s);
-    # UD_OMEGA/UD_MESH_FRAC are ignored.
-    if name == "GRID_MASS_FLUX":
-        if vitesse_vert_file is None:
-            raise ValueError(f"{name} requires a VITESSE_VERT file.")
-        omega_grid = as_time_level_yx(
-            read_field_array(vitesse_vert_file, VITESSE_VERT_VAR), vitesse_vert_file
-        )
-        omega_grid = apply_spatial_window_to_array(omega_grid, spatial_window, vitesse_vert_file)
-        # Mass flux in kg m^-2 s^-1, positive = upward: M = -omega / g.
-        flux = -omega_grid / G
-        profile, _ = nanmean_with_count(flux, axis=(0, 2, 3))
-        return profile
 
     omega = as_time_level_yx(read_field_array(omega_file, UPDRAFT_OMEGA_VAR), omega_file)
     mesh = as_time_level_yx(read_field_array(mesh_file, UPDRAFT_MESH_VAR), mesh_file)
@@ -796,50 +686,12 @@ def compute_updraft_derived_profile_from_files(
         return profile
 
     if name == "UPDRAFT_INTENSITY":
-        # Intensity is just UD_OMEGA. We take the absolute value so it plots positively.
-        # We only average where the updraft is actually active (mesh > 0).
-        omega_abs = np.where(mesh > 0, np.abs(omega), np.nan)
+        # Intensity is |UD_OMEGA| where the updraft is active. Inactive
+        # in-domain cells contribute zero so this remains a domain-mean
+        # diagnostic, matching UPDRAFT_EXTENT and UPDRAFT_FLUX.
+        finite = np.isfinite(omega) & np.isfinite(mesh)
+        omega_abs = np.where(finite, np.where(mesh > 0, np.abs(omega), 0.0), np.nan)
         profile, _ = nanmean_with_count(omega_abs, axis=(0, 2, 3))
-        return profile
-
-    if name == "TOTAL_MASS_FLUX":
-        # Grid-scale mass flux from VITESSE_VERT (NH resolved omega) plus
-        # the convection-scheme contribution (-omega_UD * f_UD / g).
-        # Units kg m^-2 s^-1, positive = upward.
-        if vitesse_vert_file is None:
-            raise ValueError(f"{name} requires a VITESSE_VERT file.")
-        omega_grid = as_time_level_yx(
-            read_field_array(vitesse_vert_file, VITESSE_VERT_VAR), vitesse_vert_file
-        )
-        omega_grid = apply_spatial_window_to_array(omega_grid, spatial_window, vitesse_vert_file)
-        flux = -omega_grid / G - (omega * mesh) / G
-        profile, _ = nanmean_with_count(flux, axis=(0, 2, 3))
-        return profile
-
-    if name in ("TOTAL_UPDRAFT_FLUX", "TOTAL_UPDRAFT_EXTENT", "TOTAL_UPDRAFT_INTENSITY"):
-        # Combine parameterized and resolved updrafts with the
-        # non-double-counting (1 - f_UD) weight, then apply the SAME three
-        # formulas as the UD variants for a 1-to-1 comparison.  The
-        # resolved omega is VITESSE_VERT (NH, Pa/s) -- no hydrostatic
-        # approximation needed.
-        if vitesse_vert_file is None:
-            raise ValueError(f"{name} requires a VITESSE_VERT file.")
-        omega_grid = as_time_level_yx(
-            read_field_array(vitesse_vert_file, VITESSE_VERT_VAR), vitesse_vert_file
-        )
-        omega_grid = apply_spatial_window_to_array(omega_grid, spatial_window, vitesse_vert_file)
-        omega_tot, sigma_tot = _build_total_updraft_omega_and_sigma(omega, mesh, omega_grid)
-
-        if name == "TOTAL_UPDRAFT_FLUX":
-            flux = np.where(sigma_tot > 0, (-omega_tot * sigma_tot) / G, 0.0)
-            profile, _ = nanmean_with_count(flux, axis=(0, 2, 3))
-            return profile
-        if name == "TOTAL_UPDRAFT_EXTENT":
-            profile, _ = nanmean_with_count(sigma_tot, axis=(0, 2, 3))
-            return profile
-        # TOTAL_UPDRAFT_INTENSITY
-        intensity = np.where(sigma_tot > 0, np.abs(omega_tot), np.nan)
-        profile, _ = nanmean_with_count(intensity, axis=(0, 2, 3))
         return profile
 
     raise ValueError(f"Unknown derived updraft variable: {derived_variable}")
@@ -854,26 +706,9 @@ def compute_diurnal_profile(
     spatial_window: SpatialWindow,
 ) -> tuple[np.ndarray, np.ndarray, int, Path]:
     is_derived = is_updraft_derived_variable(variable)
-    needs_grid = is_derived and needs_grid_scale_inputs(variable)
-
-    def _grid_scale_files(file_path: Path) -> dict[str, Path]:
-        if not needs_grid:
-            return {}
-        out: dict[str, Path] = {}
-        for var in GRID_MASS_FLUX_EXTRA_VARS:
-            candidate = (experiment_dir / var) / file_path.parent.name / file_path.name
-            if not candidate.exists():
-                raise FileNotFoundError(
-                    f"Missing paired {var} file for {file_path}: {candidate}"
-                )
-            out[var] = candidate
-        return out
 
     if is_derived:
-        # Drive discovery from UD_OMEGA for draft-based vars; from VITESSE_VERT
-        # for the grid-only GRID_MASS_FLUX (no UD_OMEGA dependency).
-        driver_var = VITESSE_VERT_VAR if variable.strip().upper() == "GRID_MASS_FLUX" else UPDRAFT_OMEGA_VAR
-        driver_dir = experiment_dir / driver_var
+        driver_dir = experiment_dir / UPDRAFT_OMEGA_VAR
         records = collect_file_records(
             variable_dir=driver_dir,
             max_days=max_days,
@@ -884,22 +719,16 @@ def compute_diurnal_profile(
             raise RuntimeError(f"No valid +0000..+0023 files found in {driver_dir}")
 
         first_driver = records[0][1]
-        first_omega_path: Path | None = None
-        first_mesh_path: Path | None = None
-        if driver_var == UPDRAFT_OMEGA_VAR:
-            first_omega_path = first_driver
-            first_mesh_path = (experiment_dir / UPDRAFT_MESH_VAR) / first_driver.parent.name / first_driver.name
-            if not first_mesh_path.exists():
-                raise FileNotFoundError(
-                    f"Missing paired {UPDRAFT_MESH_VAR} file for {first_driver}: {first_mesh_path}"
-                )
-        grid_files_first = _grid_scale_files(first_driver)
+        first_mesh_path = (experiment_dir / UPDRAFT_MESH_VAR) / first_driver.parent.name / first_driver.name
+        if not first_mesh_path.exists():
+            raise FileNotFoundError(
+                f"Missing paired {UPDRAFT_MESH_VAR} file for {first_driver}: {first_mesh_path}"
+            )
         first_profile = compute_updraft_derived_profile_from_files(
-            omega_file=first_omega_path if first_omega_path is not None else first_driver,
-            mesh_file=first_mesh_path if first_mesh_path is not None else first_driver,
+            omega_file=first_driver,
+            mesh_file=first_mesh_path,
             derived_variable=variable,
             spatial_window=spatial_window,
-            vitesse_vert_file=grid_files_first.get(VITESSE_VERT_VAR),
         )
     else:
         variable_dir = experiment_dir / variable
@@ -924,22 +753,16 @@ def compute_diurnal_profile(
 
     for idx, (local_hour, file_path) in enumerate(records, start=1):
         if is_derived:
-            omega_path: Path | None = None
-            mesh_path: Path | None = None
-            if driver_var == UPDRAFT_OMEGA_VAR:
-                omega_path = file_path
-                mesh_path = (experiment_dir / UPDRAFT_MESH_VAR) / file_path.parent.name / file_path.name
-                if not mesh_path.exists():
-                    raise FileNotFoundError(
-                        f"Missing paired {UPDRAFT_MESH_VAR} file for {file_path}: {mesh_path}"
-                    )
-            grid_files = _grid_scale_files(file_path)
+            mesh_path = (experiment_dir / UPDRAFT_MESH_VAR) / file_path.parent.name / file_path.name
+            if not mesh_path.exists():
+                raise FileNotFoundError(
+                    f"Missing paired {UPDRAFT_MESH_VAR} file for {file_path}: {mesh_path}"
+                )
             profile = compute_updraft_derived_profile_from_files(
-                omega_file=omega_path if omega_path is not None else file_path,
-                mesh_file=mesh_path if mesh_path is not None else file_path,
+                omega_file=file_path,
+                mesh_file=mesh_path,
                 derived_variable=variable,
                 spatial_window=spatial_window,
-                vitesse_vert_file=grid_files.get(VITESSE_VERT_VAR),
             )
         else:
             profile, _ = read_vertical_profile(
