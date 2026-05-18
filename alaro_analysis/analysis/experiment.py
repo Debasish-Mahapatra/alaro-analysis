@@ -236,7 +236,6 @@ class ExperimentSet:
         allowed_months: tuple[int, ...] | None = None,
         utc_offset_hours: int = -4,
         max_days: int | None = None,
-        zoom_inset: bool = False,
         dpi: int = 450,
     ) -> None:
         """Compute and plot the surface diurnal cycle in one call.
@@ -268,7 +267,6 @@ class ExperimentSet:
             variable_unit=unit,
             period_label=period_label,
             utc_offset_hours=utc_offset_hours,
-            zoom_inset=zoom_inset,
             dpi=dpi,
         )
 

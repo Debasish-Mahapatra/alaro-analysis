@@ -118,7 +118,7 @@ def build_rows(*, agg_dir: Path, lead: str) -> list[FingerprintRow]:
     rows = [
         FingerprintRow(
             "0-3 km",
-            "Resolved updrafts",
+            "Updraft diagnostics",
             "Updraft area fraction",
             "fraction",
             metric_value(updraft_rows, metric="updraft_extent", label="C1M"),
@@ -126,7 +126,7 @@ def build_rows(*, agg_dir: Path, lead: str) -> list[FingerprintRow]:
         ),
         FingerprintRow(
             "0-3 km",
-            "Resolved updrafts",
+            "Updraft diagnostics",
             "Updraft mass flux",
             "kg m-2 s-1",
             metric_value(updraft_rows, metric="updraft_flux", label="C1M"),
@@ -134,7 +134,7 @@ def build_rows(*, agg_dir: Path, lead: str) -> list[FingerprintRow]:
         ),
         FingerprintRow(
             "0-3 km",
-            "Resolved updrafts",
+            "Updraft diagnostics",
             "Updraft intensity",
             "Pa s-1",
             metric_value(updraft_rows, metric="updraft_intensity", label="C1M"),
@@ -246,7 +246,7 @@ def write_text(path: Path, *, figure_path: Path, rows: list[FingerprintRow], lea
 
 
 def color_for(row: FingerprintRow) -> str:
-    if row.group == "Resolved updrafts":
+    if row.label.startswith("Updraft "):
         return "#5a5a5a"
     if row.label == "Convection-scheme condensation":
         return "#d55e00"

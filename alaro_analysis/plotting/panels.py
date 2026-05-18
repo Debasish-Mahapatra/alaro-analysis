@@ -1,7 +1,7 @@
 """
 Reusable plot builders for common ALARO visualisations.
 
-- ``plot_surface_diurnal_cycle`` -- three-line diurnal cycle with optional zoom inset
+- ``plot_surface_diurnal_cycle`` -- three-line diurnal cycle
 - ``plot_three_panel_diurnal``  -- height-time pcolormesh (absolute + 2 anomaly panels)
 """
 
@@ -41,7 +41,6 @@ def plot_surface_diurnal_cycle(
     variable_unit: str = "",
     period_label: str = "",
     utc_offset_hours: int = -4,
-    zoom_inset: bool = False,
     colors: dict[str, str] | None = None,
     dpi: int = 450,
 ) -> None:
@@ -60,8 +59,6 @@ def plot_surface_diurnal_cycle(
         Title prefix (e.g. ``"Full 2-year period"``).
     utc_offset_hours : int
         Used in the x-axis label.
-    zoom_inset : bool
-        If *True*, add a zoomed inset around the daytime peak.
     colors : dict or None
         Override default experiment colours.
     dpi : int
@@ -95,8 +92,7 @@ def plot_surface_diurnal_cycle(
             ax.set_xticks(np.arange(0, 24, 3))
             ax.set_xlim(0.0, 23.0)
 
-    fig_width = 12.4 if zoom_inset else 10.5
-    fig, ax = plt.subplots(figsize=(fig_width, 5.5), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=(10.5, 5.5), constrained_layout=True)
     draw_lines(ax, configure_main_axis=True)
     ax.set_ylabel(ylabel, fontsize=12)
     ax.set_xlabel(f"Hour (local UTC{utc_offset_hours:+d})", fontsize=12)
@@ -106,43 +102,6 @@ def plot_surface_diurnal_cycle(
         fontsize=14,
         fontweight="bold",
     )
-
-    if zoom_inset:
-        arrays = [
-            np.asarray(line_data[exp], dtype=np.float64)
-            for exp in EXPERIMENTS
-            if line_data.get(exp) is not None and np.isfinite(line_data[exp]).any()
-        ]
-        if arrays:
-            stacked = np.vstack(arrays)
-            mean_profile = np.nanmean(stacked, axis=0)
-            if np.isfinite(mean_profile).any():
-                peak = float(np.nanmax(mean_profile))
-                focus = np.isfinite(mean_profile) & (mean_profile >= 0.82 * peak)
-                if np.any(focus):
-                    focus_idx = np.where(focus)[0]
-                    x0 = max(0, int(focus_idx[0]) - 1)
-                    x1 = min(23, int(focus_idx[-1]) + 1)
-                    peak_center = 0.5 * (x0 + x1)
-                    zoom_vals = stacked[:, x0 : x1 + 1]
-                    zoom_finite = zoom_vals[np.isfinite(zoom_vals)]
-                    if zoom_finite.size > 0:
-                        y0 = float(np.min(zoom_finite))
-                        y1 = float(np.max(zoom_finite))
-                        ypad = max(5.0, 0.14 * max(y1 - y0, 1.0))
-                        inset_bounds = [1.02, 0.54, 0.34, 0.34]
-                        if peak_center > 11.5:
-                            inset_bounds = [-0.38, 0.54, 0.34, 0.34]
-                        axins = ax.inset_axes(inset_bounds)
-                        draw_lines(axins, configure_main_axis=False)
-                        axins.set_xlim(float(x0), float(x1))
-                        axins.set_ylim(y0 - ypad, y1 + ypad)
-                        axins.set_xticks(np.arange(x0, x1 + 1, 1))
-                        axins.yaxis.set_major_locator(
-                            mticker.MaxNLocator(nbins=6)
-                        )
-                        axins.tick_params(labelsize=8)
-                        ax.indicate_inset_zoom(axins, edgecolor="0.35", alpha=0.9)
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_file, dpi=dpi, bbox_inches="tight", facecolor="white")
