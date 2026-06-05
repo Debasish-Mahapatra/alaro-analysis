@@ -32,6 +32,17 @@ def signature(payload: dict[str, Any]) -> str:
     return hashlib.sha1(blob.encode()).hexdigest()[:16]
 
 
+def read_cache_signature(path: Path) -> str | None:
+    """Return the ``__signature__`` stored in an NPZ cache, or None if absent."""
+    try:
+        with np.load(path, allow_pickle=False) as data:
+            if "__signature__" in data:
+                return str(np.ravel(data["__signature__"])[0])
+    except Exception:
+        return None
+    return None
+
+
 def build_cache_file(
     intermediate_dir: Path,
     analysis_name: str,

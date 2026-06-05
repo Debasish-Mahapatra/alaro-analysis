@@ -32,6 +32,7 @@ from alaro_analysis.common.dsd import (
     mp_from_q_fixed_n0,
     mp_from_q_n_per_kg,
 )
+from alaro_analysis.data.cache import read_cache_signature, signature as cache_signature
 from alaro_analysis.ddh.io import AGG_DIR as DDH_AGG_DIR
 from alaro_analysis.workflows.disdrometer_comparison import (
     RUNS_ROOT,
@@ -444,7 +445,7 @@ def compute_dsd_profile(
     return profile_from_accumulator(acc, source=str(records[0][3]["RAIN"].parent.parent))
 
 
-def save_dsd_profile(path: Path, profile: DsdVerticalProfile) -> None:
+def save_dsd_profile(path: Path, profile: DsdVerticalProfile, sig: str = "") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         path,
@@ -453,6 +454,7 @@ def save_dsd_profile(path: Path, profile: DsdVerticalProfile) -> None:
         temperature_count=profile.temperature_count,
         n_files=np.asarray([profile.n_files], dtype=np.int64),
         source=np.asarray([profile.source]),
+        __signature__=np.asarray([sig]),
         **{field: profile.values[field] for field in DSD_FIELDS},
         **{f"count__{field}": profile.counts[field] for field in DSD_FIELDS},
     )
@@ -502,9 +504,27 @@ def get_dsd_profile(
     tasks_per_child: int,
     recompute: bool,
 ) -> DsdVerticalProfile:
+    sig = cache_signature(
+        {
+            "cache_version": 1,
+            "experiment": experiment,
+            "min_qr": min_qr,
+            "onemom_closure": onemom_closure,
+            "twomom_closure": twomom_closure,
+            "n0_fixed": n0_fixed,
+            "mask": np.asarray(domain_mask.mask),
+            "n_records": len(records),
+            "source": str(records[0][3]["RAIN"].parent.parent) if records else "",
+        }
+    )
     path = dsd_cache_path(cache_dir, experiment, tag)
     if path.exists() and not recompute:
-        return load_dsd_profile(path)
+        if read_cache_signature(path) == sig:
+            return load_dsd_profile(path)
+        print(
+            f"  [{experiment}] cache {path.name} parameters changed/absent; recomputing.",
+            flush=True,
+        )
     profile = compute_dsd_profile(
         experiment,
         records,
@@ -517,7 +537,7 @@ def get_dsd_profile(
         progress_every=progress_every,
         tasks_per_child=tasks_per_child,
     )
-    save_dsd_profile(path, profile)
+    save_dsd_profile(path, profile, sig)
     return profile
 
 

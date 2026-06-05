@@ -26,7 +26,7 @@ from alaro_analysis.common.dsd import (
     mp_from_q_n_per_kg,
 )
 from alaro_analysis.common.vertical import centers_to_edges
-from alaro_analysis.data.cache import signature as cache_signature
+from alaro_analysis.data.cache import read_cache_signature, signature as cache_signature
 from alaro_analysis.workflows.disdrometer_comparison import (
     RUNS_ROOT,
     lead_label,
@@ -415,17 +415,6 @@ def experiment_cache_signature(
             "source": str(records[0][3]["RAIN"].parent.parent) if records else "",
         }
     )
-
-
-def read_cache_signature(path: Path) -> str | None:
-    """Return the stored ``__signature__`` of a cache file, or None if absent."""
-    try:
-        with np.load(path, allow_pickle=False) as data:
-            if "__signature__" in data:
-                return str(np.ravel(data["__signature__"])[0])
-    except Exception:
-        return None
-    return None
 
 
 def get_experiment_cfad(

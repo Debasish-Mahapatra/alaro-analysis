@@ -31,6 +31,7 @@ from alaro_analysis.workflows.disdrometer_dsd import (
     DomainMask,
     build_domain_mask_from_netcdf,
 )
+from alaro_analysis.data.cache import read_cache_signature, signature as cache_signature
 from alaro_analysis.workflows.dsd_cfad_profiles import (
     DSD_FIELDS,
     FIGURE_NAME as BASE_FIGURE_NAME,
@@ -443,11 +444,12 @@ def cache_path(cache_dir: Path, experiment: str, tag: str) -> Path:
     return cache_dir / f"{experiment}_{tag}.npz"
 
 
-def save_experiment_cfad(path: Path, cfad: ExperimentCfad) -> None:
+def save_experiment_cfad(path: Path, cfad: ExperimentCfad, sig: str = "") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload: dict[str, np.ndarray] = {
         "temperature_k": cfad.temperature_k,
         "freezing_level_km": np.asarray([cfad.freezing_level_km], dtype=np.float64),
+        "__signature__": np.asarray([sig]),
     }
     for field, grid in cfad.grids.items():
         payload[f"height__{field}"] = grid.height_km
@@ -478,6 +480,32 @@ def load_experiment_cfad(path: Path) -> ExperimentCfad:
         )
 
 
+def experiment_cache_signature(
+    args: argparse.Namespace,
+    experiment: str,
+    records,
+    domain_mask: DomainMask,
+    x_edges: dict[str, np.ndarray],
+    settings: StrongConvectionSettings,
+) -> str:
+    edges = np.concatenate([np.asarray(x_edges[f], dtype=np.float64) for f in sorted(x_edges)])
+    return cache_signature(
+        {
+            "cache_version": 1,
+            "experiment": experiment,
+            "min_qr": args.min_qr,
+            "onemom_closure": args.onemom_closure,
+            "twomom_closure": args.twomom_closure,
+            "n0_fixed": args.n0_fixed,
+            "settings": repr(settings),
+            "x_edges": edges,
+            "mask": np.asarray(domain_mask.mask),
+            "n_records": len(records),
+            "source": str(records[0][3]["RAIN"].parent.parent) if records else "",
+        }
+    )
+
+
 def get_experiment_cfad(
     args: argparse.Namespace,
     experiment: str,
@@ -487,9 +515,15 @@ def get_experiment_cfad(
     tag: str,
     settings: StrongConvectionSettings,
 ) -> ExperimentCfad:
+    sig = experiment_cache_signature(args, experiment, records, domain_mask, x_edges, settings)
     path = cache_path(args.cache_dir, experiment, tag)
     if path.exists() and not args.recompute:
-        return load_experiment_cfad(path)
+        if read_cache_signature(path) == sig:
+            return load_experiment_cfad(path)
+        print(
+            f"  [{experiment}] cache {path.name} parameters changed/absent; recomputing.",
+            flush=True,
+        )
 
     cfad = compute_experiment_cfad(
         experiment,
@@ -505,7 +539,7 @@ def get_experiment_cfad(
         progress_every=max(1, int(args.progress_every)),
         tasks_per_child=max(1, int(args.tasks_per_child)),
     )
-    save_experiment_cfad(path, cfad)
+    save_experiment_cfad(path, cfad, sig)
     return cfad
 
 

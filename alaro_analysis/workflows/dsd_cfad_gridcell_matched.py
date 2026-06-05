@@ -40,6 +40,7 @@ from alaro_analysis.workflows.dsd_cfad_profiles import (
     load_experiment_cfad,
     x_edges_for_args,
 )
+from alaro_analysis.data.cache import read_cache_signature, signature as cache_signature
 from alaro_analysis.workflows.dsd_cfad_strong_convection import (
     UPDRAFT_MESH_VARIABLE,
     UPDRAFT_VARIABLE,
@@ -367,6 +368,32 @@ def cache_path(cache_dir: Path, domain: str, experiment: str, tag: str) -> Path:
     return cache_dir / f"{domain}_{experiment}_{tag}.npz"
 
 
+def pair_cache_signature(
+    args: argparse.Namespace,
+    experiment: str,
+    records,
+    domain_mask: DomainMask,
+    x_edges: dict[str, np.ndarray],
+    settings: StrongConvectionSettings,
+) -> str:
+    edges = np.concatenate([np.asarray(x_edges[f], dtype=np.float64) for f in sorted(x_edges)])
+    return cache_signature(
+        {
+            "cache_version": 1,
+            "experiment": experiment,
+            "min_qr": args.min_qr,
+            "onemom_closure": args.onemom_closure,
+            "twomom_closure": args.twomom_closure,
+            "n0_fixed": args.n0_fixed,
+            "settings": repr(settings),
+            "x_edges": edges,
+            "mask": np.asarray(domain_mask.mask),
+            "n_records": len(records),
+            "source": str(records[0][3]["RAIN"].parent.parent) if records else "",
+        }
+    )
+
+
 def get_experiment_pair(
     args: argparse.Namespace,
     experiment: str,
@@ -376,9 +403,16 @@ def get_experiment_pair(
     tag: str,
     settings: StrongConvectionSettings,
 ) -> DomainPair:
+    sig = pair_cache_signature(args, experiment, records, domain_mask, x_edges, settings)
     full_path = cache_path(args.cache_dir, DOMAIN_FULL, experiment, tag)
     strong_path = cache_path(args.cache_dir, DOMAIN_STRONG, experiment, tag)
-    if full_path.exists() and strong_path.exists() and not args.recompute:
+    if (
+        not args.recompute
+        and full_path.exists()
+        and strong_path.exists()
+        and read_cache_signature(full_path) == sig
+        and read_cache_signature(strong_path) == sig
+    ):
         return DomainPair(
             full=load_experiment_cfad(full_path),
             strong=load_experiment_cfad(strong_path),
@@ -439,8 +473,8 @@ def get_experiment_pair(
         full=cfad_from_accumulator(totals[DOMAIN_FULL], x_edges, source=source),
         strong=cfad_from_accumulator(totals[DOMAIN_STRONG], x_edges, source=source),
     )
-    save_experiment_cfad(full_path, pair.full)
-    save_experiment_cfad(strong_path, pair.strong)
+    save_experiment_cfad(full_path, pair.full, sig)
+    save_experiment_cfad(strong_path, pair.strong, sig)
     return pair
 
 
