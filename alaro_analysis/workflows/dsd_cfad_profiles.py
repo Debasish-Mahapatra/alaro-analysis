@@ -26,6 +26,7 @@ from alaro_analysis.common.dsd import (
     mp_from_q_n_per_kg,
 )
 from alaro_analysis.common.vertical import centers_to_edges
+from alaro_analysis.data.cache import signature as cache_signature
 from alaro_analysis.workflows.disdrometer_comparison import (
     RUNS_ROOT,
     lead_label,
@@ -355,11 +356,12 @@ def legacy_cache_path(cache_dir: Path, experiment: str, tag: str) -> Path:
     return cache_dir / f"{experiment}_{tag}_ddh0024.npz"
 
 
-def save_experiment_cfad(path: Path, cfad: ExperimentCfad) -> None:
+def save_experiment_cfad(path: Path, cfad: ExperimentCfad, sig: str = "") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload: dict[str, np.ndarray] = {
         "temperature_k": cfad.temperature_k,
         "freezing_level_km": np.asarray([cfad.freezing_level_km], dtype=np.float64),
+        "__signature__": np.asarray([sig]),
     }
     for field, grid in cfad.grids.items():
         payload[f"height__{field}"] = grid.height_km
@@ -390,6 +392,42 @@ def load_experiment_cfad(path: Path) -> ExperimentCfad:
         )
 
 
+def experiment_cache_signature(
+    args: argparse.Namespace,
+    experiment: str,
+    records: list[tuple[np.datetime64, np.datetime64, int, dict[str, Path]]],
+    mask: np.ndarray,
+    x_edges: dict[str, np.ndarray],
+) -> str:
+    """Signature of every parameter that affects an experiment's CFAD grids."""
+    edges = np.concatenate([np.asarray(x_edges[f], dtype=np.float64) for f in PANEL_FIELDS])
+    return cache_signature(
+        {
+            "cache_version": 1,
+            "experiment": experiment,
+            "min_qr": args.min_qr,
+            "onemom_closure": args.onemom_closure,
+            "twomom_closure": args.twomom_closure,
+            "n0_fixed": args.n0_fixed,
+            "x_edges": edges,
+            "mask": np.asarray(mask),
+            "n_records": len(records),
+            "source": str(records[0][3]["RAIN"].parent.parent) if records else "",
+        }
+    )
+
+
+def read_cache_signature(path: Path) -> str | None:
+    """Return the stored ``__signature__`` of a cache file, or None if absent."""
+    try:
+        with np.load(path, allow_pickle=False) as data:
+            if "__signature__" in data:
+                return str(np.ravel(data["__signature__"])[0])
+    except Exception:
+        return None
+    return None
+
+
 def get_experiment_cfad(
     args: argparse.Namespace,
     experiment: str,
@@ -398,14 +436,23 @@ def get_experiment_cfad(
     x_edges: dict[str, np.ndarray],
     tag: str,
 ) -> ExperimentCfad:
+    sig = experiment_cache_signature(args, experiment, records, mask, x_edges)
     path = cache_path(args.cache_dir, experiment, tag)
-    if path.exists() and not args.recompute:
-        return load_experiment_cfad(path)
     legacy_path = legacy_cache_path(args.cache_dir, experiment, tag)
-    if legacy_path.exists() and not args.recompute:
-        cfad = load_experiment_cfad(legacy_path)
-        save_experiment_cfad(path, cfad)
-        return cfad
+    if not args.recompute:
+        for candidate in (path, legacy_path):
+            if not candidate.exists():
+                continue
+            if read_cache_signature(candidate) == sig:
+                cfad = load_experiment_cfad(candidate)
+                if candidate != path:
+                    save_experiment_cfad(path, cfad, sig)
+                return cfad
+            print(
+                f"  [{experiment}] cache {candidate.name} has changed/absent "
+                "parameters; recomputing.",
+                flush=True,
+            )
 
     dsd_grids, temperature, freeze = compute_dsd_cfads(
         experiment,
@@ -425,7 +472,7 @@ def get_experiment_cfad(
         temperature_k=temperature,
         freezing_level_km=freeze,
     )
-    save_experiment_cfad(path, cfad)
+    save_experiment_cfad(path, cfad, sig)
     return cfad
 
 

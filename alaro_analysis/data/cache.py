@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -7,6 +9,27 @@ import numpy as np
 
 from alaro_analysis.common.models import VerticalAxis
 from alaro_analysis.common.naming import safe_name
+
+
+def array_fingerprint(arr: np.ndarray) -> str:
+    """Stable short fingerprint of an array's shape + contents."""
+    a = np.ascontiguousarray(arr)
+    return f"{a.shape}:{hashlib.sha1(a.tobytes()).hexdigest()[:12]}"
+
+
+def signature(payload: dict[str, Any]) -> str:
+    """Hash output-affecting parameters into a short cache signature.
+
+    numpy arrays are fingerprinted by shape+contents; everything else by its
+    JSON/repr form. Store the result alongside cached data and validate it on
+    load so a parameter change forces a recompute instead of silently returning
+    a stale cache.
+    """
+    norm: dict[str, Any] = {}
+    for key, value in payload.items():
+        norm[key] = array_fingerprint(value) if isinstance(value, np.ndarray) else value
+    blob = json.dumps(norm, sort_keys=True, default=str)
+    return hashlib.sha1(blob.encode()).hexdigest()[:16]
 
 
 def build_cache_file(
