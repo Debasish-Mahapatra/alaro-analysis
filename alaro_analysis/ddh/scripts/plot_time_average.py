@@ -393,7 +393,7 @@ def main():
                         default=["control", "graupel", "2mom"])
     parser.add_argument("--variables", nargs="+",
                         default=list(VAR_META.keys()))
-    parser.add_argument("--dpi", type=int, default=400)
+    parser.add_argument("--dpi", type=int, default=450)
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)

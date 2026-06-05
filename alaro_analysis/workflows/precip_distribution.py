@@ -14,33 +14,25 @@ import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 
+from alaro_analysis.common.figio import DatasetConfig, add_io_args, save_figure
 
-RUNS_ROOT = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS")
+
+from alaro_analysis.common.constants import RUNS_ROOT
 DEFAULT_DATA_DIR = (
     RUNS_ROOT
-    / "rainfall-regridded-to-imerge"
-    / "masked-production-final-hourly-imerg"
-    / "common-valid-time-production"
+    / "rainfall-conservative-rebuild"
+    / "common-valid-time-production-bilinearmask"
 )
 DEFAULT_OUTPUT_DIR = RUNS_ROOT / "figures" / "precip_distribution_corrected"
 
 
-@dataclass(frozen=True)
-class DatasetConfig:
-    key: str
-    label: str
-    filename: str
-    variable: str
-    color: str
-    linestyle: str = "-"
-
-
 DATASETS: tuple[DatasetConfig, ...] = (
-    DatasetConfig("radar", "Radar", "Radar_common_valid.nc", "rainfall_rate", "black"),
-    DatasetConfig("imerg", "IMERG(GPM)", "IMERG_common_valid.nc", "precipitation", "dimgray", ":"),
-    DatasetConfig("control", "C1M", "Control_common_valid.nc", "total_rain", "#d62728"),
-    DatasetConfig("graupel", "G1M", "Graupel_common_valid.nc", "total_rain", "#1f77b4"),
-    DatasetConfig("2mom", "G2M", "2-Moment_common_valid.nc", "total_rain", "#2ca02c"),
+    DatasetConfig("radar", "Radar", "Radar_common_valid.nc", "rainfall", "black"),
+    DatasetConfig("imerg", "IMERG", "IMERG_common_valid.nc", "rainfall", "dimgray", ":"),
+    DatasetConfig("control", "C1M", "C1M_common_valid.nc", "rainfall", "#d62728"),
+    DatasetConfig("graupel", "G1M", "G1M_common_valid.nc", "rainfall", "#1f77b4"),
+    DatasetConfig("2mom", "G2M", "G2M_common_valid.nc", "rainfall", "#2ca02c"),
+    DatasetConfig("no3m", "G2M-XCU", "G2M-XCU_common_valid.nc", "rainfall", "#9467bd"),
 )
 
 
@@ -257,7 +249,7 @@ def plot_pdf(
     if x_max is not None and not xscale_log:
         ax.set_xlim(0.0, x_max)
     fig.tight_layout()
-    fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
+    save_figure(fig, output_path, dpi=dpi)
     plt.close(fig)
 
 
@@ -376,8 +368,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Plot corrected precipitation PDF versions from common-valid rainfall data."
     )
-    parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    add_io_args(parser, default_data_dir=DEFAULT_DATA_DIR, default_output_dir=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--pdf-min-threshold", type=float, default=0.1)
     parser.add_argument("--pdf-bins", type=int, default=99)
     parser.add_argument(
@@ -392,7 +383,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Bookkeeping x-position used in data_txt for values beyond --pdf-tail-break.",
     )
-    parser.add_argument("--dpi", type=int, default=400)
     return parser
 
 

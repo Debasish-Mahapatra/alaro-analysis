@@ -54,6 +54,22 @@ def test_mp_from_q_fixed_n0_returns_constant_log_nw():
     assert out["d0_mm"][0] < out["d0_mm"][1] < out["d0_mm"][2]
 
 
+def test_gamma_variable_mu_matches_shape_law_and_m4_over_m3():
+    qr = np.array([1.0e-4, 2.0e-4])
+    nk = np.array([1.0e3, 2.0e3])
+    rho = np.array([1.1, 1.2])
+
+    out = dsd.gamma_dsd_from_q_n_variable_mu_per_kg(qr, nk, rho)
+    dmean_mm = 1000.0 * (6.0 * qr / (math.pi * dsd.WATER_DENSITY_KG_M3 * nk)) ** (1.0 / 3.0)
+    expected_mu = dsd.alaro_variable_mu_from_dmean_mm(dmean_mm)
+
+    np.testing.assert_allclose(out["mu"], expected_mu)
+    for idx, mu in enumerate(expected_mu):
+        lam = float(out["lambda_per_mm"][idx])
+        m4_over_m3 = math.gamma(mu + 5.0) / math.gamma(mu + 4.0) / lam
+        assert math.isclose(float(out["dm_mm"][idx]), m4_over_m3, rel_tol=1e-12)
+
+
 def test_temporal_continuity_drops_short_runs():
     # 1-min isolated rain spike, then 7-min rainy run, then 3-min run.
     rainy = np.array([0, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0], dtype=bool)

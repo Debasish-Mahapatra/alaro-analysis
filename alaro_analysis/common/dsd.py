@@ -181,6 +181,8 @@ AB12_X1_PER_M_1POINT8 = 0.22
 AB12_X2 = 2.2
 AB12_PREFACTOR = math.pi * WATER_DENSITY_KG_M3 * AB12_X1_PER_M_1POINT8  # ~691.15
 AB12_LAMBDA_EXPONENT = 1.0 / (4.0 - AB12_X2)  # 0.5556
+ALARO_VARIABLE_MU_MIN = 0.1
+ALARO_VARIABLE_MU_MAX = 50.0
 
 
 def gamma_dsd_from_q_n_per_kg(
@@ -188,12 +190,13 @@ def gamma_dsd_from_q_n_per_kg(
     n_r_per_kg: np.ndarray | float,
     rho_air_kg_m3: np.ndarray | float,
     *,
-    mu: float = 1.0,
+    mu: np.ndarray | float = 1.0,
 ) -> dict[str, np.ndarray]:
     """ALARO 2-moment rain DSD: gamma ``N(D) = N0 D^mu exp(-lambda D)``.
 
-    The default shape ``mu = 1`` matches ``ZSHAPER = 1._JPRB`` in
-    ``arpifs/phys_dmn/aplmphys.F90``.
+    The default scalar shape ``mu = 1`` matches ``ZSHAPER = 1._JPRB`` in
+    ``arpifs/phys_dmn/aplmphys.F90``.  ``mu`` may also be an array broadcastable
+    to the input fields, for closures where the shape varies by cell.
 
     Closed form for the integrated parameters::
 
@@ -211,35 +214,41 @@ def gamma_dsd_from_q_n_per_kg(
     qr = np.asarray(q_r_kgkg, dtype=float)
     nk = np.asarray(n_r_per_kg, dtype=float)
     rho = np.asarray(rho_air_kg_m3, dtype=float)
-    shape = np.broadcast(qr, nk, rho).shape
+    mu_arr = np.asarray(mu, dtype=float)
+    shape = np.broadcast(qr, nk, rho, mu_arr).shape
+    qr_b = np.broadcast_to(qr, shape)
+    nk_b = np.broadcast_to(nk, shape)
+    rho_b = np.broadcast_to(rho, shape)
+    mu_b = np.broadcast_to(mu_arr, shape)
     nan = np.full(shape, np.nan, dtype=float)
     out = {key: nan.copy() for key in (
         "lwc_g_m3", "nt_m3", "lambda_per_mm", "n0_per_m3_mm",
         "dm_mm", "d0_mm", "sigma_m_mm", "nw_m3_mm", "log_nw", "mu",
     )}
     mask = (
-        np.isfinite(qr) & np.isfinite(nk) & np.isfinite(rho)
-        & (qr > 0.0) & (nk > 0.0) & (rho > 0.0)
+        np.isfinite(qr_b) & np.isfinite(nk_b) & np.isfinite(rho_b) & np.isfinite(mu_b)
+        & (qr_b > 0.0) & (nk_b > 0.0) & (rho_b > 0.0) & (mu_b > -1.0)
     )
     if not mask.any():
         return out
-    qr_v = qr[mask] if qr.ndim else np.full(mask.sum(), float(qr))
-    nk_v = nk[mask] if nk.ndim else np.full(mask.sum(), float(nk))
-    rho_v = rho[mask] if rho.ndim else np.full(mask.sum(), float(rho))
+    qr_v = qr_b[mask]
+    nk_v = nk_b[mask]
+    rho_v = rho_b[mask]
+    mu_v = mu_b[mask]
 
     dmean_v_m = (6.0 * qr_v / (math.pi * WATER_DENSITY_KG_M3 * nk_v)) ** (1.0 / 3.0)
     dmean_v_mm = dmean_v_m * 1000.0
-    factor = ((mu + 1.0) * (mu + 2.0) * (mu + 3.0)) ** (1.0 / 3.0)
+    factor = ((mu_v + 1.0) * (mu_v + 2.0) * (mu_v + 3.0)) ** (1.0 / 3.0)
     lam_per_mm = factor / dmean_v_mm
-    dm_mm = (mu + 4.0) / lam_per_mm
-    d0_mm = (3.67 + mu) / (4.0 + mu) * dm_mm
-    sigma_m_mm = dm_mm / math.sqrt(mu + 4.0)
+    dm_mm = (mu_v + 4.0) / lam_per_mm
+    d0_mm = (3.67 + mu_v) / (4.0 + mu_v) * dm_mm
+    sigma_m_mm = dm_mm / np.sqrt(mu_v + 4.0)
     lwc_g_m3 = 1000.0 * qr_v * rho_v
     nt_m3 = nk_v * rho_v
     nw_m3_mm = NW_PREFACTOR * lwc_g_m3 / dm_mm ** 4
     log_nw = np.log10(np.where(nw_m3_mm > 0.0, nw_m3_mm, np.nan))
     # underlying gamma N0: integral N(D) dD = N0 Gamma(mu+1) / lambda^(mu+1) = Nt
-    n0_per_m3_mm = nt_m3 * lam_per_mm ** (mu + 1.0) / math.gamma(mu + 1.0)
+    n0_per_m3_mm = nt_m3 * lam_per_mm ** (mu_v + 1.0) / np.exp(gammaln(mu_v + 1.0))
 
     out["lwc_g_m3"][mask] = lwc_g_m3
     out["nt_m3"][mask] = nt_m3
@@ -250,8 +259,43 @@ def gamma_dsd_from_q_n_per_kg(
     out["sigma_m_mm"][mask] = sigma_m_mm
     out["nw_m3_mm"][mask] = nw_m3_mm
     out["log_nw"][mask] = log_nw
-    out["mu"][mask] = float(mu)
+    out["mu"][mask] = mu_v
     return out
+
+
+def alaro_variable_mu_from_dmean_mm(dmean_mm: np.ndarray | float) -> np.ndarray:
+    """ALARO variable rain gamma shape parameter from mean diameter in mm."""
+    dmean = np.asarray(dmean_mm, dtype=float)
+    mu = 19.0 * np.tanh(0.6 * (dmean - 1.8)) + 17.0
+    return np.clip(mu, ALARO_VARIABLE_MU_MIN, ALARO_VARIABLE_MU_MAX)
+
+
+def gamma_dsd_from_q_n_variable_mu_per_kg(
+    q_r_kgkg: np.ndarray | float,
+    n_r_per_kg: np.ndarray | float,
+    rho_air_kg_m3: np.ndarray | float,
+) -> dict[str, np.ndarray]:
+    """ALARO 2-moment gamma DSD using the variable-``mu`` shape law.
+
+    The shape is
+
+        mu = max(0.1, min(50, 19*tanh(0.6*(dmean_mm - 1.8)) + 17))
+
+    with ``dmean_mm = 1000 * (6*q_r/(pi*rho_w*n_r))**(1/3)``.
+    """
+    qr = np.asarray(q_r_kgkg, dtype=float)
+    nk = np.asarray(n_r_per_kg, dtype=float)
+    shape = np.broadcast(qr, nk).shape
+    qr_b = np.broadcast_to(qr, shape)
+    nk_b = np.broadcast_to(nk, shape)
+    dmean_mm = np.full(shape, np.nan, dtype=float)
+    mask = np.isfinite(qr_b) & np.isfinite(nk_b) & (qr_b > 0.0) & (nk_b > 0.0)
+    dmean_mm[mask] = (
+        1000.0
+        * (6.0 * qr_b[mask] / (math.pi * WATER_DENSITY_KG_M3 * nk_b[mask])) ** (1.0 / 3.0)
+    )
+    mu = alaro_variable_mu_from_dmean_mm(dmean_mm)
+    return gamma_dsd_from_q_n_per_kg(qr, nk, rho_air_kg_m3, mu=mu)
 
 
 def normalized_gamma_diagnostics_from_lwc_dm_mu(

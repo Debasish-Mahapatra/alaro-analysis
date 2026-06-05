@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
+
+# Root of all ALARO model runs, regridded data, and figure outputs.
+# (/gpfs/... and /mnt/HDS_CLIMATE/... are two mount paths to the same storage.)
+RUNS_ROOT = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS")
 
 EXPERIMENTS = ("control", "graupel", "2mom")
 EXPERIMENT_LABELS = {"control": "C1M", "graupel": "G1M", "2mom": "G2M", "2mom-xcu": "G2M-XCU"}
@@ -12,6 +17,7 @@ EXPERIMENT_COLORS = {
     "control": "#d62728",
     "graupel": "#1f77b4",
     "2mom":    "#2ca02c",
+    "2mom-xcu": "#ff7f0e",
 }
 
 SEASONS = {
@@ -32,3 +38,4 @@ G = 9.80665
 RD = 287.05
 EPS = 0.622
 P0 = 100000.0
+EARTH_RADIUS_M = 6371000.0

@@ -6,8 +6,11 @@ Creates two comparison sets from the raw masked model netCDF fields:
   using LWC + Nt.
 * ``old way of doing mu``: observations use fitted gamma ``mu`` from the
   empirical mass-spectrum width; C1M/G1M use the native exponential
-  Abel-Boutle rain shape (``mu=0``); G2M uses the native gamma rain shape
+  Abel-Boutle rain shape (``mu=0``); G2M uses the fixed gamma rain shape
   (``mu=1``).
+* ``variable mu``: same as above, except G2M uses the ALARO variable rain
+  shape law ``mu(dmeanr)`` and only the mass-weighted diameter ``D_m=M4/M3``
+  plot is rendered.
 """
 from __future__ import annotations
 
@@ -28,6 +31,7 @@ from alaro_analysis.common.dsd import (
     DEFAULT_QC_REFLECTIVITY_MAX_DBZ,
     MP_FIXED_N0_PER_M3_MM,
     gamma_dsd_from_q_n_per_kg,
+    gamma_dsd_from_q_n_variable_mu_per_kg,
     mp_from_q_abel_boutle,
     mp_from_q_fixed_n0,
     normalized_gamma_diagnostics_from_lwc_nt_mu,
@@ -127,10 +131,14 @@ def _filter_diag(
     *,
     d0_min_mm: float,
     fallback_mu: float | None = None,
+    require_d0_min: bool = True,
 ) -> dict[str, np.ndarray]:
+    d0_ok = np.isfinite(diag["d0_mm"]) & (diag["d0_mm"] > 0.0)
+    if require_d0_min:
+        d0_ok &= diag["d0_mm"] >= d0_min_mm
     keep = (
         np.isfinite(diag["dm_mm"]) & (diag["dm_mm"] > 0.0)
-        & np.isfinite(diag["d0_mm"]) & (diag["d0_mm"] >= d0_min_mm)
+        & d0_ok
         & np.isfinite(diag["sigma_m_mm"])
         & np.isfinite(diag["log_nw"])
         & np.isfinite(diag["lwc_g_m3"]) & (diag["lwc_g_m3"] > 0.0)
@@ -159,9 +167,9 @@ def _fixed_mu1_from_lwc_nt(
 
 
 def _process_task(
-    task: tuple[str, dict[str, str], float, str, float, float],
-) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], list[str]]:
-    experiment, paths, min_qr, onemom_closure, n0_fixed, d0_min_mm = task
+    task: tuple[str, dict[str, str], float, str, float, float, bool],
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, np.ndarray], list[str]]:
+    experiment, paths, min_qr, onemom_closure, n0_fixed, d0_min_mm, only_variable_mu = task
     warnings: list[str] = []
     try:
         qr = _read_masked_field(Path(paths["RAIN"]), "RAIN")
@@ -170,7 +178,7 @@ def _process_task(
         pnr = _read_masked_field(Path(paths["PNR"]), "PNR") if experiment == "2mom" else None
     except Exception as exc:
         warnings.append(f"WARNING {experiment} {paths['RAIN']}: {exc}")
-        return _empty_samples(), _empty_samples(), warnings
+        return _empty_samples(), _empty_samples(), _empty_samples(), warnings
 
     rho = pres / (RD * temp)
     rainy = (
@@ -180,7 +188,7 @@ def _process_task(
     if pnr is not None:
         rainy &= np.isfinite(pnr) & (pnr > 0.0)
     if not rainy.any():
-        return _empty_samples(), _empty_samples(), warnings
+        return _empty_samples(), _empty_samples(), _empty_samples(), warnings
 
     qr_v = qr[rainy]
     rho_v = rho[rainy]
@@ -188,19 +196,39 @@ def _process_task(
 
     if experiment == "2mom":
         nt_m3 = rho_v * pnr[rainy]
+        variable_mu_diag = gamma_dsd_from_q_n_variable_mu_per_kg(qr_v, pnr[rainy], rho_v)
+        variable_mu = _filter_diag(variable_mu_diag, d0_min_mm=d0_min_mm, require_d0_min=False)
+        if only_variable_mu:
+            return _empty_samples(), _empty_samples(), variable_mu, warnings
         native_diag = gamma_dsd_from_q_n_per_kg(qr_v, pnr[rainy], rho_v, mu=1.0)
         native = _filter_diag(native_diag, d0_min_mm=d0_min_mm)
     elif onemom_closure == "abel_boutle":
         native_diag = mp_from_q_abel_boutle(qr_v, rho_v)
         nt_m3 = native_diag["nt_m3"]
+        variable_mu = _filter_diag(
+            native_diag,
+            d0_min_mm=d0_min_mm,
+            fallback_mu=0.0,
+            require_d0_min=False,
+        )
+        if only_variable_mu:
+            return _empty_samples(), _empty_samples(), variable_mu, warnings
         native = _filter_diag(native_diag, d0_min_mm=d0_min_mm, fallback_mu=0.0)
     else:
         native_diag = mp_from_q_fixed_n0(qr_v, rho_v, n0_per_m3_mm=n0_fixed)
         nt_m3 = native_diag["nt_m3"]
+        variable_mu = _filter_diag(
+            native_diag,
+            d0_min_mm=d0_min_mm,
+            fallback_mu=0.0,
+            require_d0_min=False,
+        )
+        if only_variable_mu:
+            return _empty_samples(), _empty_samples(), variable_mu, warnings
         native = _filter_diag(native_diag, d0_min_mm=d0_min_mm, fallback_mu=0.0)
 
     mu1 = _fixed_mu1_from_lwc_nt(lwc_g_m3, nt_m3, d0_min_mm=d0_min_mm)
-    return native, mu1, warnings
+    return native, mu1, variable_mu, warnings
 
 
 def gather_experiment_sets(
@@ -215,9 +243,10 @@ def gather_experiment_sets(
     workers: int,
     progress_every: int,
     tasks_per_child: int,
-) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+    only_variable_mu: bool = False,
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, np.ndarray]]:
     if not records:
-        return _empty_samples(), _empty_samples()
+        return _empty_samples(), _empty_samples(), _empty_samples()
     tasks = [
         (
             experiment,
@@ -226,12 +255,20 @@ def gather_experiment_sets(
             onemom_closure,
             n0_fixed,
             d0_min_mm,
+            only_variable_mu,
         )
         for rec in records
     ]
-    print(f"  [{experiment}] processing {len(tasks):,} timesteps -> raw per-cell normalized gamma", flush=True)
+    if only_variable_mu:
+        print(
+            f"  [{experiment}] processing {len(tasks):,} timesteps -> Dm-only comparison",
+            flush=True,
+        )
+    else:
+        print(f"  [{experiment}] processing {len(tasks):,} timesteps -> raw per-cell normalized gamma", flush=True)
     native_acc: dict[str, list[np.ndarray]] = {key: [] for key in SAMPLE_KEYS}
     mu1_acc: dict[str, list[np.ndarray]] = {key: [] for key in SAMPLE_KEYS}
+    variable_mu_acc: dict[str, list[np.ndarray]] = {key: [] for key in SAMPLE_KEYS}
     if workers <= 1:
         _init_worker(domain_mask.mask)
         iterator = (_process_task(task) for task in tasks)
@@ -245,20 +282,30 @@ def gather_experiment_sets(
         )
         iterator = pool.imap_unordered(_process_task, tasks)
     try:
-        for idx, (native, mu1, warnings) in enumerate(iterator, 1):
+        for idx, (native, mu1, variable_mu, warnings) in enumerate(iterator, 1):
             for key in SAMPLE_KEYS:
                 native_acc[key].append(native[key])
                 mu1_acc[key].append(mu1[key])
+                variable_mu_acc[key].append(variable_mu[key])
             for warning in warnings:
                 print(warning, flush=True)
             if idx % progress_every == 0 or idx == len(tasks):
                 native_n = sum(a.size for a in native_acc["dm_mm"])
                 mu1_n = sum(a.size for a in mu1_acc["dm_mm"])
-                print(
-                    f"  [{experiment}] processed {idx}/{len(tasks)} "
-                    f"(native samples: {native_n:,}; mu=1 samples: {mu1_n:,})",
-                    flush=True,
-                )
+                variable_mu_n = sum(a.size for a in variable_mu_acc["dm_mm"])
+                if only_variable_mu:
+                    print(
+                        f"  [{experiment}] processed {idx}/{len(tasks)} "
+                        f"(Dm comparison samples: {variable_mu_n:,})",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"  [{experiment}] processed {idx}/{len(tasks)} "
+                        f"(native samples: {native_n:,}; mu=1 samples: {mu1_n:,}; "
+                        f"Dm comparison samples: {variable_mu_n:,})",
+                        flush=True,
+                    )
     finally:
         if pool is not None:
             pool.close()
@@ -270,7 +317,7 @@ def gather_experiment_sets(
             for key, parts in acc.items()
         }
 
-    return finish(native_acc), finish(mu1_acc)
+    return finish(native_acc), finish(mu1_acc), finish(variable_mu_acc)
 
 
 def _parse_leads(text: str) -> tuple[int, ...] | None:
@@ -308,12 +355,15 @@ def _render_set(
     title_note: str,
     output_tag: str,
     bins: int,
+    fields: tuple[tuple[str, str, str], ...] | None = None,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    for x_field, x_label, suffix in (
-        ("d0_mm", "D$_0$ (mm)", "logNw_D0"),
-        ("dm_mm", "D$_m$ (mm)", "logNw_Dm"),
-    ):
+    if fields is None:
+        fields = (
+            ("d0_mm", "D$_0$ (mm)", "logNw_D0"),
+            ("dm_mm", "D$_m$ (mm)", "logNw_Dm"),
+        )
+    for x_field, x_label, suffix in fields:
         out = out_dir / f"{prefix}_{suffix}_{output_tag}.png"
         title = (
             f"log$_{{10}}$ N$_w$ vs {'D$_0$' if x_field == 'd0_mm' else 'D$_m$'}, "
@@ -355,6 +405,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--plot-root", type=Path, default=FIGURE_DIR / "new plots")
     parser.add_argument("--output-tag", default="all_leads")
     parser.add_argument("--bins", type=int, default=60)
+    parser.add_argument(
+        "--only-variable-mu",
+        action="store_true",
+        help="Only save/render the G2M variable-mu Dm=M4/M3 comparison product.",
+    )
     return parser
 
 
@@ -373,16 +428,24 @@ def main() -> None:
         min_run_minutes=args.obs_min_run_minutes,
     )
     obs_native = normalized_gamma_from_empirical_samples(obs.path_a)
-    obs_mu1 = _fixed_mu1_from_lwc_nt(
-        obs.path_a["lwc_g_m3"],
-        obs.path_a["nt_m3"],
-        d0_min_mm=args.d0_min_mm,
-    )
-    print(
-        f"obs QC kept {obs.qc_kept:,}/{obs.qc_total:,}; "
-        f"native/fitted mu samples {obs_native['dm_mm'].size:,}; mu=1 samples {obs_mu1['dm_mm'].size:,}",
-        flush=True,
-    )
+    if args.only_variable_mu:
+        obs_mu1 = _empty_samples()
+        print(
+            f"obs QC kept {obs.qc_kept:,}/{obs.qc_total:,}; "
+            f"Dm comparison samples {obs_native['dm_mm'].size:,}",
+            flush=True,
+        )
+    else:
+        obs_mu1 = _fixed_mu1_from_lwc_nt(
+            obs.path_a["lwc_g_m3"],
+            obs.path_a["nt_m3"],
+            d0_min_mm=args.d0_min_mm,
+        )
+        print(
+            f"obs QC kept {obs.qc_kept:,}/{obs.qc_total:,}; "
+            f"native/fitted mu samples {obs_native['dm_mm'].size:,}; mu=1 samples {obs_mu1['dm_mm'].size:,}",
+            flush=True,
+        )
 
     sample_records = None
     for exp in args.experiments:
@@ -405,9 +468,10 @@ def main() -> None:
 
     native_samples: dict[str, dict[str, np.ndarray]] = {"obs": obs_native}
     mu1_samples: dict[str, dict[str, np.ndarray]] = {"obs": obs_mu1}
+    variable_mu_samples: dict[str, dict[str, np.ndarray]] = {"obs": obs_native}
     for exp in args.experiments:
         records = discover_records(exp, leads, args.netcdf_root, args.max_days)
-        native, mu1 = gather_experiment_sets(
+        native, mu1, variable_mu = gather_experiment_sets(
             exp,
             records,
             domain_mask,
@@ -418,38 +482,59 @@ def main() -> None:
             workers=max(1, int(args.workers)),
             progress_every=args.progress_every,
             tasks_per_child=args.tasks_per_child,
+            only_variable_mu=args.only_variable_mu,
         )
         native_samples[exp] = native
         mu1_samples[exp] = mu1
-        print(
-            f"  [{exp}] kept native/fitted {native['dm_mm'].size:,}; mu=1 {mu1['dm_mm'].size:,}",
-            flush=True,
+        variable_mu_samples[exp] = variable_mu
+        if args.only_variable_mu:
+            print(f"  [{exp}] kept Dm comparison {variable_mu['dm_mm'].size:,}", flush=True)
+        else:
+            print(
+                f"  [{exp}] kept native/fitted {native['dm_mm'].size:,}; "
+                f"mu=1 {mu1['dm_mm'].size:,}; Dm comparison {variable_mu['dm_mm'].size:,}",
+                flush=True,
+            )
+
+    if not args.only_variable_mu:
+        _save_npz(
+            args.processed_dir / f"disdrometer_dsd_new_plots_native_fitted_mu_raw_{args.output_tag}.npz",
+            native_samples,
         )
-
+        _save_npz(
+            args.processed_dir / f"disdrometer_dsd_new_plots_mu1_raw_{args.output_tag}.npz",
+            mu1_samples,
+        )
     _save_npz(
-        args.processed_dir / f"disdrometer_dsd_new_plots_native_fitted_mu_raw_{args.output_tag}.npz",
-        native_samples,
-    )
-    _save_npz(
-        args.processed_dir / f"disdrometer_dsd_new_plots_mu1_raw_{args.output_tag}.npz",
-        mu1_samples,
+        args.processed_dir / f"disdrometer_dsd_new_plots_variable_mu_raw_{args.output_tag}.npz",
+        variable_mu_samples,
     )
 
+    if not args.only_variable_mu:
+        _render_set(
+            args.plot_root / "old way of doing mu",
+            native_samples,
+            prefix="dsd_percell_native_fitted_mu_raw",
+            title_note="normalized gamma, native/fitted mu, raw per-cell fields",
+            output_tag=args.output_tag,
+            bins=args.bins,
+        )
+        _render_set(
+            args.plot_root / "mu = 1",
+            mu1_samples,
+            prefix="dsd_percell_mu1_raw",
+            title_note="normalized gamma, mu=1, raw per-cell fields",
+            output_tag=args.output_tag,
+            bins=args.bins,
+        )
     _render_set(
-        args.plot_root / "old way of doing mu",
-        native_samples,
-        prefix="dsd_percell_native_fitted_mu_raw",
-        title_note="normalized gamma, native/fitted mu, raw per-cell fields",
+        args.plot_root / "variable mu",
+        variable_mu_samples,
+        prefix="dsd_percell_variable_mu_raw",
+        title_note="normalized gamma, G2M variable mu(dmeanr), raw per-cell fields",
         output_tag=args.output_tag,
         bins=args.bins,
-    )
-    _render_set(
-        args.plot_root / "mu = 1",
-        mu1_samples,
-        prefix="dsd_percell_mu1_raw",
-        title_note="normalized gamma, mu=1, raw per-cell fields",
-        output_tag=args.output_tag,
-        bins=args.bins,
+        fields=(("dm_mm", "D$_m$ = M$_4$/M$_3$ (mm)", "logNw_Dm"),),
     )
 
 

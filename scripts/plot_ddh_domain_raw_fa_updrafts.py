@@ -22,16 +22,19 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from alaro_analysis.common.constants import EXPERIMENTS, EXPERIMENT_LABELS, G
+from alaro_analysis.common.models import VerticalAxis
 from alaro_analysis.ddh.io import AGG_DIR
 from alaro_analysis.ddh.plot_g1m_c1m_process_fingerprint import (
     FingerprintRow,
     make_plot as make_fingerprint_plot,
 )
 from alaro_analysis.ddh.plot_warm_layer_pathway_summary import compute_layer_metrics
+from alaro_analysis.plotting.panels import EXPERIMENT_COLORS
 from alaro_analysis.plotting.style import resolve_workers
+from alaro_analysis.workflows.hydrometeor import plot_three_panels
 
 
-RUNS_ROOT = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS")
+from alaro_analysis.common.constants import RUNS_ROOT
 DEFAULT_DATA_ROOT = RUNS_ROOT / "ALARO"
 DEFAULT_OUTPUT_DIR = RUNS_ROOT / "figures" / "plots" / "analysis-on-the-ddh-domain"
 DEFAULT_LEAD = "0024"
@@ -556,70 +559,26 @@ def plot_metric_panel(
     output_dir: Path,
     dpi: int,
 ) -> Path:
-    height_km = np.asarray(height_m, dtype=np.float64) / 1000.0
-    hours = np.arange(24, dtype=np.float64)
-    hour_edges = np.arange(25, dtype=np.float64) - 0.5
-    y_edges = center_edges(height_km)
-
-    c1 = profiles["control"][metric]
-    g1 = profiles["graupel"][metric]
-    g2 = profiles["2mom"][metric]
-    d_g1 = g1 - c1
-    d_g2 = g2 - g1
-
-    finite_abs = np.concatenate([c1.ravel(), g1.ravel(), g2.ravel()])
-    finite_abs = finite_abs[np.isfinite(finite_abs)]
-    vmax = float(np.nanpercentile(finite_abs, 98)) if finite_abs.size else 1.0
-    if vmax <= 0.0:
-        vmax = float(np.nanmax(finite_abs)) if finite_abs.size else 1.0
-    vmax = vmax if vmax > 0.0 else 1.0
-    diff_lim = symmetric_limit([d_g1, d_g2])
-
-    fig, axes = plt.subplots(1, 3, figsize=(15.0, 5.2), sharey=True)
-    meshes = []
-    meshes.append(
-        axes[0].pcolormesh(hour_edges, y_edges, c1, cmap="viridis", vmin=0.0, vmax=vmax, shading="auto")
-    )
-    meshes.append(
-        axes[1].pcolormesh(hour_edges, y_edges, d_g1, cmap="RdBu_r", vmin=-diff_lim, vmax=diff_lim, shading="auto")
-    )
-    meshes.append(
-        axes[2].pcolormesh(hour_edges, y_edges, d_g2, cmap="RdBu_r", vmin=-diff_lim, vmax=diff_lim, shading="auto")
-    )
-    titles = (
-        f"{EXPERIMENT_LABELS['control']} absolute",
-        f"{EXPERIMENT_LABELS['graupel']} - {EXPERIMENT_LABELS['control']}",
-        f"{EXPERIMENT_LABELS['2mom']} - {EXPERIMENT_LABELS['graupel']}",
-    )
-    for ax, title in zip(axes, titles):
-        ax.set_title(title, fontsize=12, fontweight="bold")
-        ax.set_xlim(-0.5, 23.5)
-        ax.set_ylim(0.0, min(20.0, float(np.nanmax(height_km))))
-        ax.set_xlabel("Local hour (UTC-4)")
-        ax.set_xticks(np.arange(0, 24, 3))
-        ax.grid(color="white", alpha=0.25, linewidth=0.5)
-    axes[0].set_ylabel("Height (km)")
-
-    label = METRIC_LABELS[metric]
-    unit = METRIC_UNITS[metric]
-    fig.suptitle(f"Raw-FA DDH-domain {label} Diurnal Profile", fontsize=14, fontweight="bold")
-    cbar0 = fig.colorbar(meshes[0], ax=axes[0], orientation="horizontal", fraction=0.08, pad=0.16)
-    cbar0.set_label(f"{label} [{unit}]")
-    cbar1 = fig.colorbar(meshes[1], ax=axes[1:], orientation="horizontal", fraction=0.08, pad=0.16)
-    cbar1.set_label(f"{label} anomaly [{unit}]")
-    fig.text(
-        0.01,
-        0.01,
-        "Raw FA inputs: UD_OMEGA and UD_MESH_FRAC only; DDH namelist box; no radar mask.",
-        fontsize=7,
-        color="#555555",
-    )
-    fig.subplots_adjust(left=0.07, right=0.98, top=0.86, bottom=0.18, wspace=0.08)
-
     fig_path = output_dir / f"{metric}_panel_c1m_g1m-c1m_g2m-g1m.png"
-    fig_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(fig_path, dpi=dpi, bbox_inches="tight", facecolor="white")
-    plt.close(fig)
+    axis = VerticalAxis(
+        values=np.asarray(height_m, dtype=np.float64) / 1000.0,
+        label="Height (km)",
+        is_height_km=True,
+    )
+    plot_three_panels(
+        metric.upper(),
+        profiles["control"][metric],
+        profiles["graupel"][metric],
+        profiles["2mom"][metric],
+        axis,
+        fig_path,
+        max_height_km=20.0,
+        period_label="Raw-FA DDH-domain",
+        freezing_lines_km=None,
+        fixed_abs_limits=None,
+        fixed_anom_scale=None,
+        fixed_abs_linear=True,
+    )
 
     txt_path = output_dir / "data_txt" / f"{metric}_panel_c1m_g1m-c1m_g2m-g1m.txt"
     write_metric_text(
@@ -934,19 +893,34 @@ def write_layer_diurnal_plot(
     height_km = np.asarray(height_m, dtype=np.float64) / 1000.0
     level_mask = np.isfinite(height_km) & (height_km >= 0.0) & (height_km <= 3.0)
     hours = np.arange(24)
-    fig, axes = plt.subplots(3, 1, figsize=(9.4, 7.8), sharex=True)
-    colors = {"control": "#d62728", "graupel": "#1f77b4", "2mom": "#2ca02c"}
+    fig, axes = plt.subplots(3, 1, figsize=(10.5, 8.5), sharex=True, constrained_layout=True)
     for ax, metric in zip(axes, METRICS):
         for exp in EXPERIMENTS:
             values = np.nanmean(profiles[exp][metric][level_mask, :], axis=0)
-            ax.plot(hours, values, color=colors[exp], lw=2.0, label=EXPERIMENT_LABELS[exp])
-        ax.set_ylabel(f"{METRIC_LABELS[metric]}\n({TEXT_UNITS[metric]})")
-        ax.grid(True, color="0.88", linewidth=0.8)
-    axes[0].legend(frameon=False, ncols=3, loc="upper right")
-    axes[-1].set_xlabel("Local hour (UTC-4)")
+            ax.plot(
+                hours,
+                values,
+                color=EXPERIMENT_COLORS[exp],
+                lw=2.4,
+                marker="o",
+                markersize=3.0,
+                label=EXPERIMENT_LABELS[exp],
+            )
+        ax.set_ylabel(f"{METRIC_LABELS[metric]}\n[{TEXT_UNITS[metric]}]", fontsize=11)
+        ax.grid(alpha=0.25, linestyle="--")
+        ax.tick_params(axis="both", labelsize=10)
+        ax.set_xlim(0.0, 23.0)
+    axes[0].legend(
+        frameon=True,
+        framealpha=0.9,
+        ncols=3,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 1.02),
+        fontsize=10,
+    )
+    axes[-1].set_xlabel("Hour (Amazon UTC-4)", fontsize=11)
     axes[-1].set_xticks(np.arange(0, 24, 3))
-    fig.suptitle("Raw-FA DDH-domain 0-3 km updraft diurnal cycles", fontsize=13, fontweight="bold")
-    fig.tight_layout()
+    fig.suptitle("Raw-FA DDH-domain 0-3 km updraft diurnal cycles", fontsize=14, fontweight="bold")
     fig_path = output_dir / "updraft_0_3km_diurnal_cycles.png"
     fig.savefig(fig_path, dpi=dpi, bbox_inches="tight", facecolor="white")
     plt.close(fig)

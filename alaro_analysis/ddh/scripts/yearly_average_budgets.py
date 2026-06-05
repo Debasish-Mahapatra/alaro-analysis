@@ -288,7 +288,7 @@ def plot_variable(variable):
                  fontsize=26, fontweight='bold', y=1.02)
     fig.tight_layout()
     outpath = os.path.join(OUTPUT_DIR, f"{variable}_2yr_avg_budget.png")
-    fig.savefig(outpath, dpi=400, bbox_inches='tight')
+    fig.savefig(outpath, dpi=450, bbox_inches='tight')
     plt.close(fig)
     print(f"  Saved: {outpath}")
 

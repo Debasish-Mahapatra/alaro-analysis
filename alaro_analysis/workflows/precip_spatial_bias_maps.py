@@ -15,12 +15,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 
+from alaro_analysis.common.figio import DatasetConfig, add_io_args
 
-RUNS_ROOT = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS")
+
+from alaro_analysis.common.constants import RUNS_ROOT
 DEFAULT_DATA_DIR = (
     RUNS_ROOT
-    / "rainfall-regridded-to-imerge"
-    / "masked-production-final"
+    / "rainfall-conservative-rebuild"
     / "common-valid-time-production"
 )
 DEFAULT_OUTPUT_DIR = RUNS_ROOT / "figures" / "rainfall_spatial_bias_maps"
@@ -28,14 +29,6 @@ DEFAULT_MIN_REFERENCE = 0.01
 MANAUS_LON = -60.0217
 MANAUS_LAT = -3.1190
 PANEL_LABELS = ("(a)", "(b)", "(c)", "(d)", "(e)", "(f)")
-
-
-@dataclass(frozen=True)
-class DatasetConfig:
-    key: str
-    label: str
-    filename: str
-    variable: str
 
 
 @dataclass(frozen=True)
@@ -49,11 +42,12 @@ class SpatialField:
 
 
 DATASETS: tuple[DatasetConfig, ...] = (
-    DatasetConfig("radar", "Radar", "Radar_common_valid.nc", "rainfall_rate"),
-    DatasetConfig("imerg", "IMERG(GPM)", "IMERG_common_valid.nc", "precipitation"),
-    DatasetConfig("control", "C1M", "Control_common_valid.nc", "total_rain"),
-    DatasetConfig("graupel", "G1M", "Graupel_common_valid.nc", "total_rain"),
-    DatasetConfig("2mom", "G2M", "2-Moment_common_valid.nc", "total_rain"),
+    DatasetConfig("radar", "Radar", "Radar_common_valid.nc", "rainfall"),
+    DatasetConfig("imerg", "IMERG(GPM)", "IMERG_common_valid.nc", "rainfall"),
+    DatasetConfig("control", "C1M", "C1M_common_valid.nc", "rainfall"),
+    DatasetConfig("graupel", "G1M", "G1M_common_valid.nc", "rainfall"),
+    DatasetConfig("2mom", "G2M", "G2M_common_valid.nc", "rainfall"),
+    DatasetConfig("no3m", "G2M-XCU", "G2M-XCU_common_valid.nc", "rainfall"),
 )
 DATASET_BY_KEY = {cfg.key: cfg for cfg in DATASETS}
 
@@ -376,19 +370,29 @@ def plot_bias_maps(
     reference = fields[reference_key]
     projection = ccrs.PlateCarree()
     fig = plt.figure(figsize=figsize)
-    grid = fig.add_gridspec(
-        layout[0],
-        layout[1] + 1,
-        width_ratios=[1.0] * layout[1] + [0.05],
-        wspace=0.15,
-        hspace=0.20 if layout[0] > 1 else 0.08,
-    )
-    axes_flat = [
-        fig.add_subplot(grid[row, col], projection=projection)
-        for row in range(layout[0])
-        for col in range(layout[1])
-    ]
-    cbar_ax = fig.add_subplot(grid[:, -1])
+    rows, cols = layout
+    n_panels = len(bias_maps)
+    if n_panels < rows * cols:
+        # An empty panel slot exists: drop the dedicated colorbar column and put a
+        # narrow vertical colorbar into that slot, so both side margins trim away.
+        grid = fig.add_gridspec(rows, cols, wspace=0.12,
+                                hspace=0.20 if rows > 1 else 0.08)
+        slots = [(r, c) for r in range(rows) for c in range(cols)]
+        axes_flat = [fig.add_subplot(grid[r, c], projection=projection)
+                     for (r, c) in slots[:n_panels]]
+        er, ec = slots[n_panels]
+        holder = fig.add_subplot(grid[er, ec])
+        holder.axis("off")
+        cbar_ax = holder.inset_axes([0.46, 0.08, 0.07, 0.84])
+    else:
+        grid = fig.add_gridspec(
+            rows, cols + 1,
+            width_ratios=[1.0] * cols + [0.05],
+            wspace=0.15, hspace=0.20 if rows > 1 else 0.08,
+        )
+        axes_flat = [fig.add_subplot(grid[row, col], projection=projection)
+                     for row in range(rows) for col in range(cols)]
+        cbar_ax = fig.add_subplot(grid[:, -1])
     image = None
 
     for index, (key, data) in enumerate(bias_maps.items()):
@@ -420,7 +424,7 @@ def plot_bias_maps(
         raise ValueError("No bias maps were supplied for plotting")
     cbar = fig.colorbar(image, cax=cbar_ax)
     cbar.set_label("Relative Bias (%)", fontsize=14)
-    fig.savefig(output_path, dpi=dpi, facecolor="white")
+    fig.savefig(output_path, dpi=dpi, facecolor="white", bbox_inches="tight")
     plt.close(fig)
 
 
@@ -608,19 +612,19 @@ def run(
     plot_specs = (
         {
             "reference_key": "radar",
-            "comparison_keys": ("imerg", "control", "graupel", "2mom"),
+            "comparison_keys": ("imerg", "control", "graupel", "2mom", "no3m"),
             "filename": "spatial_relative_bias_vs_radar.png",
             "title_suffix": "Radar",
-            "figsize": (12.0, 10.0),
-            "layout": (2, 2),
+            "figsize": (16.5, 10.5),
+            "layout": (2, 3),
         },
         {
             "reference_key": "imerg",
-            "comparison_keys": ("control", "graupel", "2mom"),
+            "comparison_keys": ("control", "graupel", "2mom", "no3m"),
             "filename": "spatial_relative_bias_vs_imerg.png",
-            "title_suffix": "IMERG(GPM)",
-            "figsize": (15.0, 5.0),
-            "layout": (1, 3),
+            "title_suffix": "IMERG",
+            "figsize": (12.0, 10.0),
+            "layout": (2, 2),
         },
     )
 
@@ -666,12 +670,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Plot spatial relative-bias maps from common-valid rainfall data."
     )
-    parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    add_io_args(parser, default_data_dir=DEFAULT_DATA_DIR, default_output_dir=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--min-reference", type=float, default=DEFAULT_MIN_REFERENCE)
     parser.add_argument("--vmin", type=float, default=-30.0)
     parser.add_argument("--vmax", type=float, default=30.0)
-    parser.add_argument("--dpi", type=int, default=400)
     return parser.parse_args(argv)
 
 

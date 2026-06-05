@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from alaro_analysis.common.constants import CP_D, EPS, G, LV, P0
+from alaro_analysis.common.constants import CP_D, EARTH_RADIUS_M, EPS, G, LV, P0
 
 
 # ---------------------------------------------------------------------------
@@ -142,3 +142,106 @@ def compute_relative_humidity(
     es = 611.2 * np.exp(17.67 * (t - 273.15) / (t - 29.65))
     rh = np.clip(e / es, 0.0, 1.0)
     return rh
+
+
+# ---------------------------------------------------------------------------
+# Moisture transport (vertically integrated water-vapour flux convergence)
+# ---------------------------------------------------------------------------
+
+
+def column_integrated_vapor_flux(
+    specific_humidity: np.ndarray,
+    u: np.ndarray,
+    v: np.ndarray,
+    dp_pa: np.ndarray,
+    *,
+    g: float = G,
+    clip_negative_q: bool = True,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Vertically integrate the horizontal water-vapour flux over a column.
+
+    Computes ``Q = (1/g) * sum_level(q * V * dp)`` for each grid point, i.e.
+    the mass-weighted column-integrated moisture transport vector.
+
+    Parameters
+    ----------
+    specific_humidity, u, v, dp_pa : ndarray, shape (L, Y, X)
+        Specific humidity (kg/kg), zonal and meridional wind (m/s), and
+        pressure-layer thickness (Pa) on model levels.
+    g : float
+        Gravitational acceleration (m/s^2).
+    clip_negative_q : bool
+        Clip tiny negative humidity values to zero before integrating.
+
+    Returns
+    -------
+    (qx, qy) : tuple of ndarray, shape (Y, X)
+        Eastward and northward column vapour flux in kg m^-1 s^-1.
+    """
+    q = np.asarray(specific_humidity, dtype=np.float64)
+    u = np.asarray(u, dtype=np.float64)
+    v = np.asarray(v, dtype=np.float64)
+    dp = np.asarray(dp_pa, dtype=np.float64)
+    if clip_negative_q:
+        q = np.where(np.isfinite(q) & (q > 0.0), q, 0.0)
+    qx = np.nansum(q * u * dp, axis=0) / g
+    qy = np.nansum(q * v * dp, axis=0) / g
+    return qx, qy
+
+
+def horizontal_divergence_spherical(
+    fx: np.ndarray,
+    fy: np.ndarray,
+    lon_deg: np.ndarray,
+    lat_deg: np.ndarray,
+    *,
+    earth_radius_m: float = EARTH_RADIUS_M,
+) -> np.ndarray:
+    """Horizontal divergence of a 2-D vector field on a lon/lat grid.
+
+    Uses centred finite differences with the spherical metric
+
+        div(F) = 1/(R cos(phi)) * [ d(Fx)/d(lambda) + d(Fy cos(phi))/d(phi) ]
+
+    evaluated against the (possibly curvilinear) 2-D longitude/latitude
+    arrays.  The one-cell border, where a centred difference is undefined,
+    is returned as NaN.
+
+    Parameters
+    ----------
+    fx, fy : ndarray, shape (Y, X)
+        Eastward and northward components of the field.
+    lon_deg, lat_deg : ndarray, shape (Y, X)
+        Longitude and latitude in degrees.
+    earth_radius_m : float
+        Mean Earth radius in metres.
+
+    Returns
+    -------
+    div : ndarray, shape (Y, X)
+        Divergence in (units of F) per metre; NaN on the outermost ring.
+    """
+    fx = np.asarray(fx, dtype=np.float64)
+    fy = np.asarray(fy, dtype=np.float64)
+    lon = np.asarray(lon_deg, dtype=np.float64)
+    lat = np.asarray(lat_deg, dtype=np.float64)
+    if fx.ndim != 2:
+        raise ValueError(f"Expected 2-D fields, got {fx.shape}")
+
+    phi = np.deg2rad(lat)
+    cos_phi = np.cos(phi)
+    r_cos = earth_radius_m * cos_phi[1:-1, 1:-1]
+
+    # Zonal term: d(Fx)/d(east) across the i (x) index.
+    d_lambda = np.deg2rad(lon[1:-1, 2:] - lon[1:-1, :-2])
+    d_fx = fx[1:-1, 2:] - fx[1:-1, :-2]
+    term_x = d_fx / (r_cos * d_lambda)
+
+    # Meridional term: d(Fy cos(phi))/d(north) across the j (y) index.
+    d_phi = np.deg2rad(lat[2:, 1:-1] - lat[:-2, 1:-1])
+    d_fyc = fy[2:, 1:-1] * cos_phi[2:, 1:-1] - fy[:-2, 1:-1] * cos_phi[:-2, 1:-1]
+    term_y = d_fyc / (r_cos * d_phi)
+
+    div = np.full(fx.shape, np.nan, dtype=np.float64)
+    div[1:-1, 1:-1] = term_x + term_y
+    return div

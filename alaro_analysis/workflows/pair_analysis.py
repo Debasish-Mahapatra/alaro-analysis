@@ -29,7 +29,7 @@ from alaro_analysis.common.constants import (
     EXPERIMENT_LABELS,
     SEASONS,
 )
-from alaro_analysis.common.models import AxisSpec, PeriodSpec
+from alaro_analysis.common.models import PeriodSpec, VerticalAxis
 from alaro_analysis.common.naming import safe_name
 from alaro_analysis.common.seasons import build_period_specs, resolve_seasons
 from alaro_analysis.common.vertical import centers_to_edges, compute_freezing_line_km
@@ -198,7 +198,7 @@ def resolve_selected_pairs(pair_args: tuple[str, ...] | list[str]) -> list[tuple
 
 
 def crop_to_axis(
-    axis: AxisSpec,
+    axis: VerticalAxis,
     arrays: list[np.ndarray],
     max_height_km: float,
 ) -> tuple[np.ndarray, list[np.ndarray]]:
@@ -387,7 +387,7 @@ def plot_individual_panels(
     control: np.ndarray,
     graupel: np.ndarray,
     twomom: np.ndarray,
-    axis: AxisSpec,
+    axis: VerticalAxis,
     max_height_km: float,
     period_label: str,
     freezing_line_km: np.ndarray | None,
@@ -455,7 +455,7 @@ def plot_pair_panel(
     experiment: str,
     normal: np.ndarray,
     rad: np.ndarray,
-    axis: AxisSpec,
+    axis: VerticalAxis,
     max_height_km: float,
     period_label: str,
     freezing_line_km: np.ndarray | None,
@@ -587,7 +587,7 @@ def plot_pair_panel(
 def plot_pair_across_experiments(
     pair: tuple[str, str],
     period_label: str,
-    axis: AxisSpec,
+    axis: VerticalAxis,
     max_height_km: float,
     freezing_line_km: np.ndarray | None,
     cross_anom_scale: float,
@@ -681,7 +681,7 @@ def plot_sum_diff_grid(
     pair: tuple[str, str],
     profiles: dict[tuple[str, str, str], np.ndarray],
     period: PeriodSpec,
-    axis: AxisSpec,
+    axis: VerticalAxis,
     max_height_km: float,
     freezing_line_km: np.ndarray | None,
     output_file: Path,
@@ -847,7 +847,7 @@ def main() -> None:
                     intermediate_roots, variable, period.output_subdir, exp
                 )
 
-    axes_by_period: dict[str, AxisSpec] = {}
+    axes_by_period: dict[str, VerticalAxis] = {}
     for period in periods:
         fallback_levels = profiles[(period.key, variables[0], "control")].shape[0]
         axes_by_period[period.key] = load_height_axis(

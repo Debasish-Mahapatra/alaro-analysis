@@ -98,7 +98,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-height-km", type=float, default=20.0)
     parser.add_argument("--xmin", type=float, default=-0.5e-5)
     parser.add_argument("--xmax", type=float, default=5.0e-5)
-    parser.add_argument("--dpi", type=int, default=400)
+    parser.add_argument("--dpi", type=int, default=450)
     return parse_configured_args(parser, "hydrometeor_vertical_profiles", argv=argv)
 
 

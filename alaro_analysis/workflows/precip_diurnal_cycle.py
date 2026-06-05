@@ -16,27 +16,17 @@ from matplotlib.patches import Patch
 import numpy as np
 import xarray as xr
 
+from alaro_analysis.common.figio import DatasetConfig, add_io_args, save_figure
 
-RUNS_ROOT = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS")
+
+from alaro_analysis.common.constants import RUNS_ROOT
 DEFAULT_DATA_DIR = (
     RUNS_ROOT
-    / "rainfall-regridded-to-imerge"
-    / "masked-production-final"
-    / "common-valid-time-production"
+    / "rainfall-conservative-rebuild"
+    / "common-valid-time-production-bilinearmask"
 )
 DEFAULT_OUTPUT_DIR = RUNS_ROOT / "figures" / "rainfall_diurnal_cycle"
 DEFAULT_OUTPUT_NAME = "diurnal_cycle_common_valid.png"
-
-
-@dataclass(frozen=True)
-class DatasetConfig:
-    key: str
-    label: str
-    filename: str
-    variable: str
-    color: str
-    linestyle: str = "-"
-    linewidth: float = 3.0
 
 
 @dataclass(frozen=True)
@@ -47,11 +37,12 @@ class HourlyStats:
 
 
 DATASETS: tuple[DatasetConfig, ...] = (
-    DatasetConfig("radar", "Radar", "Radar_common_valid.nc", "rainfall_rate", "black", "-", 3.2),
-    DatasetConfig("imerg", "IMERG(GPM)", "IMERG_common_valid.nc", "precipitation", "dimgray", ":", 3.6),
-    DatasetConfig("control", "C1M", "Control_common_valid.nc", "total_rain", "#d62728", "-", 3.0),
-    DatasetConfig("graupel", "G1M", "Graupel_common_valid.nc", "total_rain", "#1f77b4", "-", 3.0),
-    DatasetConfig("2mom", "G2M", "2-Moment_common_valid.nc", "total_rain", "#2ca02c", "-", 3.0),
+    DatasetConfig("radar", "Radar", "Radar_common_valid.nc", "rainfall", "black", "-", 3.2),
+    DatasetConfig("imerg", "IMERG", "IMERG_common_valid.nc", "rainfall", "dimgray", ":", 3.6),
+    DatasetConfig("control", "C1M", "C1M_common_valid.nc", "rainfall", "#d62728", "-", 3.0),
+    DatasetConfig("graupel", "G1M", "G1M_common_valid.nc", "rainfall", "#1f77b4", "-", 3.0),
+    DatasetConfig("2mom", "G2M", "G2M_common_valid.nc", "rainfall", "#2ca02c", "-", 3.0),
+    DatasetConfig("no3m", "G2M-XCU", "G2M-XCU_common_valid.nc", "rainfall", "#9467bd", "-", 3.0),
 )
 
 OBS_SHADE_KEYS = ("radar", "imerg")
@@ -206,7 +197,7 @@ def plot_diurnal_cycle(
     )
 
     fig.tight_layout()
-    fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
+    save_figure(fig, output_path, dpi=dpi)
     plt.close(fig)
 
 
@@ -327,14 +318,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Plot precipitation diurnal cycle from common-valid rainfall files."
     )
-    parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    add_io_args(parser, default_data_dir=DEFAULT_DATA_DIR, default_output_dir=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--output-name", default=DEFAULT_OUTPUT_NAME)
     parser.add_argument("--shade-mode", choices=["percent", "std"], default="percent")
     parser.add_argument("--std-multiplier", type=float, default=1.0)
     parser.add_argument("--percent-uncertainty", type=float, default=0.10)
     parser.add_argument("--utc-offset-hours", type=int, default=-4)
-    parser.add_argument("--dpi", type=int, default=400)
     return parser
 
 

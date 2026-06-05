@@ -13,7 +13,7 @@ import numpy as np
 import xarray as xr
 
 
-RUNS_ROOT = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS")
+from alaro_analysis.common.constants import RUNS_ROOT
 RAINFALL_ROOT = RUNS_ROOT / "rainfall-regridded-to-imerge"
 DEFAULT_REGRIDDED_DIR = RAINFALL_ROOT / "cropped-regrided-imerg"
 DEFAULT_RAW_IMERG_DIR = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/IMERG_AMAZON")

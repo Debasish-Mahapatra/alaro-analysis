@@ -37,13 +37,14 @@ Analyses implemented:
 from __future__ import annotations
 
 import argparse
-import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, Sequence
 
 import cmaps
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
+
+from alaro_analysis.common.figio import strip_cbar_zeros
 import numpy as np
 import xarray as xr
 
@@ -59,14 +60,13 @@ from alaro_analysis.common.constants import (
     SEASONS,
 )
 from alaro_analysis.common.models import PeriodSpec, SpatialWindow, VerticalAxis
-from alaro_analysis.common.naming import safe_name
+from alaro_analysis.common.naming import normalize_var_token, safe_name
 from alaro_analysis.common.seasons import build_period_specs, resolve_seasons
 from alaro_analysis.common.spatial import (
     apply_spatial_window_to_array,
     build_spatial_window,
     spatial_window_tag,
 )
-from alaro_analysis.common.timeparse import has_pf_subdirs
 from alaro_analysis.common.vertical import (
     centers_to_edges,
     compute_freezing_line_km,
@@ -80,7 +80,11 @@ from alaro_analysis.data.dataset_io import (
     resolve_data_var_name,
     to_time_level_yx,
 )
-from alaro_analysis.data.discovery import collect_file_records
+from alaro_analysis.data.discovery import (
+    collect_file_records,
+    discover_variable_maps,
+    resolve_var_name,
+)
 from alaro_analysis.plotting.scales import infer_abs_limits, infer_anom_scale
 
 DEFAULT_CONTROL_DIR = Path(
@@ -103,7 +107,8 @@ DEFAULT_INTERMEDIATE_DIR = Path(
 )
 
 ANALYSIS_CHOICES = ("downdraft", "precip", "thermo", "kt273", "column")
-VAR_TOKEN_RE = re.compile(r"[^A-Za-z0-9]+")
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Extended diagnostics (downdraft/precip/thermo/KT273/column) from masked NetCDF."
@@ -186,37 +191,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="List discovered variables per experiment and exit.",
     )
     return parse_configured_args(parser, "diagnostics", argv=argv)
-
-
-def normalize_var_token(name: str) -> str:
-    return VAR_TOKEN_RE.sub("", name).upper()
-
-
-def discover_variable_maps(experiment_dirs: dict[str, Path]) -> dict[str, dict[str, str]]:
-    maps: dict[str, dict[str, str]] = {}
-    for exp, exp_dir in experiment_dirs.items():
-        token_map: dict[str, str] = {}
-        for p in sorted(exp_dir.iterdir()):
-            if not p.is_dir() or p.name.startswith(".") or not has_pf_subdirs(p):
-                continue
-            token = normalize_var_token(p.name)
-            if token and token not in token_map:
-                token_map[token] = p.name
-        maps[exp] = token_map
-    return maps
-
-
-def resolve_var_name(
-    variable_maps: dict[str, dict[str, str]],
-    experiment: str,
-    candidates: Sequence[str],
-) -> str | None:
-    token_map = variable_maps[experiment]
-    for cand in candidates:
-        token = normalize_var_token(cand)
-        if token in token_map:
-            return token_map[token]
-    return None
 
 
 def align_tlyx_shapes(arrays: Sequence[np.ndarray]) -> list[np.ndarray]:
@@ -897,10 +871,12 @@ def plot_three_panel_anomaly(
     unit_tag = f" [{unit}]" if unit else ""
 
     cbar_abs = fig.colorbar(pcm_abs, ax=axes[0], orientation="horizontal", fraction=0.08, pad=0.16)
+    strip_cbar_zeros(cbar_abs, axis="x")
     cbar_abs.set_label(f"Mean {title_label}{unit_tag}", fontsize=12)
     cbar_abs.ax.tick_params(labelsize=11)
 
     cbar_diff = fig.colorbar(pcm_diff, ax=axes[1:], orientation="horizontal", fraction=0.08, pad=0.16)
+    strip_cbar_zeros(cbar_diff, axis="x")
     cbar_diff.set_label(f"{title_label} anomaly{unit_tag}", fontsize=12)
     cbar_diff.ax.tick_params(labelsize=11)
 
@@ -1002,6 +978,7 @@ def plot_three_experiment_absolute(
     fig.suptitle(f"{period_label} - {title_label}", fontsize=15, fontweight="bold")
     unit_tag = f" [{unit}]" if unit else ""
     cbar = fig.colorbar(pcm, ax=axes, orientation="horizontal", fraction=0.08, pad=0.16)
+    strip_cbar_zeros(cbar, axis="x")
     cbar.set_label(f"{title_label}{unit_tag}", fontsize=12)
     cbar.ax.tick_params(labelsize=11)
 

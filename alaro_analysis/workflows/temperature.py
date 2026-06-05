@@ -22,6 +22,8 @@ from pathlib import Path
 import cmaps
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
+
+from alaro_analysis.common.figio import strip_cbar_zeros
 import numpy as np
 
 from alaro_analysis.common.cli_config import add_config_argument, parse_configured_args
@@ -189,13 +191,13 @@ def compute_diurnal_profile(
     if not records:
         raise RuntimeError(f"No valid +0000..+0023 files found in {variable_dir}")
 
-    first_profile, _ = read_vertical_profile(records[0][1], variable)
+    first_profile, _ = read_vertical_profile(records[0][1], variable, compact_match=True)
     n_levels = first_profile.size
     sums = np.zeros((n_levels, 24), dtype=np.float64)
     counts = np.zeros((n_levels, 24), dtype=np.int64)
 
     for idx, (local_hour, file_path) in enumerate(records, start=1):
-        profile, _ = read_vertical_profile(file_path, variable)
+        profile, _ = read_vertical_profile(file_path, variable, compact_match=True)
         if profile.size != n_levels:
             raise ValueError(
                 f"Inconsistent vertical levels in {file_path}: {profile.size} vs {n_levels}"
@@ -230,14 +232,14 @@ def compute_geopotential_height_profile(
         raise RuntimeError(f"No valid geopotential files found in {geopotential_dir}")
 
     if aggregate == "first":
-        profile, _ = read_vertical_profile(records[0][1], height_variable)
+        profile, _ = read_vertical_profile(records[0][1], height_variable, compact_match=True)
         return profile, 1
 
-    first, _ = read_vertical_profile(records[0][1], height_variable)
+    first, _ = read_vertical_profile(records[0][1], height_variable, compact_match=True)
     sums = np.zeros_like(first, dtype=np.float64)
     counts = np.zeros_like(first, dtype=np.int64)
     for idx, (_, file_path) in enumerate(records, start=1):
-        profile, _ = read_vertical_profile(file_path, height_variable)
+        profile, _ = read_vertical_profile(file_path, height_variable, compact_match=True)
         valid = np.isfinite(profile)
         sums[valid] += profile[valid]
         counts[valid] += 1
@@ -447,10 +449,12 @@ def plot_temperature_panels(
     fig.suptitle(f"{period_label} - {variable}", fontsize=16, fontweight="bold")
 
     cbar_abs = fig.colorbar(pcm_abs, ax=axes[0], orientation="horizontal", fraction=0.08, pad=0.16)
+    strip_cbar_zeros(cbar_abs, axis="x")
     cbar_abs.set_label(f"Mean {variable} (Absolute)", fontsize=cbar_label_fs)
     cbar_abs.ax.tick_params(labelsize=cbar_tick_fs)
 
     cbar_diff = fig.colorbar(pcm_diff, ax=axes[1:], orientation="horizontal", fraction=0.08, pad=0.16)
+    strip_cbar_zeros(cbar_diff, axis="x")
     cbar_diff.set_label(f"{variable} anomaly", fontsize=cbar_label_fs)
     cbar_diff.ax.tick_params(labelsize=cbar_tick_fs)
 

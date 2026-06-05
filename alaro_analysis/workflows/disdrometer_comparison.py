@@ -24,7 +24,7 @@ from alaro_analysis.common.constants import (
 )
 
 
-RUNS_ROOT = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS")
+from alaro_analysis.common.constants import RUNS_ROOT
 MODEL_ROOT = RUNS_ROOT / "ALARO"
 OBS_ZIP = RUNS_ROOT / "Obs" / "MANAUS_DISDROMETER_DATA.zip"
 STRICT_OBS_MEMBER = (
@@ -540,7 +540,7 @@ def plot_timeseries(
     ax.xaxis.set_major_locator(locator)
     ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
     ax.legend(loc="upper right", frameon=False, ncol=4)
-    fig.savefig(out, dpi=200)
+    fig.savefig(out, dpi=450)
     plt.close(fig)
 
 
@@ -582,7 +582,7 @@ def plot_scatter(
     axes[0].set_ylabel("Model (m$^{-3}$)")
     fig.suptitle(f"Disdrometer vs lowest model level rain number, {lead_text}")
     fig.tight_layout()
-    fig.savefig(out, dpi=200)
+    fig.savefig(out, dpi=450)
     plt.close(fig)
 
 
@@ -629,7 +629,7 @@ def plot_distribution(
     ax.set_title(f"Matched rain number distributions, {lead_text}")
     ax.grid(True, which="both", alpha=0.25)
     ax.legend(loc="upper right", frameon=False)
-    fig.savefig(out, dpi=200)
+    fig.savefig(out, dpi=450)
     plt.close(fig)
 
 

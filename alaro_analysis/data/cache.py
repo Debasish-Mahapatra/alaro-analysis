@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 
-from alaro_analysis.common.models import AxisSpec
+from alaro_analysis.common.models import VerticalAxis
 from alaro_analysis.common.naming import safe_name
 
 
@@ -200,7 +200,7 @@ def load_height_axis(
     spatial_tag: str | None = None,
     fallback_levels: int | None = None,
     allow_geopotentiel_fallback: bool = False,
-) -> AxisSpec:
+) -> VerticalAxis:
     relpaths = height_relpaths(
         period_subdir,
         experiment,
@@ -215,14 +215,14 @@ def load_height_axis(
                 f"Height cache not found for {experiment}: {relpaths}\n"
                 f"Searched roots: {intermediate_roots}"
             )
-        return AxisSpec(
+        return VerticalAxis(
             values=np.arange(fallback_levels, dtype=np.float64),
             label="Model level",
             is_height_km=False,
         )
 
     height_m = load_height_profile_cache(found)
-    return AxisSpec(values=height_m / 1000.0, label="Height (km)", is_height_km=True)
+    return VerticalAxis(values=height_m / 1000.0, label="Height (km)", is_height_km=True)
 
 
 def load_temperature_profile(

@@ -15,7 +15,7 @@ from .constants import (
     SANITIZE_RE,
     SEASONS,
 )
-from .models import AxisSpec, PeriodSpec, SpatialWindow, VerticalAxis
+from .models import PeriodSpec, SpatialWindow, VerticalAxis
 from .naming import safe_name
 from .seasons import build_period_specs, resolve_seasons
 from .spatial import (
@@ -33,7 +33,6 @@ from .vertical import (
 )
 
 __all__ = [
-    "AxisSpec",
     "CP_D",
     "DAY_RE",
     "EPS",

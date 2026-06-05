@@ -25,6 +25,8 @@ except Exception as exc:  # noqa: BLE001
     ) from exc
 
 import matplotlib.pyplot as plt
+
+from alaro_analysis.common.figio import strip_cbar_zeros
 from matplotlib.colors import ListedColormap
 from matplotlib.patches import Rectangle
 
@@ -456,6 +458,7 @@ def main() -> None:
                 zorder=5,
             )
             cbar = fig.colorbar(mesh, ax=ax, orientation="vertical", shrink=0.86, pad=0.02)
+            strip_cbar_zeros(cbar)
             cbar.set_label(f"{overlay_var} (masked NetCDF values)")
             if has_analysis_boundary:
                 _draw_analysis_boundary(

@@ -787,7 +787,7 @@ def plot_figure(
             cb.set_label(f"{label} (kg/kg)", fontsize=FS_MARG, rotation=270, labelpad=18)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=200, bbox_inches="tight")
+    fig.savefig(output_path, dpi=450, bbox_inches="tight")
     print(f"Saved figure: {output_path}")
     plt.close(fig)
 

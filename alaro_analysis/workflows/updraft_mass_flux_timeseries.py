@@ -29,7 +29,7 @@ from alaro_analysis.common.timeparse import parse_utc_hour_from_name
 from alaro_analysis.plotting.style import resolve_workers
 
 
-RUNS_ROOT = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS")
+from alaro_analysis.common.constants import RUNS_ROOT
 DEFAULT_DATA_ROOT = RUNS_ROOT / "ALARO"
 DEFAULT_OUTPUT_DIR = RUNS_ROOT / "figures" / "updraft_mass_flux_timeseries"
 FIGURE_NAME = "updraft_mass_flux_p90_domain_mean_timeseries.png"
@@ -970,7 +970,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--day-percentile", type=float, default=95.0)
     parser.add_argument("--max-days", type=int, default=None)
     parser.add_argument("--workers", type=int, default=32)
-    parser.add_argument("--dpi", type=int, default=400)
+    parser.add_argument("--dpi", type=int, default=450)
     return parser
 
 

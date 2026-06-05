@@ -13,13 +13,15 @@ matplotlib.use("Agg")
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
+
+from alaro_analysis.common.figio import strip_cbar_zeros
 import numpy as np
 import xarray as xr
 
 from alaro_analysis.common.constants import G
 
 
-RUNS_ROOT = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS")
+from alaro_analysis.common.constants import RUNS_ROOT
 DEFAULT_ALARO_ROOT = RUNS_ROOT / "ALARO"
 DEFAULT_OUTPUT_DIR = RUNS_ROOT / "figures" / "updraft_spatial_snapshot_fig612_like"
 EXPERIMENT_LABELS = {"control": "C1M", "graupel": "G1M", "2mom": "G2M"}
@@ -354,6 +356,7 @@ def plot_snapshot(
         ax.set_yticks([])
         ax.set_aspect("equal", adjustable="box")
         cbar = fig.colorbar(mesh, ax=ax, fraction=0.046, pad=0.02)
+        strip_cbar_zeros(cbar)
         cbar.ax.set_title(unit, fontsize=9, pad=6)
         cbar.ax.tick_params(labelsize=9)
 
@@ -539,7 +542,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--level-index", type=int, default=None, help="0-based model level index. Default: auto-select.")
     parser.add_argument("--auto-max-days", type=int, default=31)
     parser.add_argument("--crop-pad", type=int, default=8)
-    parser.add_argument("--dpi", type=int, default=400)
+    parser.add_argument("--dpi", type=int, default=450)
     return parser
 
 

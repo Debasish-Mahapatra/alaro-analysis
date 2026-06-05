@@ -62,7 +62,7 @@ The old module and example-script entrypoints still work, for example:
 
 ```bash
 python -m alaro_analysis.workflows.hydrometeor --variables RAIN
-python examples/plot_pblh_diurnal.py --seasons wet dry
+python examples/plot_pblh_diurnal.py --analysis-modes full
 ```
 
 ## Optional config file
@@ -125,7 +125,10 @@ exps = ExperimentSet.from_three_dirs(
     fa_twomom="/path/to/2mom/untar-output",
 )
 
-exps.convert("CLPMHAUT.MOD.XFU", mask_file="/path/to/Radar_mask_latlon.nc")
+exps.convert(
+    ["CLPMHAUT.MOD.XFU", "H00100TEMPERATUR", "H00100HUMI.SPECI", "H00100PRESSURE"],
+    mask_file="/path/to/Radar_mask_latlon.nc",
+)
 ```
 
 Or from the command line:
@@ -133,9 +136,14 @@ Or from the command line:
 ```bash
 python -m alaro_analysis.converter.cli \
     /path/to/untar-output /path/to/masked-netcdf \
-    --vars "CLPMHAUT.MOD.XFU" \
+    --vars "CLPMHAUT.MOD.XFU" "H00100TEMPERATUR" "H00100HUMI.SPECI" "H00100PRESSURE" \
     --mask-file /path/to/Radar_mask_latlon.nc
 ```
+
+The PBL-height plotting example overlays LCL when these `H00100*` inputs have
+been converted. LCL is computed with MetPy from pressure, temperature, and
+specific humidity at 100 m, then shifted to metres AGL for comparison with
+`CLPMHAUT.MOD.XFU`.
 
 ## Experiments
 

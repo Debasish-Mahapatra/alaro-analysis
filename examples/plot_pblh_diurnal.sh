@@ -17,8 +17,9 @@ python plot_pblh_diurnal.py \
     --variable "CLPMHAUT.MOD.XFU" \
     --variable-label "Boundary layer height" \
     --variable-unit "m" \
+    --analysis-modes full \
+    --lcl-overlay on \
     --output-dir /mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/figures/surface \
-    --intermediate-dir /mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/surface \
-    --zoom-inset
+    --intermediate-dir /mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/surface
 
 echo "PBLH diurnal cycle plots complete."

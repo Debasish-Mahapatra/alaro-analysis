@@ -16,8 +16,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 
+from alaro_analysis.common.figio import DatasetConfig, add_io_args, save_figure
 
-RUNS_ROOT = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS")
+
+from alaro_analysis.common.constants import RUNS_ROOT
 DEFAULT_DATA_DIR = (
     RUNS_ROOT
     / "rainfall-regridded-to-imerge"
@@ -26,14 +28,6 @@ DEFAULT_DATA_DIR = (
 )
 DEFAULT_OUTPUT_DIR = RUNS_ROOT / "figures" / "rainfall_intensity_heatmaps"
 PANEL_LABELS = ("(a)", "(b)", "(c)", "(d)", "(e)", "(f)")
-
-
-@dataclass(frozen=True)
-class RainDataset:
-    key: str
-    label: str
-    filename: str
-    variable: str
 
 
 @dataclass(frozen=True)
@@ -46,12 +40,12 @@ class ModelRainDataset:
     total_variable: str = "total_rain"
 
 
-DATASETS: tuple[RainDataset, ...] = (
-    RainDataset("radar", "Radar", "Radar_common_valid.nc", "rainfall_rate"),
-    RainDataset("imerg", "IMERG", "IMERG_common_valid.nc", "precipitation"),
-    RainDataset("control", "C1M", "Control_common_valid.nc", "total_rain"),
-    RainDataset("graupel", "G1M", "Graupel_common_valid.nc", "total_rain"),
-    RainDataset("2mom", "G2M", "2-Moment_common_valid.nc", "total_rain"),
+DATASETS: tuple[DatasetConfig, ...] = (
+    DatasetConfig("radar", "Radar", "Radar_common_valid.nc", "rainfall_rate"),
+    DatasetConfig("imerg", "IMERG", "IMERG_common_valid.nc", "precipitation"),
+    DatasetConfig("control", "C1M", "Control_common_valid.nc", "total_rain"),
+    DatasetConfig("graupel", "G1M", "Graupel_common_valid.nc", "total_rain"),
+    DatasetConfig("2mom", "G2M", "2-Moment_common_valid.nc", "total_rain"),
 )
 
 MODEL_DATASETS: tuple[ModelRainDataset, ...] = (
@@ -315,7 +309,7 @@ def plot_intensity_evolution(
     cb_diff.ax.tick_params(labelsize=12)
 
     fig.subplots_adjust(left=0.06, right=0.92, top=0.95, bottom=0.10, wspace=0.30, hspace=0.35)
-    fig.savefig(output_path, dpi=dpi, bbox_inches="tight", facecolor="white")
+    save_figure(fig, output_path, dpi=dpi, facecolor="white")
     plt.close(fig)
 
 
@@ -371,7 +365,7 @@ def plot_convective_stratiform(
     cbar = fig.colorbar(image, ax=axes.ravel().tolist(), shrink=0.88, pad=0.02)
     cbar.set_label("Count", fontsize=12)
     cbar.ax.tick_params(labelsize=11)
-    fig.savefig(output_path, dpi=dpi, bbox_inches="tight", facecolor="white")
+    save_figure(fig, output_path, dpi=dpi, facecolor="white")
     plt.close(fig)
     return vmax
 
@@ -604,8 +598,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Plot rainfall intensity-hour heatmaps from common-valid rainfall data."
     )
-    parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    add_io_args(parser, default_data_dir=DEFAULT_DATA_DIR, default_output_dir=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--utc-offset-hours", type=int, default=-4)
     parser.add_argument("--wet-threshold", type=float, default=0.1)
     parser.add_argument("--intensity-min", type=float, default=0.1)
@@ -617,7 +610,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=2000.0,
         help="Shared count colourbar maximum for the convective/stratiform heatmap; use 0 for auto.",
     )
-    parser.add_argument("--dpi", type=int, default=400)
     return parser.parse_args(argv)
 
 

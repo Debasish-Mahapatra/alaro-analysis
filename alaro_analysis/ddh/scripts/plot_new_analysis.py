@@ -13,6 +13,8 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
+from alaro_analysis.common.figio import strip_cbar_zeros
 from matplotlib.colors import TwoSlopeNorm
 import matplotlib.gridspec as gridspec
 
@@ -217,12 +219,13 @@ def plot_fingerprints():
             draw_freezing_level(ax, exp, n_proc)
 
         cbar = fig.colorbar(im, cax=cax)
+        strip_cbar_zeros(cbar)
         cbar.set_label(info["unit"], fontsize=13)
         fig.suptitle(f"{info['name']} — Budget Fingerprint (2-yr mean)",
                      fontsize=17, fontweight='bold', y=1.01)
 
         outpath = os.path.join(OUTPUT_DIR, f"{var}_fingerprint.png")
-        fig.savefig(outpath, dpi=400, bbox_inches='tight')
+        fig.savefig(outpath, dpi=450, bbox_inches='tight')
         plt.close(fig)
         print(f"  {var} -> {os.path.basename(outpath)}")
 
@@ -293,7 +296,7 @@ def plot_diff_fingerprints():
                      fontsize=17, fontweight='bold', y=1.01)
 
         outpath = os.path.join(OUTPUT_DIR, f"{var}_diff_fingerprint.png")
-        fig.savefig(outpath, dpi=400, bbox_inches='tight')
+        fig.savefig(outpath, dpi=450, bbox_inches='tight')
         plt.close(fig)
         print(f"  {var} -> {os.path.basename(outpath)}")
 

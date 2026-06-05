@@ -401,7 +401,7 @@ def plot_timeseries(
     ax.xaxis.set_major_locator(locator)
     ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
     ax.legend(loc="upper right", frameon=False, ncol=4)
-    fig.savefig(out, dpi=200)
+    fig.savefig(out, dpi=450)
     plt.close(fig)
 
 
@@ -443,7 +443,7 @@ def plot_scatter(
     axes[0].set_ylabel("Masked-domain model mean (m$^{-3}$)")
     fig.suptitle(f"Observed vs masked-domain lowest model layer, {lead_text}")
     fig.tight_layout()
-    fig.savefig(out, dpi=200)
+    fig.savefig(out, dpi=450)
     plt.close(fig)
 
 
@@ -489,7 +489,7 @@ def plot_distribution(
     ax.set_title(f"Matched observed and masked-domain distributions, {lead_text}")
     ax.grid(True, which="both", alpha=0.25)
     ax.legend(loc="upper right", frameon=False)
-    fig.savefig(out, dpi=200)
+    fig.savefig(out, dpi=450)
     plt.close(fig)
 
 

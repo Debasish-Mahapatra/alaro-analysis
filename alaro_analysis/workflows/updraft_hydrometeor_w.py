@@ -298,7 +298,7 @@ def plot(result: dict, output_path: Path):
         )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    fig.savefig(output_path, dpi=450, bbox_inches="tight")
     print(f"Saved: {output_path}")
     plt.close(fig)
 

@@ -22,13 +22,6 @@ class VerticalAxis:
 
 
 @dataclass(frozen=True)
-class AxisSpec:
-    values: np.ndarray
-    label: str
-    is_height_km: bool
-
-
-@dataclass(frozen=True)
 class SpatialWindow:
     y_start: int | None
     y_end: int | None

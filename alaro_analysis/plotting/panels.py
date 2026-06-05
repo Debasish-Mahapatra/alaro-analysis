@@ -14,18 +14,17 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
 
-from alaro_analysis.common.constants import EXPERIMENTS, EXPERIMENT_LABELS
+from alaro_analysis.common.constants import EXPERIMENTS, EXPERIMENT_COLORS, EXPERIMENT_LABELS
 from alaro_analysis.common.models import VerticalAxis
 from alaro_analysis.common.vertical import centers_to_edges
 from alaro_analysis.plotting.scales import robust_anomaly_scale, robust_log_limits
 
-# Default experiment colours (consistent across all plots)
-EXPERIMENT_COLORS: dict[str, str] = {
-    "control": "#d62728",
-    "graupel": "#1f77b4",
-    "2mom": "#2ca02c",
-    "2mom-xcu": "#ff7f0e",
-}
+try:
+    import cmaps  # type: ignore
+except Exception:  # pragma: no cover - optional plotting dependency
+    cmaps = None
+
+ABSOLUTE_CMAP = cmaps.WhiteBlueGreenYellowRed if cmaps is not None else "turbo"
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +127,7 @@ def plot_three_panel_diurnal(
     abs_limits: tuple[float, float] | None = None,
     anom_scale: float | None = None,
     use_linear_abs: bool = True,
-    abs_cmap: str = "turbo",
+    abs_cmap=ABSOLUTE_CMAP,
     anom_cmap: str = "RdBu_r",
     freezing_lines_km: dict[str, np.ndarray | None] | None = None,
     dpi: int = 450,

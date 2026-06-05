@@ -12,6 +12,8 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
+from alaro_analysis.common.figio import strip_cbar_zeros
 from matplotlib.colors import TwoSlopeNorm
 from datetime import datetime, timedelta
 
@@ -190,6 +192,7 @@ def plot_hovmoller(variable, component, days, dates):
 
         # Colorbar
         cbar = fig.colorbar(im, ax=ax, shrink=0.85, pad=0.02)
+        strip_cbar_zeros(cbar)
         cbar.ax.tick_params(labelsize=14)
         cbar.set_label(info["unit"], fontsize=16)
 
@@ -204,7 +207,7 @@ def plot_hovmoller(variable, component, days, dates):
         f"{variable}_{component}_hovmoller.png"
     )
     os.makedirs(os.path.dirname(outpath), exist_ok=True)
-    fig.savefig(outpath, dpi=400, bbox_inches='tight')
+    fig.savefig(outpath, dpi=450, bbox_inches='tight')
     plt.close(fig)
     return outpath
 

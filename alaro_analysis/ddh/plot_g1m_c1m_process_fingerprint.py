@@ -32,6 +32,11 @@ RAINFALL_TEXT = Path(
     "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/Analysis/figures/"
     "rainfall_spatial_bias_maps/data_txt/spatial_mean_rainfall_maps.txt"
 )
+RADAR_LAYER_SUMMARY = Path(
+    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/figures/"
+    "radar-domain-entrainment-detrainment-checks/data_txt/"
+    "radar_domain_layer_summary.csv"
+)
 
 
 @dataclass(frozen=True)
@@ -98,6 +103,23 @@ def rainfall_mean(rows: list[dict[str, str]], dataset: str) -> float:
     raise KeyError(f"Missing rainfall dataset {dataset}")
 
 
+def radar_layer_metric_value(
+    rows: list[dict[str, str]],
+    *,
+    metric: str,
+    experiment: str,
+    layer: str = "0-3 km",
+) -> float:
+    for row in rows:
+        if (
+            row.get("metric") == metric
+            and row.get("experiment") == experiment
+            and row.get("layer") == layer
+        ):
+            return float(row["mean_value"])
+    raise KeyError(f"Missing radar-domain {metric} {experiment} {layer}")
+
+
 def layer_lookup(rows, experiment: str, layer: str):
     for row in rows:
         if row.experiment == experiment and row.layer == layer:
@@ -105,10 +127,28 @@ def layer_lookup(rows, experiment: str, layer: str):
     raise KeyError(f"Missing DDH layer {experiment} {layer}")
 
 
-def build_rows(*, agg_dir: Path, lead: str) -> list[FingerprintRow]:
+def build_rows(
+    *,
+    agg_dir: Path,
+    lead: str,
+    updraft_domain: str = "ddh",
+    radar_layer_summary: Path = RADAR_LAYER_SUMMARY,
+) -> list[FingerprintRow]:
     ddh_rows = compute_layer_metrics(agg_dir=agg_dir, lead=lead)
-    updraft_rows = parse_csv_section(UPDRAFT_TEXT, "0-3 km updraft diagnostics")
     rainfall_rows = parse_csv_section(RAINFALL_TEXT, "Panel summary")
+    if updraft_domain == "radar":
+        with radar_layer_summary.open(encoding="utf-8", newline="") as fh:
+            updraft_rows = list(csv.DictReader(fh))
+
+        def updraft_value(metric: str, label: str) -> float:
+            experiment = {"C1M": "control", "G1M": "graupel"}[label]
+            return radar_layer_metric_value(updraft_rows, metric=metric, experiment=experiment)
+
+    else:
+        updraft_rows = parse_csv_section(UPDRAFT_TEXT, "0-3 km updraft diagnostics")
+
+        def updraft_value(metric: str, label: str) -> float:
+            return metric_value(updraft_rows, metric=metric, label=label)
 
     c_03 = layer_lookup(ddh_rows, "control", "0-3 km")
     g_03 = layer_lookup(ddh_rows, "graupel", "0-3 km")
@@ -121,24 +161,24 @@ def build_rows(*, agg_dir: Path, lead: str) -> list[FingerprintRow]:
             "Updraft diagnostics",
             "Updraft area fraction",
             "fraction",
-            metric_value(updraft_rows, metric="updraft_extent", label="C1M"),
-            metric_value(updraft_rows, metric="updraft_extent", label="G1M"),
+            updraft_value("updraft_extent", "C1M"),
+            updraft_value("updraft_extent", "G1M"),
         ),
         FingerprintRow(
             "0-3 km",
             "Updraft diagnostics",
             "Updraft mass flux",
             "kg m-2 s-1",
-            metric_value(updraft_rows, metric="updraft_flux", label="C1M"),
-            metric_value(updraft_rows, metric="updraft_flux", label="G1M"),
+            updraft_value("updraft_flux", "C1M"),
+            updraft_value("updraft_flux", "G1M"),
         ),
         FingerprintRow(
             "0-3 km",
             "Updraft diagnostics",
             "Updraft intensity",
             "Pa s-1",
-            metric_value(updraft_rows, metric="updraft_intensity", label="C1M"),
-            metric_value(updraft_rows, metric="updraft_intensity", label="G1M"),
+            updraft_value("updraft_intensity", "C1M"),
+            updraft_value("updraft_intensity", "G1M"),
         ),
         FingerprintRow(
             "0-3 km",
@@ -216,7 +256,15 @@ def build_rows(*, agg_dir: Path, lead: str) -> list[FingerprintRow]:
     return rows
 
 
-def write_text(path: Path, *, figure_path: Path, rows: list[FingerprintRow], lead: str) -> None:
+def write_text(
+    path: Path,
+    *,
+    figure_path: Path,
+    rows: list[FingerprintRow],
+    lead: str,
+    updraft_domain: str = "ddh",
+    radar_layer_summary: Path = RADAR_LAYER_SUMMARY,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as fh:
         fh.write("G1M-C1M Process Fingerprint Plot Data\n")
@@ -224,8 +272,13 @@ def write_text(path: Path, *, figure_path: Path, rows: list[FingerprintRow], lea
         fh.write(f"Figure: {figure_path}\n")
         fh.write(f"DDH aggregated directory: {AGG_DIR}\n")
         fh.write(f"DDH lead: {lead}\n")
-        fh.write(f"Updraft source text: {UPDRAFT_TEXT}\n")
-        fh.write(f"Rainfall source text: {RAINFALL_TEXT}\n")
+        if updraft_domain == "radar":
+            fh.write(f"Updraft source: radar-domain masked NetCDF summary {radar_layer_summary}\n")
+            fh.write("Condensation source/domain: DDH aggregated budget; DDH does not exist outside the DDH domain.\n")
+        else:
+            fh.write(f"Updraft source text: {UPDRAFT_TEXT}\n")
+        if any(row.panel == "Rainfall" for row in rows):
+            fh.write(f"Rainfall source text: {RAINFALL_TEXT}\n")
         fh.write("Percent change formula: (G1M / C1M - 1) * 100.\n")
         fh.write(
             "Updraft diagnostics use UD_OMEGA and UD_MESH_FRAC only; "
@@ -289,7 +342,8 @@ def draw_panel(
     ax.invert_yaxis()
     ax.grid(axis="x", color="#d8d8d8", linewidth=0.8, alpha=0.8)
     ax.set_axisbelow(True)
-    ax.set_title(title, loc="left", fontsize=10, fontweight="bold", pad=6)
+    if title:
+        ax.set_title(title, loc="left", fontsize=10, fontweight="bold", pad=6)
     if show_xlabel:
         ax.set_xlabel("G1M relative to C1M (%)", fontsize=9)
     else:
@@ -322,13 +376,13 @@ def draw_panel(
         )
 
 
-def make_plot(rows: list[FingerprintRow], figure_path: Path) -> None:
-    top_rows = [row for row in rows if row.panel == "0-3 km"]
-    bottom_rows = [
-        row
-        for row in rows
-        if row.panel == "0-freezing level" or row.panel == "Rainfall"
-    ]
+def make_plot(
+    rows: list[FingerprintRow],
+    figure_path: Path,
+    *,
+    note: str = "DDH condensation uses lead 0024. Updraft diagnostics use UD_OMEGA and UD_MESH_FRAC only.",
+) -> None:
+    plotted_rows = [row for row in rows if row.panel == "0-3 km"]
 
     plt.rcParams.update(
         {
@@ -338,42 +392,29 @@ def make_plot(rows: list[FingerprintRow], figure_path: Path) -> None:
             "axes.titleweight": "bold",
         }
     )
-    fig, axes = plt.subplots(
-        2,
-        1,
-        figsize=(7.6, 6.8),
-        constrained_layout=False,
-        gridspec_kw={"height_ratios": [7, 5]},
-    )
+    fig, ax = plt.subplots(1, 1, figsize=(7.6, 3.9), constrained_layout=False)
     draw_panel(
-        axes[0],
-        top_rows,
-        "0-3 km: updrafts weaken, but convection-scheme condensation rises",
+        ax,
+        plotted_rows,
+        "",
         xlim=(-110, 75),
-        show_xlabel=False,
-    )
-    draw_panel(
-        axes[1],
-        bottom_rows,
-        "0-freezing level: total condensation, warm water, and rainfall decrease",
-        xlim=(-110, 20),
         show_xlabel=True,
     )
 
     fig.suptitle(
-        "G1M minus C1M after adding graupel",
-        fontsize=11,
+        "G1M-C1M",
+        fontsize=9.5,
         fontweight="bold",
         y=0.985,
     )
     fig.text(
         0.01,
         0.01,
-        "DDH condensation uses lead 0024. Updraft diagnostics use UD_OMEGA and UD_MESH_FRAC only.",
+        note,
         fontsize=6.5,
         color="#555555",
     )
-    fig.subplots_adjust(left=0.34, right=0.98, top=0.91, bottom=0.10, hspace=0.28)
+    fig.subplots_adjust(left=0.34, right=0.98, top=0.86, bottom=0.20)
     figure_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(figure_path, dpi=450, bbox_inches="tight")
     plt.close(fig)
@@ -386,6 +427,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--agg-dir", type=Path, default=AGG_DIR)
     parser.add_argument("--lead", default="0024")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--updraft-domain",
+        choices=("ddh", "radar"),
+        default="ddh",
+        help="Use DDH-domain updraft text or radar-domain layer summary for updraft rows.",
+    )
+    parser.add_argument(
+        "--radar-layer-summary",
+        type=Path,
+        default=RADAR_LAYER_SUMMARY,
+        help="Radar-domain layer summary CSV used when --updraft-domain=radar.",
+    )
     return parser.parse_args()
 
 
@@ -393,9 +446,29 @@ def main() -> None:
     args = parse_args()
     figure_path = args.output_dir / FIGURE_NAME
     text_path = args.output_dir / DATA_TXT_SUBDIR / TEXT_NAME
-    rows = build_rows(agg_dir=args.agg_dir, lead=args.lead)
-    make_plot(rows, figure_path)
-    write_text(text_path, figure_path=figure_path, rows=rows, lead=args.lead)
+    rows = build_rows(
+        agg_dir=args.agg_dir,
+        lead=args.lead,
+        updraft_domain=args.updraft_domain,
+        radar_layer_summary=args.radar_layer_summary,
+    )
+    plotted_rows = [row for row in rows if row.panel == "0-3 km"]
+    if args.updraft_domain == "radar":
+        note = (
+            "Updraft diagnostics use the radar-domain masked NetCDF summary. "
+            "Condensation uses DDH lead 0024."
+        )
+    else:
+        note = "DDH condensation uses lead 0024. Updraft diagnostics use UD_OMEGA and UD_MESH_FRAC only."
+    make_plot(plotted_rows, figure_path, note=note)
+    write_text(
+        text_path,
+        figure_path=figure_path,
+        rows=plotted_rows,
+        lead=args.lead,
+        updraft_domain=args.updraft_domain,
+        radar_layer_summary=args.radar_layer_summary,
+    )
     print(f"Wrote {figure_path}")
     print(f"Wrote {text_path}")
 

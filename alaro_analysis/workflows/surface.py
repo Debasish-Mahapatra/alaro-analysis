@@ -21,13 +21,17 @@ import numpy as np
 
 from alaro_analysis.common.constants import CP_D, EXPERIMENTS, EXPERIMENT_LABELS, G, SEASONS
 from alaro_analysis.common.cli_config import add_config_argument, parse_configured_args
-from alaro_analysis.common.naming import safe_name
+from alaro_analysis.common.naming import normalize_var_token, safe_name
 from alaro_analysis.common.seasons import build_period_specs, resolve_seasons
 from alaro_analysis.common.spatial import build_spatial_window, spatial_window_tag
-from alaro_analysis.common.timeparse import has_pf_subdirs, parse_month_from_day_name
+from alaro_analysis.common.timeparse import parse_month_from_day_name
 from alaro_analysis.data.cache import build_cache_file, load_cache, save_cache
 from alaro_analysis.data.dataset_io import read_time_level_yx
-from alaro_analysis.data.discovery import collect_file_records
+from alaro_analysis.data.discovery import (
+    collect_file_records,
+    discover_variable_maps,
+    resolve_var_name,
+)
 
 DEFAULT_CONTROL_DIR = Path(
     "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/SURFEX/control/masked-netcdf"
@@ -44,7 +48,6 @@ DEFAULT_INTERMEDIATE_DIR = Path(
     "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/surface"
 )
 
-VAR_TOKEN_RE = re.compile(r"[^A-Za-z0-9]+")
 HEIGHT_LEVEL_RE = re.compile(r"^H(\d{5})")
 PBLH_VAR_TOKEN = "CLPMHAUTMODXFU"
 DEFAULT_LCL_TEMPERATURE_VARS = (
@@ -164,37 +167,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     return parse_configured_args(parser, "surface", argv=argv)
-
-
-def normalize_var_token(name: str) -> str:
-    return VAR_TOKEN_RE.sub("", name).upper()
-
-
-def discover_variable_maps(experiment_dirs: dict[str, Path]) -> dict[str, dict[str, str]]:
-    maps: dict[str, dict[str, str]] = {}
-    for exp, exp_dir in experiment_dirs.items():
-        token_map: dict[str, str] = {}
-        for p in sorted(exp_dir.iterdir()):
-            if not p.is_dir() or p.name.startswith(".") or not has_pf_subdirs(p):
-                continue
-            token = normalize_var_token(p.name)
-            if token and token not in token_map:
-                token_map[token] = p.name
-        maps[exp] = token_map
-    return maps
-
-
-def resolve_var_name(
-    variable_maps: dict[str, dict[str, str]],
-    experiment: str,
-    candidates: Sequence[str],
-) -> str | None:
-    token_map = variable_maps[experiment]
-    for cand in candidates:
-        token = normalize_var_token(cand)
-        if token in token_map:
-            return token_map[token]
-    return None
 
 
 def safe_scalar_mean(arr: np.ndarray) -> float:

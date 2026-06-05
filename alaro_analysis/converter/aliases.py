@@ -4,11 +4,11 @@ from pathlib import Path
 import re
 from typing import Optional, Sequence
 
+from alaro_analysis.common.naming import normalize_var_token
 from .models import VariablePlan
 
 MODEL_LEVEL_FIELD_RE = re.compile(r"^S(\d{3})(.+)$")
 PRESSURE_LEVEL_FIELD_RE = re.compile(r"^P(\d{5})(.+)$")
-VAR_TOKEN_SANITIZE_RE = re.compile(r"[^A-Za-z0-9]+")
 
 REQUESTED_VAR_FALLBACK_ALIASES: dict[str, tuple[str, ...]] = {
     "KT273TEMPERATUR": (
@@ -27,10 +27,6 @@ REQUESTED_VAR_FALLBACK_ALIASES: dict[str, tuple[str, ...]] = {
 
 def var_to_ds_name(name: str) -> str:
     return name.replace(".", "_")
-
-
-def normalize_var_token(name: str) -> str:
-    return VAR_TOKEN_SANITIZE_RE.sub("", name).upper()
 
 
 def _require_faxarray():

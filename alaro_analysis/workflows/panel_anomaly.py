@@ -18,11 +18,13 @@ from pathlib import Path
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
+
+from alaro_analysis.common.figio import strip_cbar_zeros
 import numpy as np
 
 from alaro_analysis.common.cli_config import add_config_argument, parse_configured_args
 from alaro_analysis.common.constants import EXPERIMENTS, EXPERIMENT_LABELS
-from alaro_analysis.common.models import AxisSpec
+from alaro_analysis.common.models import VerticalAxis
 from alaro_analysis.common.vertical import (
     centers_to_edges,
     compute_freezing_line_km,
@@ -58,7 +60,7 @@ def plot_multi_variable_anomaly_panel(
     anomalies: list[np.ndarray],
     panel_titles: list[str],
     panel_labels: list[str],
-    axis: AxisSpec,
+    axis: VerticalAxis,
     max_height_km: float,
     freezing_lines_km: list[np.ndarray | None],
     output_file: Path,
@@ -140,6 +142,7 @@ def plot_multi_variable_anomaly_panel(
         )
 
         cbar = fig.colorbar(pcm, ax=ax, orientation="horizontal", fraction=0.08, pad=0.16)
+        strip_cbar_zeros(cbar, axis="x")
         cbar.set_label(label, fontsize=cbar_label_fs)
         cbar.ax.tick_params(labelsize=cbar_tick_fs)
 
@@ -166,7 +169,7 @@ def plot_abs_anomaly_panel(
     panel_titles: list[str],
     abs_cbar_label: str,
     anom_cbar_label: str,
-    axis: AxisSpec,
+    axis: VerticalAxis,
     max_height_km: float,
     freezing_lines_km: list[np.ndarray | None],
     output_file: Path,
@@ -264,6 +267,7 @@ def plot_abs_anomaly_panel(
         )
 
         cbar = fig.colorbar(pcm, ax=ax, orientation="horizontal", fraction=0.08, pad=0.16)
+        strip_cbar_zeros(cbar, axis="x")
         cbar.set_label(label, fontsize=cbar_label_fs)
         cbar.ax.tick_params(labelsize=cbar_tick_fs)
 
@@ -401,7 +405,7 @@ def main() -> None:
     )
     target_h = np.asarray(axis_ctrl.values, dtype=np.float64)
 
-    def interp_to_ctrl(src_axis: AxisSpec, profile: np.ndarray) -> np.ndarray:
+    def interp_to_ctrl(src_axis: VerticalAxis, profile: np.ndarray) -> np.ndarray:
         n = min(src_axis.values.size, profile.shape[0])
         return interpolate_profile_to_target_height(
             source_height_km=src_axis.values[:n],

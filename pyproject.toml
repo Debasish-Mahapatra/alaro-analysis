@@ -17,7 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 fa = ["faxarray"]
-full = ["faxarray", "cmaps", "cartopy", "scipy"]
+full = ["faxarray", "cmaps", "cartopy", "scipy", "metpy"]
 dev = ["pytest"]
 
 [project.scripts]
@@ -35,8 +35,24 @@ alaro-radiosonde-profiles = "alaro_analysis.workflows.radiosonde_profiles:main"
 alaro-plot-radiosonde-profiles = "alaro_analysis.workflows.plot_radiosonde_profiles:main"
 alaro-precip-distribution = "alaro_analysis.workflows.precip_distribution:main"
 alaro-precip-diurnal-cycle = "alaro_analysis.workflows.precip_diurnal_cycle:main"
+alaro-precip-rebuild-hourly-imerg-common-valid = "alaro_analysis.workflows.precip_rebuild_hourly_imerg_common_valid:main"
 alaro-precip-spatial-bias-maps = "alaro_analysis.workflows.precip_spatial_bias_maps:main"
 alaro-precip-intensity-heatmaps = "alaro_analysis.workflows.precip_intensity_heatmaps:main"
+alaro-hydrometeor-vertical-profiles = "alaro_analysis.workflows.hydrometeor_vertical_profiles:main"
+alaro-dsd-vertical-profiles = "alaro_analysis.workflows.dsd_vertical_profiles:main"
+alaro-dsd-cfad-profiles = "alaro_analysis.workflows.dsd_cfad_profiles:main"
+alaro-dsd-cfad-strong-convection = "alaro_analysis.workflows.dsd_cfad_strong_convection:main"
+alaro-dsd-cfad-matched-colorbars = "alaro_analysis.workflows.dsd_cfad_matched_colorbars:main"
+alaro-dsd-cfad-gridcell-matched = "alaro_analysis.workflows.dsd_cfad_gridcell_matched:main"
+alaro-updraft-spatial-snapshot = "alaro_analysis.workflows.updraft_spatial_snapshot:main"
+alaro-updraft-mass-flux-timeseries = "alaro_analysis.workflows.updraft_mass_flux_timeseries:main"
+alaro-ddh-closure-budget-compression = "alaro_analysis.ddh.plot_closure_budget_compression:main"
+alaro-tobac-rainfall-tracking = "alaro_analysis.tobac.rainfall_tracking:main"
+alaro-convective-feedback = "alaro_analysis.workflows.convective_feedback:main"
+alaro-deaccumulate-precipitation = "alaro_analysis.workflows.deaccumulate_precipitation:main"
+alaro-kt273-diurnal = "alaro_analysis.workflows.kt273_diurnal:main"
+alaro-microphysics-budget = "alaro_analysis.workflows.microphysics_budget:main"
+alaro-updraft-hydrometeor = "alaro_analysis.workflows.updraft_hydrometeor:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["alaro_analysis"]
