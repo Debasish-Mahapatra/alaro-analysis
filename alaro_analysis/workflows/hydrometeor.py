@@ -55,8 +55,10 @@ from alaro_analysis.data.cache import (
     build_height_cache_file,
     load_diurnal_profile_cache,
     load_height_profile_cache,
+    read_cache_signature,
     save_diurnal_profile_cache,
     save_height_profile_cache,
+    signature as cache_signature,
 )
 from alaro_analysis.data.dataset_io import (
     nanmean_with_count,
@@ -862,7 +864,22 @@ def load_or_compute_diurnal(
     utc_offset_hours: int,
     spatial_window: SpatialWindow,
 ) -> tuple[np.ndarray, Path, int, int]:
-    use_cache = cache_file.exists() and (not overwrite_intermediate)
+    sig = cache_signature(
+        {
+            "cache_version": 1,
+            "variable": variable,
+            "dir": str(experiment_dir),
+            "max_days": max_days,
+            "allowed_months": list(allowed_months) if allowed_months else None,
+            "utc_offset_hours": utc_offset_hours,
+            "spatial_window": repr(spatial_window),
+        }
+    )
+    use_cache = (
+        cache_file.exists()
+        and (not overwrite_intermediate)
+        and read_cache_signature(cache_file) == sig
+    )
     if use_cache:
         mean, counts, _, sample_file = load_diurnal_profile_cache(cache_file)
         if sample_file is None:
@@ -889,6 +906,7 @@ def load_or_compute_diurnal(
             counts=counts,
             n_files=n_files,
             sample_file=sample_file,
+            sig=sig,
         )
     positive = counts[counts > 0]
     if positive.size == 0:
@@ -907,7 +925,23 @@ def load_or_compute_height(
     aggregate: str,
     spatial_window: SpatialWindow,
 ) -> np.ndarray:
-    use_cache = cache_file.exists() and (not overwrite_intermediate)
+    sig = cache_signature(
+        {
+            "cache_version": 1,
+            "height_variable": height_variable,
+            "dir": str(geopotential_dir),
+            "max_days": max_days,
+            "allowed_months": list(allowed_months) if allowed_months else None,
+            "utc_offset_hours": utc_offset_hours,
+            "aggregate": aggregate,
+            "spatial_window": repr(spatial_window),
+        }
+    )
+    use_cache = (
+        cache_file.exists()
+        and (not overwrite_intermediate)
+        and read_cache_signature(cache_file) == sig
+    )
     if use_cache:
         return load_height_profile_cache(cache_file)
 
@@ -921,7 +955,7 @@ def load_or_compute_height(
         spatial_window=spatial_window,
     )
     if max_days is None:
-        save_height_profile_cache(cache_file, height_m=height_m, n_files=n_files)
+        save_height_profile_cache(cache_file, height_m=height_m, n_files=n_files, sig=sig)
     return height_m
 
 

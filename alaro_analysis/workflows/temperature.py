@@ -42,8 +42,10 @@ from alaro_analysis.data.cache import (
     build_height_cache_file,
     load_diurnal_profile_cache,
     load_height_profile_cache,
+    read_cache_signature,
     save_diurnal_profile_cache,
     save_height_profile_cache,
+    signature as cache_signature,
 )
 from alaro_analysis.data.dataset_io import read_vertical_profile
 from alaro_analysis.data.discovery import collect_file_records, discover_variables
@@ -261,7 +263,21 @@ def load_or_compute_diurnal(
     allowed_months: tuple[int, ...] | None,
     utc_offset_hours: int,
 ) -> tuple[np.ndarray, Path]:
-    if cache_file.exists() and (not overwrite_intermediate):
+    sig = cache_signature(
+        {
+            "cache_version": 1,
+            "variable": variable,
+            "dir": str(experiment_dir),
+            "max_days": max_days,
+            "allowed_months": list(allowed_months) if allowed_months else None,
+            "utc_offset_hours": utc_offset_hours,
+        }
+    )
+    if (
+        cache_file.exists()
+        and (not overwrite_intermediate)
+        and read_cache_signature(cache_file) == sig
+    ):
         mean, _, _, sample_file = load_diurnal_profile_cache(cache_file)
         if sample_file is None:
             raise ValueError(f"Missing sample_file in cache: {cache_file}")
@@ -281,6 +297,7 @@ def load_or_compute_diurnal(
             counts=counts,
             n_files=n_files,
             sample_file=sample_file,
+            sig=sig,
         )
     return mean, sample_file
 
@@ -295,7 +312,22 @@ def load_or_compute_height(
     utc_offset_hours: int,
     aggregate: str,
 ) -> np.ndarray:
-    if cache_file.exists() and (not overwrite_intermediate):
+    sig = cache_signature(
+        {
+            "cache_version": 1,
+            "height_variable": height_variable,
+            "dir": str(geopotential_dir),
+            "max_days": max_days,
+            "allowed_months": list(allowed_months) if allowed_months else None,
+            "utc_offset_hours": utc_offset_hours,
+            "aggregate": aggregate,
+        }
+    )
+    if (
+        cache_file.exists()
+        and (not overwrite_intermediate)
+        and read_cache_signature(cache_file) == sig
+    ):
         return load_height_profile_cache(cache_file)
 
     height_m, n_files = compute_geopotential_height_profile(
@@ -307,7 +339,7 @@ def load_or_compute_height(
         aggregate=aggregate,
     )
     if max_days is None:
-        save_height_profile_cache(cache_file, height_m=height_m, n_files=n_files)
+        save_height_profile_cache(cache_file, height_m=height_m, n_files=n_files, sig=sig)
     return height_m
 
 

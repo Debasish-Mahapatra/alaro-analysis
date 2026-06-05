@@ -118,6 +118,7 @@ def save_diurnal_profile_cache(
     counts: np.ndarray,
     n_files: int,
     sample_file: Path,
+    sig: str = "",
 ) -> None:
     save_cache(
         cache_file,
@@ -126,6 +127,7 @@ def save_diurnal_profile_cache(
             "counts": np.asarray(counts, dtype=np.int64),
             "n_files": np.array([n_files], dtype=np.int64),
             "sample_file": np.array([str(sample_file)]),
+            "__signature__": np.array([sig]),
         },
     )
 
@@ -140,12 +142,14 @@ def save_height_profile_cache(
     *,
     height_m: np.ndarray,
     n_files: int,
+    sig: str = "",
 ) -> None:
     save_cache(
         cache_file,
         {
             "height_m": np.asarray(height_m, dtype=np.float64),
             "n_files": np.array([n_files], dtype=np.int64),
+            "__signature__": np.array([sig]),
         },
     )
 

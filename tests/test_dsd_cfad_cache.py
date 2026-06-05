@@ -54,3 +54,31 @@ def test_dsd_cfad_cache_roundtrip_and_signature(tmp_path):
     np.testing.assert_array_equal(
         loaded.grids[PANEL_FIELDS[0]].hist, np.ones((2, 3), dtype=np.int64)
     )
+
+
+def test_diurnal_and_height_cache_store_and_read_signature(tmp_path):
+    from alaro_analysis.data.cache import (
+        load_diurnal_profile_cache,
+        load_height_profile_cache,
+        read_cache_signature,
+        save_diurnal_profile_cache,
+        save_height_profile_cache,
+    )
+
+    dp = tmp_path / "d.npz"
+    save_diurnal_profile_cache(
+        dp,
+        mean=np.ones((2, 24)),
+        counts=np.ones((2, 24), dtype=np.int64),
+        n_files=3,
+        sample_file=tmp_path / "s.nc",
+        sig="dsig",
+    )
+    assert read_cache_signature(dp) == "dsig"
+    mean, counts, n_files, sample = load_diurnal_profile_cache(dp)
+    assert n_files == 3 and mean.shape == (2, 24) and sample is not None
+
+    hp = tmp_path / "h.npz"
+    save_height_profile_cache(hp, height_m=np.arange(5.0), n_files=2, sig="hsig")
+    assert read_cache_signature(hp) == "hsig"
+    np.testing.assert_array_equal(load_height_profile_cache(hp), np.arange(5.0))
