@@ -1,7 +1,11 @@
+"""Plotting style helpers.
+
+``resolve_workers`` now lives in :mod:`alaro_analysis.common.parallel`; it is
+re-exported here for backward compatibility with existing imports.
+"""
+
 from __future__ import annotations
 
+from alaro_analysis.common.parallel import resolve_workers
 
-def resolve_workers(requested: int) -> int:
-    # Cap at 32 (up from the previous 16).  32 is the default for
-    # parallel jobs in this project (see MEMORY.md / feedback_32_workers.md).
-    return max(1, min(int(requested), 32))
+__all__ = ["resolve_workers"]

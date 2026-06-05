@@ -1,10 +1,11 @@
 """Frequency vs intensity histograms: parameterized |omega_UD| vs resolved
 |rho g w|.  Writes counts to /gpfs/me01/me/CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/freq_intensity/all_levels_pooled.npz for the plotting step."""
 from pathlib import Path
-from multiprocessing import Pool
 import numpy as np
 import xarray as xr
 import sys
+
+from alaro_analysis.common.parallel import imap_unordered_progress
 
 DATA = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/ALARO")
 EXPERIMENTS = ("control", "graupel", "2mom")
@@ -61,12 +62,9 @@ def main():
                  np.zeros(BIN_EDGES.size - 1, dtype=np.int64)]
            for exp in EXPERIMENTS}
 
-    with Pool(32) as pool:
-        for i, (exp, hp, hr) in enumerate(pool.imap_unordered(_process_day, tasks), 1):
-            agg[exp][0] += hp
-            agg[exp][1] += hr
-            if i % 50 == 0 or i == len(tasks):
-                print(f"  {i}/{len(tasks)} days", flush=True)
+    for exp, hp, hr in imap_unordered_progress(_process_day, tasks, desc="days"):
+        agg[exp][0] += hp
+        agg[exp][1] += hr
 
     np.savez("/gpfs/me01/me/CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/freq_intensity/all_levels_pooled.npz",
              bin_edges=BIN_EDGES,

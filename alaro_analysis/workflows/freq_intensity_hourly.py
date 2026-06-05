@@ -1,10 +1,11 @@
 """Build (hour, |omega|) 2D histograms per experiment, parameterized updrafts only.
 Writes /gpfs/me01/me/CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/freq_intensity_hourly/ud_only.npz for the plotting step."""
 from pathlib import Path
-from multiprocessing import Pool
 import re
 import numpy as np
 import xarray as xr
+
+from alaro_analysis.common.parallel import imap_unordered_progress
 
 DATA = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/ALARO")
 EXPERIMENTS = ("control", "graupel", "2mom")
@@ -69,12 +70,9 @@ def main():
     agg = {e: [np.zeros((24, N_INT), dtype=np.int64),
                np.zeros(24, dtype=np.int64)] for e in EXPERIMENTS}
 
-    with Pool(32) as pool:
-        for i, (exp, H, n) in enumerate(pool.imap_unordered(_process_day, tasks), 1):
-            agg[exp][0] += H
-            agg[exp][1] += n
-            if i % 50 == 0 or i == len(tasks):
-                print(f"  {i}/{len(tasks)} days", flush=True)
+    for exp, H, n in imap_unordered_progress(_process_day, tasks, desc="days"):
+        agg[exp][0] += H
+        agg[exp][1] += n
 
     np.savez("/gpfs/me01/me/CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/freq_intensity_hourly/ud_only.npz",
              bin_edges=BIN_EDGES,
