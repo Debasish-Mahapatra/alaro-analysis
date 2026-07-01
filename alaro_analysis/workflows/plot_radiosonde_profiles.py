@@ -12,6 +12,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import numpy as np
 import xarray as xr
 
@@ -463,12 +464,15 @@ def _read_model_profiles(
     return profiles
 
 
-def plot_profiles(args: argparse.Namespace) -> list[Path]:
+def _load_profile_data(args: argparse.Namespace) -> dict[str, object]:
+    """Aggregate ARM-sonde and matched ALARO profiles plus freezing levels.
+
+    Shared by the separate-figure (`plot_profiles`) and combined-panel
+    (`plot_combined_profiles`) renderers so both read identical data.
+    """
     alaro_root = Path(args.alaro_root)
     experiments = _resolve_experiments(args.experiments)
-    panel_names = _resolve_panel_names(getattr(args, "variables", None))
     height_grid_m = np.arange(0.0, args.max_height_m + args.height_step_m, args.height_step_m)
-    output_dir = Path(args.output_dir)
     model_source = getattr(args, "model_source", "point")
 
     model_data: dict[str, dict[str, tuple[np.ndarray, np.ndarray]]] = {}
@@ -539,6 +543,29 @@ def plot_profiles(args: argparse.Namespace) -> list[Path]:
         exp: _first_zero_crossing_height_km(model_data[exp]["tdry"][0], y_km)
         for exp in experiments
     }
+    return {
+        "experiments": experiments,
+        "obs_data": obs_data,
+        "model_data": model_data,
+        "y_km": y_km,
+        "obs_freezing_km": obs_freezing_km,
+        "model_freezing_km": model_freezing_km,
+        "model_source": model_source,
+    }
+
+
+def plot_profiles(args: argparse.Namespace) -> list[Path]:
+    data = _load_profile_data(args)
+    experiments = data["experiments"]
+    obs_data = data["obs_data"]
+    model_data = data["model_data"]
+    y_km = data["y_km"]
+    obs_freezing_km = data["obs_freezing_km"]
+    model_freezing_km = data["model_freezing_km"]
+    model_source = data["model_source"]
+
+    panel_names = _resolve_panel_names(getattr(args, "variables", None))
+    output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     outputs: list[Path] = []
 
@@ -613,6 +640,202 @@ def plot_profiles(args: argparse.Namespace) -> list[Path]:
     return outputs
 
 
+COMBINED_PANEL_TITLES = {
+    "tdry": "Temperature",
+    "dewpoint": "Dewpoint temperature",
+    "rh": "Relative humidity",
+}
+COMBINED_PANEL_XLABELS = {
+    "tdry": "Temperature (°C)",
+    "dewpoint": "Dewpoint temperature (°C)",
+    "rh": "Relative humidity (%)",
+}
+COMBINED_DIFF_TITLES = {
+    "tdry": r"$\Delta T$",
+    "dewpoint": r"$\Delta T_d$",
+    "rh": r"$\Delta \mathrm{RH}$",
+}
+COMBINED_DIFF_XLABELS = {
+    "tdry": "Model − ARM sonde (°C)",
+    "dewpoint": "Model − ARM sonde (°C)",
+    "rh": "Model − ARM sonde (%)",
+}
+PANEL_LETTERS = ("(a)", "(b)", "(c)", "(d)", "(e)", "(f)")
+
+
+def _write_combined_txt(
+    output_path: Path,
+    panel_names: Sequence[str],
+    data: dict[str, object],
+    stat: str,
+    model_source: str,
+) -> Path:
+    experiments = data["experiments"]
+    obs_data = data["obs_data"]
+    model_data = data["model_data"]
+    y_km = data["y_km"]
+    labels = [EXPERIMENT_LABELS.get(exp, exp) for exp in experiments]
+
+    txt_path = output_path.parent / f"{output_path.stem}_data.txt"
+    with txt_path.open("w", encoding="utf-8") as fh:
+        title = "Radiosonde combined profile panels"
+        fh.write(f"{title}\n{'=' * len(title)}\n")
+        fh.write(f"Source plot: {output_path}\n")
+        fh.write(f"Model source: {model_source}\n")
+        fh.write(f"Statistic: {stat}\n")
+        fh.write("Vertical coordinate: height above mean sea level (km)\n")
+        fh.write(f"Panels (left to right): {', '.join(panel_names)}\n\n")
+        for panel_name in panel_names:
+            spec = PANEL_VARS[panel_name]
+            heading = (
+                f"{COMBINED_PANEL_TITLES.get(panel_name, spec['title'])} "
+                f"[{COMBINED_PANEL_XLABELS.get(panel_name, spec['label'])}]"
+            )
+            fh.write(f"{heading}\n{'-' * len(heading)}\n")
+            fh.write(",".join(["height_km", "ARM_sonde", *labels]) + "\n")
+            obs_center, _ = obs_data[panel_name]
+            for idx, height_km in enumerate(y_km):
+                row: list[object] = [height_km, obs_center[idx]]
+                for exp in experiments:
+                    center, _ = model_data[exp][panel_name]
+                    row.append(center[idx])
+                fh.write(",".join(_fmt_txt(value) for value in row) + "\n")
+            fh.write("\n")
+    return txt_path
+
+
+def plot_combined_profiles(args: argparse.Namespace) -> list[Path]:
+    """Render one multi-panel figure comparing the ARM radiosonde with the
+    matched ALARO experiments for temperature, dewpoint, and relative humidity
+    on a shared height axis."""
+    data = _load_profile_data(args)
+    experiments = data["experiments"]
+    obs_data = data["obs_data"]
+    model_data = data["model_data"]
+    y_km = data["y_km"]
+    model_source = data["model_source"]
+    obs_freezing_km = data["obs_freezing_km"]
+    model_freezing_km = data["model_freezing_km"]
+
+    panel_names = _resolve_panel_names(getattr(args, "variables", None))
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    npan = len(panel_names)
+    fig, axes = plt.subplots(1, npan, figsize=(4.7 * npan, 6.7), sharey=True)
+    if npan == 1:
+        axes = [axes]
+
+    diff_vars = set(getattr(args, "diff_vars", None) or [])
+    height_mask = y_km <= (args.max_height_m / 1000.0)
+
+    legend_handles: tuple[list, list] | None = None
+    for i, (ax, panel_name) in enumerate(zip(axes, panel_names)):
+        spec = PANEL_VARS[panel_name]
+        obs_center, _ = obs_data[panel_name]
+        is_diff = panel_name in diff_vars
+
+        if is_diff:
+            # Model minus ARM sonde, so the sub-degree variation is visible.
+            ax.axvline(0.0, color="black", lw=1.8, ls="-", label="ARM sonde", zorder=4)
+            spans: list[np.ndarray] = []
+            for exp in experiments:
+                diff = model_data[exp][panel_name][0] - obs_center
+                ax.plot(
+                    diff,
+                    y_km,
+                    color=EXPERIMENT_COLORS.get(exp, "0.5"),
+                    lw=2.0,
+                    label=EXPERIMENT_LABELS.get(exp, exp),
+                    zorder=3,
+                )
+                spans.append(diff[height_mask])
+            title = COMBINED_DIFF_TITLES.get(panel_name, spec["title"])
+            xlabel = COMBINED_DIFF_XLABELS.get(panel_name, spec["label"])
+        else:
+            if panel_name == "tdry":
+                ax.axvline(0.0, color="0.45", lw=1.1, ls="--", zorder=1)
+            ax.plot(obs_center, y_km, color="black", lw=2.6, label="ARM sonde", zorder=4)
+            for exp in experiments:
+                center, _ = model_data[exp][panel_name]
+                ax.plot(
+                    center,
+                    y_km,
+                    color=EXPERIMENT_COLORS.get(exp, "0.5"),
+                    lw=2.0,
+                    label=EXPERIMENT_LABELS.get(exp, exp),
+                    zorder=3,
+                )
+            title = COMBINED_PANEL_TITLES.get(panel_name, spec["title"])
+            xlabel = COMBINED_PANEL_XLABELS.get(panel_name, spec["label"])
+
+        # Capture the data-curve handles before adding the 0 degC reference lines.
+        if legend_handles is None:
+            legend_handles = ax.get_legend_handles_labels()
+
+        # 0 degC level: height where air temperature crosses 0 degC, per series.
+        mark = panel_name == "tdry" and not is_diff
+        _draw_freezing_level(
+            ax, obs_freezing_km, color="black", label="_nolegend_",
+            marker="o", mark_at_zero_c=mark,
+        )
+        for exp in experiments:
+            _draw_freezing_level(
+                ax, model_freezing_km[exp], color=EXPERIMENT_COLORS.get(exp, "0.5"),
+                label="_nolegend_", marker="s", mark_at_zero_c=mark,
+            )
+
+        ax.set_title(title, fontsize=13)
+        ax.set_xlabel(xlabel, fontsize=12)
+        ax.grid(True, color="0.88", linewidth=0.8)
+        if is_diff:
+            finite = np.concatenate(spans)
+            finite = finite[np.isfinite(finite)]
+            if finite.size and float(np.max(np.abs(finite))) > 0.0:
+                lim = float(np.max(np.abs(finite))) * 1.15
+                ax.set_xlim(-lim, lim)
+        elif spec["xlim"] is not None:
+            ax.set_xlim(*spec["xlim"])
+        ax.text(
+            0.0,
+            1.015,
+            PANEL_LETTERS[i],
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=14,
+            fontweight="bold",
+        )
+
+    axes[0].set_ylabel("Height above mean sea level (km)", fontsize=12)
+    axes[0].set_ylim(0.0, args.max_height_m / 1000.0)
+
+    handles, labels = legend_handles
+    handles = list(handles) + [Line2D([0], [0], color="0.4", lw=1.1, ls=":")]
+    labels = list(labels) + ["0 °C height"]
+    fig.legend(
+        handles,
+        labels,
+        loc="lower center",
+        ncol=len(labels),
+        frameon=False,
+        fontsize=11,
+        bbox_to_anchor=(0.5, 0.01),
+    )
+    fig.subplots_adjust(left=0.065, right=0.985, top=0.92, bottom=0.135, wspace=0.10)
+
+    filename = getattr(args, "combined_filename", "radiosonde_profiles_panels")
+    output = output_dir / f"{filename}.png"
+    fig.savefig(output, dpi=args.dpi)
+    plt.close(fig)
+
+    outputs = [output]
+    if getattr(args, "write_txt", False):
+        txt_path = _write_combined_txt(output, panel_names, data, args.stat, model_source)
+        print(f"Wrote {txt_path}")
+    return outputs
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Plot matched ARM sonde and ALARO profiles for tdry, dewpoint, and RH."
@@ -664,7 +887,28 @@ def build_parser() -> argparse.ArgumentParser:
         default=100,
         help="Progress print interval for --model-source masked-area.",
     )
-    parser.add_argument("--dpi", type=int, default=180)
+    parser.add_argument("--dpi", type=int, default=450)
+    parser.add_argument(
+        "--layout",
+        choices=["separate", "combined", "both"],
+        default="separate",
+        help="separate: one figure per variable; combined: one multi-panel figure; both.",
+    )
+    parser.add_argument(
+        "--combined-filename",
+        default="radiosonde_profiles_panels",
+        help="Base filename (no extension) for the combined multi-panel figure.",
+    )
+    parser.add_argument(
+        "--diff-vars",
+        nargs="*",
+        choices=list(PANEL_VARS),
+        default=None,
+        help=(
+            "Combined-layout panels to render as model-minus-ARM-sonde differences "
+            "(so small variation is visible). Example: --diff-vars tdry dewpoint."
+        ),
+    )
     parser.add_argument(
         "--no-title",
         action="store_true",
@@ -678,7 +922,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-dir",
         default=str(DEFAULT_OUTPUT_DIR),
-        help="Directory for separate variable figures.",
+        help="Directory for the separate and/or combined figures.",
     )
     return parser
 
@@ -686,7 +930,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    outputs = plot_profiles(args)
+    layout = getattr(args, "layout", "separate")
+    outputs: list[Path] = []
+    if layout in ("separate", "both"):
+        outputs.extend(plot_profiles(args))
+    if layout in ("combined", "both"):
+        outputs.extend(plot_combined_profiles(args))
     for output in outputs:
         print(f"Wrote {output}")
     return 0

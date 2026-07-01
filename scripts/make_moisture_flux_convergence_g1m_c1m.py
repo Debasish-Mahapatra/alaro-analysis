@@ -61,7 +61,7 @@ from alaro_analysis.plotting.style import resolve_workers
 
 from alaro_analysis.common.constants import RUNS_ROOT
 DEFAULT_DATA_ROOT = RUNS_ROOT / "ALARO"
-DEFAULT_OUTPUT_DIR = RUNS_ROOT / "figures" / "moisture_flux_convergence" / "2years"
+DEFAULT_OUTPUT_DIR = RUNS_ROOT.parent / "microphysics-paper" / "9. moisture flux convergence"
 DEFAULT_PROCESSED_DIR = (
     RUNS_ROOT / "processed-data" / "moisture_flux_convergence" / "2years"
 )
@@ -70,8 +70,8 @@ FLUX_VARS = ("WIND.U.PHYS", "WIND.V.PHYS", "HUMI.SPECIFI", "PRESSURE")
 HOUR_RE = re.compile(r"\+(\d{4})(?:\.[^.]+)?$")
 SECONDS_PER_DAY = 86400.0
 
-FIGURE_NAME = "moisture_flux_convergence_c1m_g1m_diff_450dpi.png"
-TEXT_NAME = "moisture_flux_convergence_data.txt"
+FIGURE_NAME = "9. moisture flux convergence_450dpi.png"
+TEXT_NAME = "9. moisture flux convergence_data.txt"
 FIELDS_NPZ = "moisture_flux_convergence_fields.npz"
 
 MANAUS_LON = -60.0217
@@ -83,7 +83,7 @@ MANAUS_LAT = -3.1190
 SCALE_LON_MIN, SCALE_LON_MAX = -66.0, -54.0
 SCALE_LAT_MIN, SCALE_LAT_MAX = -9.0, 3.0
 
-DEFAULT_EXPERIMENTS = ("control", "graupel")
+DEFAULT_EXPERIMENTS = ("control", "graupel", "2mom")
 DIFF_PAIR = ("graupel", "control")  # G1M - C1M
 
 
@@ -544,8 +544,8 @@ def plot_maps(
     lon: np.ndarray,
     lat: np.ndarray,
     mfc_c1m: np.ndarray,
-    mfc_g1m: np.ndarray,
-    mfc_diff: np.ndarray,
+    mfc_diff_g1c1: np.ndarray,
+    mfc_diff_g2g1: np.ndarray,
     abs_scale: float,
     diff_scale: float,
     domain_means: dict[str, float],
@@ -571,8 +571,8 @@ def plot_maps(
 
     panels = [
         ("C1M", mfc_c1m, abs_norm),
-        ("G1M", mfc_g1m, abs_norm),
-        ("G1M − C1M", mfc_diff, diff_norm),
+        ("G1M − C1M", mfc_diff_g1c1, diff_norm),
+        ("G2M − G1M", mfc_diff_g2g1, diff_norm),
     ]
     abs_image = None
     diff_image = None
@@ -587,7 +587,7 @@ def plot_maps(
             cmap="BrBG",
             norm=norm,
         )
-        if idx < 2:
+        if idx == 0:
             abs_image = image
         else:
             diff_image = image
@@ -605,7 +605,7 @@ def plot_maps(
         )
 
     cbar_abs = fig.colorbar(
-        abs_image, ax=axes[:2], orientation="horizontal", fraction=0.05, pad=0.06, aspect=40
+        abs_image, ax=axes[0], orientation="horizontal", fraction=0.05, pad=0.06, aspect=22
     )
     cbar_abs.set_label(
         "Moisture flux convergence (mm day$^{-1}$):  + import,  − export", fontsize=10
@@ -614,9 +614,9 @@ def plot_maps(
     cbar_abs.ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:g}"))
 
     cbar_diff = fig.colorbar(
-        diff_image, ax=axes[2], orientation="horizontal", fraction=0.05, pad=0.06, aspect=22
+        diff_image, ax=axes[1:], orientation="horizontal", fraction=0.05, pad=0.06, aspect=40
     )
-    cbar_diff.set_label("G1M − C1M (mm day$^{-1}$)", fontsize=10)
+    cbar_diff.set_label("Difference (mm day$^{-1}$)", fontsize=10)
     cbar_diff.ax.tick_params(labelsize=8)
     cbar_diff.ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:g}"))
 
@@ -639,23 +639,24 @@ def write_outputs(
     figure_path: Path,
     flux_maps: dict[str, FluxMap],
     mfc: dict[str, np.ndarray],
-    mfc_diff: np.ndarray,
+    mfc_diff_g1c1: np.ndarray,
+    mfc_diff_g2g1: np.ndarray,
     abs_scale: float,
     diff_scale: float,
     args: argparse.Namespace,
 ) -> tuple[Path, Path]:
-    graupel, control = DIFF_PAIR
+    control, graupel, twomom = "control", "graupel", "2mom"
     lon = flux_maps[control].lon
     lat = flux_maps[control].lat
 
     # Region budget rows.
-    interior = np.isfinite(mfc_diff)  # finite where centred differences exist
+    interior = np.isfinite(mfc_diff_g1c1) & np.isfinite(mfc_diff_g2g1)
     regions: list[tuple[str, np.ndarray]] = [("radar-rectangle domain (interior)", interior)]
 
     text_path = output_dir / TEXT_NAME
     text_path.parent.mkdir(parents=True, exist_ok=True)
     with text_path.open("w", encoding="utf-8") as fh:
-        fh.write("Vertically integrated moisture flux convergence (G1M vs C1M)\n")
+        fh.write("Vertically integrated moisture flux convergence (C1M, G1M-C1M, G2M-G1M)\n")
         fh.write("============================================================\n")
         fh.write(f"Figure: {figure_path}\n")
         fh.write(f"Gridded fields (NetCDF-free): {output_dir / FIELDS_NPZ}\n\n")
@@ -684,11 +685,12 @@ def write_outputs(
         fh.write(f"\nColour limits: abs +/-{abs_scale:.6g}, diff +/-{diff_scale:.6g} mm/day.\n\n")
         fh.write("Region-mean moisture flux convergence (mm/day)\n")
         fh.write("----------------------------------------------\n")
-        fh.write("region,c1m,g1m,g1m_minus_c1m\n")
+        fh.write("region,c1m,g1m,g2m,g1m_minus_c1m,g2m_minus_g1m\n")
         for name, mask in regions:
             c1 = masked_mean(mfc[control], mask)
             g1 = masked_mean(mfc[graupel], mask)
-            fh.write(f"{name},{c1:.6g},{g1:.6g},{g1 - c1:.6g}\n")
+            g2 = masked_mean(mfc[twomom], mask)
+            fh.write(f"{name},{c1:.6g},{g1:.6g},{g2:.6g},{g1 - c1:.6g},{g2 - g1:.6g}\n")
 
     fields_path = output_dir / FIELDS_NPZ
     np.savez_compressed(
@@ -697,13 +699,18 @@ def write_outputs(
         lat=lat,
         mfc_c1m=mfc[control],
         mfc_g1m=mfc[graupel],
-        mfc_g1m_minus_c1m=mfc_diff,
+        mfc_g2m=mfc[twomom],
+        mfc_g1m_minus_c1m=mfc_diff_g1c1,
+        mfc_g2m_minus_g1m=mfc_diff_g2g1,
         mean_qx_c1m=flux_maps[control].mean_qx,
         mean_qy_c1m=flux_maps[control].mean_qy,
         mean_qx_g1m=flux_maps[graupel].mean_qx,
         mean_qy_g1m=flux_maps[graupel].mean_qy,
+        mean_qx_g2m=flux_maps[twomom].mean_qx,
+        mean_qy_g2m=flux_maps[twomom].mean_qy,
         counts_c1m=flux_maps[control].counts,
         counts_g1m=flux_maps[graupel].counts,
+        counts_g2m=flux_maps[twomom].counts,
     )
     return text_path, fields_path
 
@@ -776,7 +783,7 @@ def main(argv: list[str] | None = None) -> int:
     args.data_root = args.data_root.resolve()
 
     experiments = list(dict.fromkeys(args.experiments))
-    for required in DIFF_PAIR:
+    for required in ("control", "graupel", "2mom"):
         if required not in experiments:
             experiments.append(required)
 
@@ -788,8 +795,9 @@ def main(argv: list[str] | None = None) -> int:
     flux_maps = {exp: crop_fluxmap(fm, crop) for exp, fm in flux_maps_full.items()}
     mfc = {exp: trim_border(mfc_mm_day(fm), args.trim_border) for exp, fm in flux_maps.items()}
 
-    graupel, control = DIFF_PAIR
-    mfc_diff = mfc[graupel] - mfc[control]
+    control, graupel, twomom = "control", "graupel", "2mom"
+    mfc_diff_g1c1 = mfc[graupel] - mfc[control]
+    mfc_diff_g2g1 = mfc[twomom] - mfc[graupel]
 
     lon = flux_maps[control].lon
     lat = flux_maps[control].lat
@@ -803,17 +811,17 @@ def main(argv: list[str] | None = None) -> int:
     def boxed(field: np.ndarray) -> np.ndarray:
         return np.where(scale_box, field, np.nan)
 
-    abs_scale = args.abs_scale or symmetric_scale(
-        [boxed(mfc[control]), boxed(mfc[graupel])], args.abs_percentile
+    abs_scale = args.abs_scale or symmetric_scale([boxed(mfc[control])], args.abs_percentile)
+    diff_scale = args.diff_scale or symmetric_scale(
+        [boxed(mfc_diff_g1c1), boxed(mfc_diff_g2g1)], args.diff_percentile
     )
-    diff_scale = args.diff_scale or symmetric_scale([boxed(mfc_diff)], args.diff_percentile)
 
     # Mean over the whole radar-rectangle crop (interior, where the divergence is
     # defined). This is the headline number; no sub-box.
     domain_means = {
         "C1M": float(np.nanmean(mfc[control])),
-        "G1M": float(np.nanmean(mfc[graupel])),
-        "G1M − C1M": float(np.nanmean(mfc_diff)),
+        "G1M − C1M": float(np.nanmean(mfc_diff_g1c1)),
+        "G2M − G1M": float(np.nanmean(mfc_diff_g2g1)),
     }
 
     figure_path = args.output_dir / FIGURE_NAME
@@ -821,8 +829,8 @@ def main(argv: list[str] | None = None) -> int:
         lon=lon,
         lat=lat,
         mfc_c1m=mfc[control],
-        mfc_g1m=mfc[graupel],
-        mfc_diff=mfc_diff,
+        mfc_diff_g1c1=mfc_diff_g1c1,
+        mfc_diff_g2g1=mfc_diff_g2g1,
         abs_scale=abs_scale,
         diff_scale=diff_scale,
         domain_means=domain_means,
@@ -834,7 +842,8 @@ def main(argv: list[str] | None = None) -> int:
         figure_path=figure_path,
         flux_maps=flux_maps,
         mfc=mfc,
-        mfc_diff=mfc_diff,
+        mfc_diff_g1c1=mfc_diff_g1c1,
+        mfc_diff_g2g1=mfc_diff_g2g1,
         abs_scale=abs_scale,
         diff_scale=diff_scale,
         args=args,
@@ -845,16 +854,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[saved] {fields_path}", flush=True)
     print(
         f"[result] Radar-rectangle MFC: C1M={domain_means['C1M']:+.3f}, "
-        f"G1M={domain_means['G1M']:+.3f}, "
-        f"G1M-C1M={domain_means['G1M − C1M']:+.3f} mm/day",
+        f"G1M-C1M={domain_means['G1M − C1M']:+.3f}, "
+        f"G2M-G1M={domain_means['G2M − G1M']:+.3f} mm/day",
         flush=True,
     )
-    verdict = (
-        "G1M imports LESS moisture (drying-consistent)"
-        if domain_means["G1M − C1M"] < 0
-        else "G1M imports MORE moisture"
-    )
-    print(f"[result] {verdict}", flush=True)
     return 0
 
 
