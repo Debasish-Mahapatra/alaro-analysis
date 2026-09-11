@@ -32,7 +32,9 @@ import numpy as np
 from alaro_analysis.common.vertical import centers_to_edges
 
 CACHE = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/paper6_hydrometeor_cfad")
-OUTPUT_DIR = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/microphysics-paper/6. hydrometeor mixing-ratio cfad")
+# Normalised (CFAD) versions are superseded by the un-normalised counts figure;
+# they live in backup/ so a rerun cannot overwrite the primary figure.
+OUTPUT_DIR = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/microphysics-paper/6. hydrometeor mixing-ratio cfad") / "backup"
 FIGURE_NAME = "6. hydrometeor mass-fraction cfad_per-model_450dpi.png"
 TEXT_NAME = "6. hydrometeor mass-fraction cfad_per-model_data.txt"
 

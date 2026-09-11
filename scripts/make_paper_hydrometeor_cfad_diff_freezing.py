@@ -37,7 +37,9 @@ from alaro_analysis.common.vertical import centers_to_edges
 CACHE = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/paper6_hydrometeor_cfad")
 TEMP = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/temperature/2years")
 GEO = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/geopotential/2years")
-OUTPUT_DIR = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/microphysics-paper/6. hydrometeor mixing-ratio cfad")
+# Normalised (CFAD) versions are superseded by the un-normalised counts figure;
+# they live in backup/ so a rerun cannot overwrite the primary figure.
+OUTPUT_DIR = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/microphysics-paper/6. hydrometeor mixing-ratio cfad") / "backup"
 FIGURE_NAME = "6. hydrometeor mass-fraction cfad_c1m_g1m-c1m_g2m-g1m_freezing_450dpi.png"
 TEXT_NAME = "6. hydrometeor mass-fraction cfad_c1m_g1m-c1m_g2m-g1m_freezing_data.txt"
 
@@ -45,6 +47,13 @@ MAX_HEIGHT_KM = 20.0
 FREQ_VMIN, FREQ_VMAX = 1e-2, 30.0   # absolute log frequency colour scale (%)
 DIFF_SCALE = 4.0                    # +/- % for difference panels
 FREEZING_K = 273.15
+# Minimum mass fraction counted as "hydrometeor present". Values below this are
+# numerical residue (advection/sedimentation remnants of 1e-11..1e-9 kg/kg that
+# occur in <0.1% of points near the surface); with the per-level 100%
+# normalisation they would otherwise paint saturated rows where no physically
+# meaningful condensate exists. Bins below the threshold are dropped and each
+# level is renormalised over the remaining bins.
+MIN_MASS_FRACTION = 1e-8
 
 # Rows: (symbol, counts-species, full name) top -> bottom
 ROWS = [
@@ -110,7 +119,13 @@ def freezing_level_km(exp: str) -> float:
 
 def main() -> None:
     data = {e: load_exp(e) for e in ("control", "graupel", "2mom")}
-    log_edges = data["control"]["log_edges"]
+    log_edges_full = np.asarray(data["control"]["log_edges"], dtype=np.float64)
+    dbin = log_edges_full[1] - log_edges_full[0]
+    i0 = int(round((np.log10(MIN_MASS_FRACTION) - log_edges_full[0]) / dbin))
+    assert abs(log_edges_full[i0] - np.log10(MIN_MASS_FRACTION)) < 1e-6, (
+        "MIN_MASS_FRACTION must fall on a histogram bin edge"
+    )
+    log_edges = log_edges_full[i0:]
     q_edges = 10.0 ** log_edges
 
     # Common vertical grid from control geopotential; ascending, cropped to 20 km.
@@ -126,7 +141,7 @@ def main() -> None:
         for _, sp, _ in ROWS:
             key = f"counts_{sp}"
             if key in data[e]:
-                f, m = freq_and_median(data[e][key], log_edges)
+                f, m = freq_and_median(data[e][key][:, i0:], log_edges)
                 freq[(e, sp)] = f
                 med[(e, sp)] = m
 
@@ -237,7 +252,9 @@ def main() -> None:
         fh.write("Top row only: C1M (no data), G1M (absolute), G2M - G1M.\n")
         fh.write("Absolute: WhiteBlueGreenYellowRed LogNorm "
                  f"{FREQ_VMIN:g}..{FREQ_VMAX:g} %. Difference: RdBu_r +/-{DIFF_SCALE:g} %.\n")
-        fh.write("Each height level normalised to 100 % (CFAD).\n")
+        fh.write(f"Threshold: only mass fractions >= {MIN_MASS_FRACTION:g} kg/kg are counted\n")
+        fh.write("  (bins below dropped; sub-threshold values are numerical residue).\n")
+        fh.write("Each height level normalised to 100 % over the counted bins (CFAD).\n")
         fh.write("Black SOLID line = per-level median of that column's RAW mass fraction\n")
         fh.write("  (C1M / G1M / G2M for columns 1 / 2 / 3) -- NOT a median of the differences.\n")
         fh.write("Black DASHED line = 0 degC (freezing) level of that column's model.\n\n")

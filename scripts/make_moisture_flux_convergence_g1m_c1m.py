@@ -71,6 +71,7 @@ HOUR_RE = re.compile(r"\+(\d{4})(?:\.[^.]+)?$")
 SECONDS_PER_DAY = 86400.0
 
 FIGURE_NAME = "9. moisture flux convergence_450dpi.png"
+FLUX_FIGURE_NAME = "9. moisture flux convergence_flux_450dpi.png"
 TEXT_NAME = "9. moisture flux convergence_data.txt"
 FIELDS_NPZ = "moisture_flux_convergence_fields.npz"
 
@@ -628,6 +629,148 @@ def plot_maps(
     plt.close(fig)
 
 
+def plot_flux_maps(
+    *,
+    lon: np.ndarray,
+    lat: np.ndarray,
+    flux_maps: dict[str, FluxMap],
+    domain_means: dict[str, float],
+    output_path: Path,
+    dpi: int,
+) -> None:
+    """Companion figure entirely in FLUX space (no horizontal derivative anywhere,
+    hence none of the grid-scale checkerboard the divergence amplifies).
+
+    Panel 1: C1M column moisture flux |Q| + direction arrows.
+    Panels 2-3: G1M-C1M and G2M-G1M flux differences: signed change of the flux
+    magnitude (|Q2|-|Q1|) as the map, with arrows of the difference vector dQ.
+    """
+    import cartopy.crs as ccrs
+    import cartopy.feature as cfeature
+    import matplotlib.colors as mcolors
+    import matplotlib.ticker as mticker
+
+    projection = ccrs.PlateCarree()
+    control, graupel, twomom = "control", "graupel", "2mom"
+    qx = {e: flux_maps[e].mean_qx for e in (control, graupel, twomom)}
+    qy = {e: flux_maps[e].mean_qy for e in (control, graupel, twomom)}
+    mag = {e: np.hypot(qx[e], qy[e]) for e in (control, graupel, twomom)}
+
+    pairs = [("G1M − C1M", graupel, control), ("G2M − G1M", twomom, graupel)]
+    dmag = {t: mag[a] - mag[b] for t, a, b in pairs}
+    dqx = {t: qx[a] - qx[b] for t, a, b in pairs}
+    dqy = {t: qy[a] - qy[b] for t, a, b in pairs}
+
+    dscale = symmetric_scale(list(dmag.values()), 98.0)
+    diff_norm = mcolors.TwoSlopeNorm(vmin=-dscale, vcenter=0.0, vmax=dscale)
+
+    fig, axes = plt.subplots(
+        1,
+        3,
+        figsize=(15.5, 5.2),
+        subplot_kw={"projection": projection},
+        constrained_layout=True,
+    )
+
+    step = max(1, min(lon.shape) // 12)
+    sl = (slice(step // 2, None, step), slice(step // 2, None, step))
+
+    # Panel 1: C1M |Q| with direction arrows.
+    ax = axes[0]
+    flux_image = ax.pcolormesh(
+        lon,
+        lat,
+        np.ma.masked_invalid(mag[control]),
+        transform=projection,
+        shading="auto",
+        cmap="YlGnBu",
+    )
+    ax.quiver(
+        lon[sl],
+        lat[sl],
+        qx[control][sl],
+        qy[control][sl],
+        transform=projection,
+        color="0.15",
+        width=0.004,
+        scale=float(np.nanmax(mag[control])) * 14.0,
+        zorder=6,
+    )
+    ax.set_title("C1M column moisture flux", fontsize=12, fontweight="bold")
+    add_map_context(ax, ccrs, cfeature, lon, lat)
+    ax.text(
+        0.02,
+        0.98,
+        f"mean |Q| = {np.nanmean(mag[control]):.0f} kg m$^{{-1}}$ s$^{{-1}}$\n"
+        f"mean MFC = {domain_means['C1M']:+.2f} mm day$^{{-1}}$",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=8,
+        bbox={"boxstyle": "round,pad=0.2", "facecolor": "white", "alpha": 0.7, "edgecolor": "none"},
+    )
+
+    # Panels 2-3: flux differences (signed magnitude change + dQ arrows).
+    diff_image = None
+    dq_ref = max(float(np.nanmax(np.hypot(dqx[t], dqy[t]))) for t, _, _ in pairs)
+    for idx, (title, _, _) in enumerate(pairs, start=1):
+        ax = axes[idx]
+        diff_image = ax.pcolormesh(
+            lon,
+            lat,
+            np.ma.masked_invalid(dmag[title]),
+            transform=projection,
+            shading="auto",
+            cmap="BrBG",
+            norm=diff_norm,
+        )
+        ax.quiver(
+            lon[sl],
+            lat[sl],
+            dqx[title][sl],
+            dqy[title][sl],
+            transform=projection,
+            color="0.15",
+            width=0.004,
+            scale=dq_ref * 14.0,
+            zorder=6,
+        )
+        ax.set_title(title, fontsize=12, fontweight="bold")
+        add_map_context(ax, ccrs, cfeature, lon, lat)
+        ax.text(
+            0.02,
+            0.98,
+            f"mean $\\Delta$|Q| = {np.nanmean(dmag[title]):+.1f} kg m$^{{-1}}$ s$^{{-1}}$\n"
+            f"mean $\\Delta$MFC = {domain_means[title]:+.2f} mm day$^{{-1}}$",
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=8,
+            bbox={"boxstyle": "round,pad=0.2", "facecolor": "white", "alpha": 0.7, "edgecolor": "none"},
+        )
+
+    cbar_flux = fig.colorbar(
+        flux_image, ax=axes[0], orientation="horizontal", fraction=0.05, pad=0.06, aspect=22
+    )
+    cbar_flux.set_label("Column moisture flux (kg m$^{-1}$ s$^{-1}$)", fontsize=10)
+    cbar_flux.ax.tick_params(labelsize=8)
+    cbar_flux.ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:g}"))
+
+    cbar_diff = fig.colorbar(
+        diff_image, ax=axes[1:], orientation="horizontal", fraction=0.05, pad=0.06, aspect=40
+    )
+    cbar_diff.set_label("Flux-magnitude difference (kg m$^{-1}$ s$^{-1}$)", fontsize=10)
+    cbar_diff.ax.tick_params(labelsize=8)
+    cbar_diff.ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:g}"))
+
+    fig.suptitle(
+        "Vertically integrated moisture flux", fontsize=14, fontweight="bold"
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=dpi, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+
+
 # ---------------------------------------------------------------------------
 # Text + field outputs
 # ---------------------------------------------------------------------------
@@ -659,6 +802,8 @@ def write_outputs(
         fh.write("Vertically integrated moisture flux convergence (C1M, G1M-C1M, G2M-G1M)\n")
         fh.write("============================================================\n")
         fh.write(f"Figure: {figure_path}\n")
+        fh.write(f"Companion flux figure (C1M panel = column flux |Q| + arrows, no derivative): "
+                 f"{output_dir / FLUX_FIGURE_NAME}\n")
         fh.write(f"Gridded fields (NetCDF-free): {output_dir / FIELDS_NPZ}\n\n")
         fh.write("Method\n------\n")
         fh.write("Qx = (1/g) sum_level(q * u * dp); Qy = (1/g) sum_level(q * v * dp).\n")
@@ -837,6 +982,15 @@ def main(argv: list[str] | None = None) -> int:
         output_path=figure_path,
         dpi=args.dpi,
     )
+    flux_figure_path = args.output_dir / FLUX_FIGURE_NAME
+    plot_flux_maps(
+        lon=lon,
+        lat=lat,
+        flux_maps=flux_maps,
+        domain_means=domain_means,
+        output_path=flux_figure_path,
+        dpi=args.dpi,
+    )
     text_path, fields_path = write_outputs(
         output_dir=args.output_dir,
         figure_path=figure_path,
@@ -850,6 +1004,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     print(f"[saved] {figure_path}", flush=True)
+    print(f"[saved] {flux_figure_path}", flush=True)
     print(f"[saved] {text_path}", flush=True)
     print(f"[saved] {fields_path}", flush=True)
     print(
