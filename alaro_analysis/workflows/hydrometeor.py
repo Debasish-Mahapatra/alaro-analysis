@@ -17,6 +17,8 @@ What this script does:
 
 from __future__ import annotations
 
+from alaro_analysis.analysis.updrafts import updraft_mass_flux
+
 import argparse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -679,7 +681,7 @@ def compute_updraft_derived_profile_from_files(
         # M_u = - \sigma_u * \omega_u / g
         # Since omega is negative for updrafts, `-omega` is positive.
         # We also enforce that we only care where mesh > 0.
-        flux = np.where(mesh > 0, (-omega * mesh) / G, 0.0)
+        flux = updraft_mass_flux(omega, mesh)
         profile, _ = nanmean_with_count(flux, axis=(0, 2, 3))
         return profile
 
@@ -866,7 +868,7 @@ def load_or_compute_diurnal(
 ) -> tuple[np.ndarray, Path, int, int]:
     sig = cache_signature(
         {
-            "cache_version": 1,
+            "cache_version": 2,
             "variable": variable,
             "dir": str(experiment_dir),
             "max_days": max_days,

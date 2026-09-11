@@ -36,6 +36,8 @@ Analyses implemented:
 
 from __future__ import annotations
 
+from alaro_analysis.analysis.updrafts import downdraft_mass_flux, updraft_mass_flux
+
 import argparse
 from pathlib import Path
 from typing import Any, Dict, Iterable, Sequence
@@ -477,11 +479,11 @@ def compute_downdraft_profiles(
         # Mass flux: M_d = sigma_d * omega_d / g
         # DD omega is positive (downward in pressure coords), so flux is positive.
         # We only care where mesh > 0 (active downdrafts).
-        dd_flux = np.where(dd_mesh > 0, (dd_omega * dd_mesh) / 9.80665, 0.0)
+        dd_flux = downdraft_mass_flux(dd_omega, dd_mesh)
 
         # UD mass flux: M_u = - sigma_u * omega_u / g
         # UD omega is negative (upward), so -omega gives positive flux.
-        ud_flux = np.where(ud_mesh > 0, (-ud_omega * ud_mesh) / 9.80665, 0.0)
+        ud_flux = updraft_mass_flux(ud_omega, ud_mesh)
 
         with np.errstate(divide="ignore", invalid="ignore"):
             ratio = dd_flux / ud_flux
