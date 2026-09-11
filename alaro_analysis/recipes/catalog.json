@@ -1,0 +1,864 @@
+[
+  {
+    "name": "audit_iop_extraction",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.audit_iop_extraction",
+    "description": "Wait for extraction parents, audit all archive markers, and retry gaps.",
+    "legacy_script": "scripts/audit_iop_extraction.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "build_downdraft_vertvel_diurnal_from_FA",
+    "family": "diagnostics",
+    "module": "alaro_analysis.recipes.diagnostics.build_downdraft_vertvel_diurnal_from_FA",
+    "description": "Diurnal-mean height-hour sections of downdraft and resolved-vertical-velocity",
+    "legacy_script": "scripts/build_downdraft_vertvel_diurnal_from_FA.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.paths",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.data.masks"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "build_hydrometeor_cfad_from_FA",
+    "family": "diagnostics",
+    "module": "alaro_analysis.recipes.diagnostics.build_hydrometeor_cfad_from_FA",
+    "description": "Build hydrometeor mixing-ratio CFAD histograms from the RAW FA files",
+    "legacy_script": "scripts/build_hydrometeor_cfad_from_FA.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.paths",
+      "alaro_analysis.data.cache"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "build_hydrometeor_cfad_from_netcdf",
+    "family": "diagnostics",
+    "module": "alaro_analysis.recipes.diagnostics.build_hydrometeor_cfad_from_netcdf",
+    "description": "Build per-species hydrometeor mixing-ratio CFAD histograms from masked-netcdf.",
+    "legacy_script": "scripts/build_hydrometeor_cfad_from_netcdf.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.paths",
+      "alaro_analysis.common.spatial",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.data.discovery",
+      "alaro_analysis.data.hydrometeor_profiles",
+      "alaro_analysis.data.profile_fields"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "build_iop_rainfall_total",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.build_iop_rainfall_total",
+    "description": "Hourly total surface rainfall for one IOP experiment.",
+    "legacy_script": "scripts/build_iop_rainfall_total.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "build_updraft_cloud_diurnal_from_netcdf",
+    "family": "diagnostics",
+    "module": "alaro_analysis.recipes.diagnostics.build_updraft_cloud_diurnal_from_netcdf",
+    "description": "Recompute updraft-extent / updraft-flux / cloud-cover diurnal-mean profiles",
+    "legacy_script": "scripts/build_updraft_cloud_diurnal_from_netcdf.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.analysis.updrafts",
+      "alaro_analysis.common.paths",
+      "alaro_analysis.common.spatial",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.data.dataset_io",
+      "alaro_analysis.data.discovery",
+      "alaro_analysis.data.hydrometeor_profiles",
+      "alaro_analysis.data.profile_fields"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "cfad_hydrometeors_2yr_masked",
+    "family": "diagnostics",
+    "module": "alaro_analysis.recipes.diagnostics.cfad_hydrometeors_2yr_masked",
+    "description": "Standalone CFAD plot of hydrometeor mass fraction (full 2 years, from raw masked NetCDF).",
+    "legacy_script": "scripts/cfad_hydrometeors_2yr_masked.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "export_dsd_new_plot_data_txt",
+    "family": "dsd",
+    "module": "alaro_analysis.recipes.dsd.export_dsd_new_plot_data_txt",
+    "description": "Export text data tables for the DSD ``new plots`` figures.",
+    "legacy_script": "scripts/export_dsd_new_plot_data_txt.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.dsd.surface",
+      "alaro_analysis.plotting.dsd_surface"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "extract_iop_archives",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.extract_iop_archives",
+    "description": "Safely, resumably extract ALARO IOP tar.gz archives.",
+    "legacy_script": "scripts/extract_iop_archives.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "finalize_iop_closure",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.finalize_iop_closure",
+    "description": "Wait for complete DDHB extraction, aggregate exact periods, and plot.",
+    "legacy_script": "scripts/finalize_iop_closure.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "fix_paper5_flux_dilution",
+    "family": "maintenance",
+    "module": "alaro_analysis.recipes.maintenance.fix_paper5_flux_dilution",
+    "description": "Undo the radar-mask dilution in the cached figure-5 updraft mass flux.",
+    "legacy_script": "scripts/fix_paper5_flux_dilution.py",
+    "status": "historical repair",
+    "package_dependencies": [
+      "alaro_analysis.common.paths",
+      "alaro_analysis.data.cache"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "make_ct_scheme_budget_panel",
+    "family": "diagnostics",
+    "module": "alaro_analysis.recipes.diagnostics.make_ct_scheme_budget_panel",
+    "description": "Plot focused CT two-year mean budget terms with the proper CT FBL split.",
+    "legacy_script": "scripts/make_ct_scheme_budget_panel.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_dm_updraft_profile",
+    "family": "diagnostics",
+    "module": "alaro_analysis.recipes.diagnostics.make_dm_updraft_profile",
+    "description": "CFAD (frequency-by-altitude) of the rain mass-weighted diameter Dm inside updrafts.",
+    "legacy_script": "scripts/make_dm_updraft_profile.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.dsd",
+      "alaro_analysis.common.figio",
+      "alaro_analysis.common.paths",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.data.dsd_percell",
+      "alaro_analysis.data.masks",
+      "alaro_analysis.dsd.surface"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_iop_closure_budget",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.make_iop_closure_budget",
+    "description": "Closure-budget comparison for the six IOP/continuous pairs.",
+    "legacy_script": "scripts/make_iop_closure_budget.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.paths",
+      "alaro_analysis.data.cache"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_moisture_flux_convergence_g1m_c1m",
+    "family": "diagnostics",
+    "module": "alaro_analysis.recipes.diagnostics.make_moisture_flux_convergence_g1m_c1m",
+    "description": "Vertically integrated moisture flux convergence: G1M versus C1M.",
+    "legacy_script": "scripts/make_moisture_flux_convergence_g1m_c1m.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.analysis.derived",
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.parallel",
+      "alaro_analysis.data.cache"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_paper1_column_liquid_water_map",
+    "family": "paper1",
+    "module": "alaro_analysis.recipes.paper1.make_paper1_column_liquid_water_map",
+    "description": "Paper1 map of vertically integrated cloud liquid water.",
+    "legacy_script": "scripts/make_paper1_column_liquid_water_map.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.paths",
+      "alaro_analysis.data.cache"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_paper1_graupel_freezing_diagnostic",
+    "family": "paper1",
+    "module": "alaro_analysis.recipes.paper1.make_paper1_graupel_freezing_diagnostic",
+    "description": "Graupel/freezing-level CT budget diagnostic for paper1.",
+    "legacy_script": "scripts/make_paper1_graupel_freezing_diagnostic.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_paper1_rainfall_no3m",
+    "family": "paper1",
+    "module": "alaro_analysis.recipes.paper1.make_paper1_rainfall_no3m",
+    "description": "Make paper1 rainfall figures with the NO3M/G2M-XCU experiment included.",
+    "legacy_script": "scripts/make_paper1_rainfall_no3m.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_paper1_strong_updraft_graupel",
+    "family": "paper1",
+    "module": "alaro_analysis.recipes.paper1.make_paper1_strong_updraft_graupel",
+    "description": "Paper1 graupel profile, using an explicit immutable variable specification.",
+    "legacy_script": "scripts/make_paper1_strong_updraft_graupel.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.study_specs",
+      "alaro_analysis.recipes.paper1.make_paper1_strong_updraft_rain"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_paper1_strong_updraft_hydrometeors",
+    "family": "paper1",
+    "module": "alaro_analysis.recipes.paper1.make_paper1_strong_updraft_hydrometeors",
+    "description": "Paper1 hydrometeor profiles sampled only inside strong updrafts.",
+    "legacy_script": "scripts/make_paper1_strong_updraft_hydrometeors.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.paths",
+      "alaro_analysis.data.cache"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_paper1_strong_updraft_rain",
+    "family": "paper1",
+    "module": "alaro_analysis.recipes.paper1.make_paper1_strong_updraft_rain",
+    "description": "Paper1 hydrometeor profile sampled only inside strong updrafts.",
+    "legacy_script": "scripts/make_paper1_strong_updraft_rain.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.paths",
+      "alaro_analysis.common.strong_profile_settings",
+      "alaro_analysis.common.study_specs",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.data.strong_updraft_profiles",
+      "alaro_analysis.plotting.strong_updraft_profiles"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_paper1_temperature_relative_anomaly",
+    "family": "paper1",
+    "module": "alaro_analysis.recipes.paper1.make_paper1_temperature_relative_anomaly",
+    "description": "Paper1 full-period temperature panel with relative anomaly panels.",
+    "legacy_script": "scripts/make_paper1_temperature_relative_anomaly.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.figio",
+      "alaro_analysis.common.models",
+      "alaro_analysis.common.paths",
+      "alaro_analysis.common.vertical",
+      "alaro_analysis.data.cache"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_paper_downdraft_velocity_comparison",
+    "family": "paper1",
+    "module": "alaro_analysis.recipes.paper1.make_paper_downdraft_velocity_comparison",
+    "description": "Parameterized vs resolved downdraft, both as a velocity in m/s.",
+    "legacy_script": "scripts/make_paper_downdraft_velocity_comparison.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.models",
+      "alaro_analysis.common.paths",
+      "alaro_analysis.common.vertical",
+      "alaro_analysis.plotting.scales"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "make_paper_downdraft_vertvel_relative_panel",
+    "family": "paper1",
+    "module": "alaro_analysis.recipes.paper1.make_paper_downdraft_vertvel_relative_panel",
+    "description": "Relative-bias 9-panel figure: downdraft extent, downdraft mass flux and",
+    "legacy_script": "scripts/make_paper_downdraft_vertvel_relative_panel.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.models",
+      "alaro_analysis.common.paths",
+      "alaro_analysis.common.vertical",
+      "alaro_analysis.plotting.scales"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "make_paper_hydrometeor_cfad",
+    "family": "paper1",
+    "module": "alaro_analysis.recipes.paper1.make_paper_hydrometeor_cfad",
+    "description": "Plot 6: hydrometeor mixing-ratio CFADs (frequency by altitude).",
+    "legacy_script": "scripts/make_paper_hydrometeor_cfad.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.paths",
+      "alaro_analysis.common.vertical"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "make_paper_hydrometeor_cfad_diff_freezing",
+    "family": "paper1",
+    "module": "alaro_analysis.recipes.paper1.make_paper_hydrometeor_cfad_diff_freezing",
+    "description": "Hydrometeor mass-fraction CFADs: C1M, G1M-C1M, G2M-G1M, with freezing levels.",
+    "legacy_script": "scripts/make_paper_hydrometeor_cfad_diff_freezing.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.paths",
+      "alaro_analysis.common.vertical"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "make_paper_hydrometeor_cfad_permodel",
+    "family": "paper1",
+    "module": "alaro_analysis.recipes.paper1.make_paper_hydrometeor_cfad_permodel",
+    "description": "Plot 6 (per-model layout): hydrometeor MASS-FRACTION CFADs.",
+    "legacy_script": "scripts/make_paper_hydrometeor_cfad_permodel.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.paths",
+      "alaro_analysis.common.vertical"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "make_paper_hydrometeor_counts_diff_freezing",
+    "family": "paper1",
+    "module": "alaro_analysis.recipes.paper1.make_paper_hydrometeor_counts_diff_freezing",
+    "description": "Hydrometeor mass-fraction histograms, RAW COUNTS -- no normalisation at all.",
+    "legacy_script": "scripts/make_paper_hydrometeor_counts_diff_freezing.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.paths",
+      "alaro_analysis.common.vertical"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_paper_qg_qs_budget",
+    "family": "paper1",
+    "module": "alaro_analysis.recipes.paper1.make_paper_qg_qs_budget",
+    "description": "Snow + graupel (QS + QG) budget diagnostic, mirroring the CT plot.",
+    "legacy_script": "scripts/make_paper_qg_qs_budget.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_paper_rain_evaporation_nr",
+    "family": "paper1",
+    "module": "alaro_analysis.recipes.paper1.make_paper_rain_evaporation_nr",
+    "description": "Plot 14 - rain evaporation rate vs water-vapour mass fraction: sensitivity to",
+    "legacy_script": "scripts/make_paper_rain_evaporation_nr.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.analysis.rain_evaporation",
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_paper_rain_evaporation_qn_plane",
+    "family": "paper1",
+    "module": "alaro_analysis.recipes.paper1.make_paper_rain_evaporation_qn_plane",
+    "description": "Plot 15 - rain evaporation rate over the rain content (qr) and number (Nr) plane.",
+    "legacy_script": "scripts/make_paper_rain_evaporation_qn_plane.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.analysis.rain_evaporation",
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_paper_rain_evaporation_qv",
+    "family": "paper1",
+    "module": "alaro_analysis.recipes.paper1.make_paper_rain_evaporation_qv",
+    "description": "Rain evaporation rate vs water-vapour mass fraction, one- vs two-moment scheme.",
+    "legacy_script": "scripts/make_paper_rain_evaporation_qv.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.analysis.rain_evaporation",
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_paper_updraft_cloud_relative_panel",
+    "family": "paper1",
+    "module": "alaro_analysis.recipes.paper1.make_paper_updraft_cloud_relative_panel",
+    "description": "Relative-bias 9-panel figure: updraft extent, updraft mass flux, cloud cover.",
+    "legacy_script": "scripts/make_paper_updraft_cloud_relative_panel.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.models",
+      "alaro_analysis.common.paths",
+      "alaro_analysis.common.vertical",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.plotting.scales"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "make_sup_budget_aggregates",
+    "family": "supplementary",
+    "module": "alaro_analysis.recipes.supplementary.make_sup_budget_aggregates",
+    "description": "Aggregate per-day DDH budgets into 15-day (1-15 Mar 2014) npz, for the SUP",
+    "legacy_script": "scripts/make_sup_budget_aggregates.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.paths",
+      "alaro_analysis.data.cache"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "make_sup_budgets",
+    "family": "supplementary",
+    "module": "alaro_analysis.recipes.supplementary.make_sup_budgets",
+    "description": "SUP budget suite for the closure experiments (15-day, 1-15 Mar 2014).",
+    "legacy_script": "scripts/make_sup_budgets.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.paths",
+      "alaro_analysis.ddh.io",
+      "alaro_analysis.ddh.plot_budgets"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "make_sup_closure_budget",
+    "family": "supplementary",
+    "module": "alaro_analysis.recipes.supplementary.make_sup_closure_budget",
+    "description": "SUP closure-budget figures for the LNEBCV and NIMELIT perturbation runs.",
+    "legacy_script": "scripts/make_sup_closure_budget.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.paths",
+      "alaro_analysis.ddh.io",
+      "alaro_analysis.ddh.plot_condensation_partition"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "make_sup_closure_budget_nimelit_2x2",
+    "family": "supplementary",
+    "module": "alaro_analysis.recipes.supplementary.make_sup_closure_budget_nimelit_2x2",
+    "description": "Combined 2x2 NIMELIT closure-budget figure: the NIMELIT=2 (baseline) and NIMELIT=1",
+    "legacy_script": "scripts/make_sup_closure_budget_nimelit_2x2.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.recipes.supplementary.make_sup_closure_budget"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "make_sup_ct_budget",
+    "family": "supplementary",
+    "module": "alaro_analysis.recipes.supplementary.make_sup_ct_budget",
+    "description": "SUP CT (total-condensate) scheme budget for the closure experiments.",
+    "legacy_script": "scripts/make_sup_ct_budget.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "make_sup_ddh_tzero",
+    "family": "supplementary",
+    "module": "alaro_analysis.recipes.supplementary.make_sup_ddh_tzero",
+    "description": "Cache the DDH 0 C level (VCT0/VPP0/cp) per experiment, 15-day mean.",
+    "legacy_script": "scripts/make_sup_ddh_tzero.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.paths",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.ddh.io"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "make_sup_fallspeed_melting_boxmodel",
+    "family": "supplementary",
+    "module": "alaro_analysis.recipes.supplementary.make_sup_fallspeed_melting_boxmodel",
+    "description": "Box model: SNOW vs GRAUPEL terminal fall speed and melting, from the ALARO CY46 code.",
+    "legacy_script": "scripts/make_sup_fallspeed_melting_boxmodel.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "make_sup_freezing_evap_profiles",
+    "family": "supplementary",
+    "module": "alaro_analysis.recipes.supplementary.make_sup_freezing_evap_profiles",
+    "description": "SUP figures: evaporation and freezing for the 3 freezing-diagnostic runs.",
+    "legacy_script": "scripts/make_sup_freezing_evap_profiles.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "make_sup_fusion_heat_feedback_boxmodel",
+    "family": "supplementary",
+    "module": "alaro_analysis.recipes.supplementary.make_sup_fusion_heat_feedback_boxmodel",
+    "description": "Box model: the freezing/melting FUSION-HEAT feedback into the convective updraught (the lever",
+    "legacy_script": "scripts/make_sup_fusion_heat_feedback_boxmodel.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "make_sup_qv_neg_correction",
+    "family": "supplementary",
+    "module": "alaro_analysis.recipes.supplementary.make_sup_qv_neg_correction",
+    "description": "SUP figures: water-vapour negativity correction (QV.neg) profiles.",
+    "legacy_script": "scripts/make_sup_qv_neg_correction.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "make_sup_var_budgets",
+    "family": "supplementary",
+    "module": "alaro_analysis.recipes.supplementary.make_sup_var_budgets",
+    "description": "SUP per-variable budget figures (one figure per species, per config).",
+    "legacy_script": "scripts/make_sup_var_budgets.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.paths",
+      "alaro_analysis.ddh.io",
+      "alaro_analysis.ddh.plot_style"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "make_sup_wbf_autoconversion_boxmodel",
+    "family": "supplementary",
+    "module": "alaro_analysis.recipes.supplementary.make_sup_wbf_autoconversion_boxmodel",
+    "description": "Box model of the ALARO WBF cloud-water autoconversion in ACACON, showing how the",
+    "legacy_script": "scripts/make_sup_wbf_autoconversion_boxmodel.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "make_updraft_freezing_chain",
+    "family": "diagnostics",
+    "module": "alaro_analysis.recipes.diagnostics.make_updraft_freezing_chain",
+    "description": "In-updraft freezing-chain diagnostic around the 0 C level.",
+    "legacy_script": "scripts/make_updraft_freezing_chain.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.paths",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.data.dsd_percell",
+      "alaro_analysis.data.masks",
+      "alaro_analysis.dsd.surface"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_vertical_velocity_delta",
+    "family": "diagnostics",
+    "module": "alaro_analysis.recipes.diagnostics.make_vertical_velocity_delta",
+    "description": "Delta between the two raw-FA vertical velocity fields at one time and level.",
+    "legacy_script": "scripts/make_vertical_velocity_delta.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_vertical_velocity_profile_delta",
+    "family": "diagnostics",
+    "module": "alaro_analysis.recipes.diagnostics.make_vertical_velocity_profile_delta",
+    "description": "Column profile of the two raw-FA vertical velocity fields at one location.",
+    "legacy_script": "scripts/make_vertical_velocity_profile_delta.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "plot_ddh_domain_raw_fa_updrafts",
+    "family": "diagnostics",
+    "module": "alaro_analysis.recipes.diagnostics.plot_ddh_domain_raw_fa_updrafts",
+    "description": "Raw-FA updraft diagnostics over the DDH namelist domain.",
+    "legacy_script": "scripts/plot_ddh_domain_raw_fa_updrafts.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.models",
+      "alaro_analysis.common.parallel",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.ddh.io",
+      "alaro_analysis.ddh.layer_metrics",
+      "alaro_analysis.ddh.plot_g1m_c1m_process_fingerprint",
+      "alaro_analysis.plotting.hydrometeor",
+      "alaro_analysis.plotting.panels"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "run_dsd_per_cell",
+    "family": "dsd",
+    "module": "alaro_analysis.recipes.dsd.run_dsd_per_cell",
+    "description": "Per-cell sampling variant of the disdrometer DSD comparison.",
+    "legacy_script": "scripts/run_dsd_per_cell.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.dsd",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.data.masks",
+      "alaro_analysis.dsd.surface",
+      "alaro_analysis.plotting.dsd_surface"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "run_dsd_per_cell_moments_truncated",
+    "family": "dsd",
+    "module": "alaro_analysis.recipes.dsd.run_dsd_per_cell_moments_truncated",
+    "description": "Surface Dm vs logNw remake from the moment formulation with dmin truncation.",
+    "legacy_script": "scripts/run_dsd_per_cell_moments_truncated.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.dsd",
+      "alaro_analysis.common.observation_settings",
+      "alaro_analysis.common.paths",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.data.dsd_percell",
+      "alaro_analysis.data.masks",
+      "alaro_analysis.dsd.surface",
+      "alaro_analysis.plotting.dsd_surface"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "run_dsd_per_cell_mu1_lwc_nt_raw",
+    "family": "dsd",
+    "module": "alaro_analysis.recipes.dsd.run_dsd_per_cell_mu1_lwc_nt_raw",
+    "description": "Raw masked-netCDF per-cell DSD sampling with mu=1 normalized gamma.",
+    "legacy_script": "scripts/run_dsd_per_cell_mu1_lwc_nt_raw.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.dsd",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.data.masks",
+      "alaro_analysis.dsd.surface",
+      "alaro_analysis.plotting.dsd_surface"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "run_dsd_per_cell_normalized_gamma",
+    "family": "dsd",
+    "module": "alaro_analysis.recipes.dsd.run_dsd_per_cell_normalized_gamma",
+    "description": "Plot per-cell DSD samples with all panels in normalized-gamma space.",
+    "legacy_script": "scripts/run_dsd_per_cell_normalized_gamma.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.dsd",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.dsd.surface",
+      "alaro_analysis.plotting.dsd_surface"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "run_dsd_per_cell_normalized_gamma_raw_sets",
+    "family": "dsd",
+    "module": "alaro_analysis.recipes.dsd.run_dsd_per_cell_normalized_gamma_raw_sets",
+    "description": "Raw per-cell normalized-gamma DSD plot sets.",
+    "legacy_script": "scripts/run_dsd_per_cell_normalized_gamma_raw_sets.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.dsd",
+      "alaro_analysis.common.observation_settings",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.data.dsd_percell",
+      "alaro_analysis.data.masks",
+      "alaro_analysis.dsd.surface",
+      "alaro_analysis.plotting.dsd_surface"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "run_iop_comparison_pipeline",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.run_iop_comparison_pipeline",
+    "description": "Incremental IOP comparison driver.",
+    "legacy_script": "scripts/run_iop_comparison_pipeline.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.data.iop_precipitation",
+      "alaro_analysis.plotting.iop_precipitation"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "run_iop_ddh_closure",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.run_iop_ddh_closure",
+    "description": "Run the required QV/QL/QR DDHB budgets for all complete IOP DDH days.",
+    "legacy_script": "scripts/run_iop_ddh_closure.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "run_iop_rainfall_updraft",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.run_iop_rainfall_updraft",
+    "description": "Native-grid IOP versus continuous rainfall and updraft workflow.",
+    "legacy_script": "scripts/run_iop_rainfall_updraft.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.common.paths",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.data.iop_precipitation",
+      "alaro_analysis.plotting.iop_precipitation"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "test_mfc_one_hour",
+    "family": "diagnostics",
+    "module": "alaro_analysis.recipes.diagnostics.test_mfc_one_hour",
+    "description": "One-hour test of the moisture flux convergence pipeline.",
+    "legacy_script": "scripts/test_mfc_one_hour.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.analysis.derived",
+      "alaro_analysis.common.paths"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  },
+  {
+    "name": "verify_downdraft_fa_vs_netcdf",
+    "family": "diagnostics",
+    "module": "alaro_analysis.recipes.diagnostics.verify_downdraft_fa_vs_netcdf",
+    "description": "Verify the raw-FA downdraft reduction against the masked-netcdf archive.",
+    "legacy_script": "scripts/verify_downdraft_fa_vs_netcdf.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.recipes.diagnostics.build_downdraft_vertvel_diurnal_from_FA"
+    ],
+    "interface": "fixed study settings; inspect module before running"
+  }
+]
