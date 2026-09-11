@@ -1,171 +1,137 @@
 # alaro-analysis
 
-Reusable analysis toolkit for ALARO NWP model outputs over the Amazon region.
-FA conversion uses [faxarray](https://github.com/UMR-CNRM/faxarray) inside the
-HPC `epygram` environment.
+Analysis of ALARO model output, observations, and DDH budgets. The package
+provides reusable numerical routines, commands for recurring analyses, and a
+catalog of study recipes. Python 3.11 or newer is required.
 
-## Installation
-
-For the HPC, install locally inside the conda environment. This does not
-require `sudo` and the commands are available only while the environment is
-active.
+## Install
 
 ```bash
-cd /mnt/HDS_CLIMATE/CLIMATE/deba/alaro-analysis
-conda activate epygram
-python -m pip install -e ".[full,dev]"
+python -m pip install -e '.[dev]'
 ```
 
-Requires Python 3.11+ and the `epygram` conda environment for FA file access.
-The `full` extra installs the FA and plotting dependencies used on the HPC.
+The base install supports converted NetCDF data and plotting. For FA reads,
+activate an environment with a working EPyGrAM installation, then install
+`.[fa]`. `.[full,dev]` adds the optional plotting, thermodynamics, and tracking
+libraries; it does not provision the native EPyGrAM system libraries.
+[The tested environment](docs/environment.md) records the versions used for
+verification.
 
-On macOS, do not install the FA extra because the `epygram` stack is not
-available there. For local development or cached NetCDF analysis only, use:
-
-```bash
-python -m pip install -e ".[dev]"
-```
-
-This local install is useful for tests, config work, and workflows that read
-already-converted NetCDF or `.npz` caches. FA conversion remains an HPC task.
-Use an `alaro.toml` file to point local commands at local data paths.
-
-## Command line workflows
-
-The package installs reusable commands for the main workflows:
+## Start with a command
 
 ```bash
-alaro-convert --help
-alaro-surface --help
 alaro-temperature --help
 alaro-hydrometeor --help
 alaro-diagnostics --help
-alaro-radiation-compare --help
-alaro-pair-analysis --help
-alaro-panel-anomaly --help
+alaro-recipe list
 ```
 
-`alaro-convert` requires the HPC FA stack. The other commands expect the
-scientific dependencies needed by the workflow, such as `xarray`, `netCDF4`,
-`matplotlib`, and for some plots `cmaps`.
+Existing commands and `python -m alaro_analysis.workflows.<name>` entrypoints
+remain available. Existing `scripts/*.py` paths are compatibility launchers.
+Their implementations now live in `alaro_analysis/recipes/`, grouped by study.
 
-Typical HPC usage keeps the built-in HPC paths and only passes the analysis
-choices:
+For example, after configuring the source directories:
 
 ```bash
-alaro-hydrometeor --variables RAIN SNOW GRAUPEL
+alaro-hydrometeor --variables RAIN SNOW --analysis-modes full
 alaro-temperature --seasons wet dry
 alaro-surface --variable SFX.RN
 ```
 
-The old module and example-script entrypoints still work, for example:
+Inspect a study recipe before running it:
 
 ```bash
-python -m alaro_analysis.workflows.hydrometeor --variables RAIN
-python examples/plot_pblh_diurnal.py --analysis-modes full
+alaro-recipe list paper1
+alaro-recipe show make_paper1_strong_updraft_rain
+alaro-recipe run make_paper1_strong_updraft_rain -- --help
 ```
 
-## Optional config file
+Some historical recipes have fixed study settings and no argument parser.
+Their catalog records identify this; consult the recipe before execution.
 
-Workflow commands use this precedence:
+## Configure paths and analyses
 
-1. command line arguments
-2. values from `--config PATH`, or `./alaro.toml` when present
-3. built-in HPC defaults
-
-Config keys use the argparse destination names. Put shared values in
-`[defaults]` and workflow-specific values in `[workflows.<name>]`.
-
-```toml
-[defaults]
-utc_offset_hours = -4
-n_workers = 16
-
-[workflows.hydrometeor]
-output_dir = "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/figures"
-intermediate_dir = "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data"
-
-[workflows.surface]
-variable = "SFX.RN"
-output_dir = "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/figures/surface"
-intermediate_dir = "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/surface"
-```
-
-## Quick start
-
-```python
-from alaro_analysis import ExperimentSet
-
-exps = ExperimentSet.from_three_dirs(
-    control="/path/to/control/masked-netcdf-2",
-    graupel="/path/to/graupel/masked-netcdf-2",
-    twomom="/path/to/2mom/masked-netcdf-2",
-)
-
-# Compute and plot in one call
-exps.plot_surface_diurnal(
-    "CLPMHAUT.MOD.XFU", "pblh_diurnal.png",
-    label="Boundary layer height", unit="m",
-)
-
-# Or just get the data
-data = exps.compute_surface_diurnal("CLPMHAUT.MOD.XFU")
-# data["control"] -> ndarray of shape (24,)
-```
-
-## FA-to-NetCDF conversion
-
-```python
-exps = ExperimentSet.from_three_dirs(
-    control="/path/to/control/masked-netcdf-2",
-    graupel="/path/to/graupel/masked-netcdf-2",
-    twomom="/path/to/2mom/masked-netcdf-2",
-    fa_control="/path/to/control/untar-output",
-    fa_graupel="/path/to/graupel/untar-output",
-    fa_twomom="/path/to/2mom/untar-output",
-)
-
-exps.convert(
-    ["CLPMHAUT.MOD.XFU", "H00100TEMPERATUR", "H00100HUMI.SPECI", "H00100PRESSURE"],
-    mask_file="/path/to/Radar_mask_latlon.nc",
-)
-```
-
-Or from the command line:
+Copy [config/alaro.example.toml](config/alaro.example.toml) to `alaro.toml`, or
+pass `--config /path/to/settings.toml`. Inspect the resolved arguments without
+starting a data-processing job:
 
 ```bash
-python -m alaro_analysis.converter.cli \
-    /path/to/untar-output /path/to/masked-netcdf \
-    --vars "CLPMHAUT.MOD.XFU" "H00100TEMPERATUR" "H00100HUMI.SPECI" "H00100PRESSURE" \
-    --mask-file /path/to/Radar_mask_latlon.nc
+alaro-hydrometeor --config alaro.toml --show-config
 ```
 
-The PBL-height plotting example overlays LCL when these `H00100*` inputs have
-been converted. LCL is computed with MetPy from pressure, temperature, and
-specific humidity at 100 m, then shifted to metres AGL for comparison with
-`CLPMHAUT.MOD.XFU`.
+The precedence is built-in defaults, `[paths]` relocation, shared `[defaults]`,
+`[workflows.<name>]`, then command-line arguments. Unknown workflow keys are
+errors. Shared defaults irrelevant to a particular command are ignored.
+Recipe tables use the recipe's module filename as their workflow name.
 
-## Experiments
+The environment variables `ALARO_DATA_ROOT`, `ALARO_RUNS_ROOT`, and
+`ALARO_WORKSPACE_ROOT` relocate default roots before modules load. Historical
+HPC locations remain the defaults. Explicit CLI paths override them. Recipes
+with fixed module settings use the environment roots; `[paths]` relocates
+**parser defaults**, not arbitrary module constants.
 
-| Label   | Name     | Description                    |
-|---------|----------|--------------------------------|
-| C1M     | control  | 1-moment microphysics baseline |
-| G1M     | graupel  | 1-moment with graupel          |
-| G2M     | 2mom     | 2-moment microphysics          |
-| G2M-XCU | 2mom-xcu | 2-moment with XCU (planned)    |
+Worker options retain their existing spelling (`--n-workers` or `--workers`);
+the shared process helper caps requests at 32. Figures retain their existing
+filenames and study layouts.
 
-## Advanced usage
-
-For low-level building blocks, import from submodules directly:
+## Use the numerical API
 
 ```python
-from alaro_analysis.analysis.profiles import compute_diurnal_profile
-from alaro_analysis.analysis.derived import compute_theta_e_field
-from alaro_analysis.plotting.panels import plot_three_panel_diurnal
+from pathlib import Path
+from alaro_analysis.data.profile_products import compute_profile, load_profile
+
+root = Path('/data/ALARO/control/masked-netcdf')
+mean, counts, n_files, sample_file = compute_profile(
+    root, 'TEMPERATURE', utc_offset_hours=-4,
+)
+# mean and counts: (level, 24 local hours).
+# Each finite spatial-mean profile has equal weight, irrespective of cell count.
+
+product = load_profile(
+    Path('/data/cache/control_temperature.npz'), root, 'TEMPERATURE',
+    utc_offset_hours=-4,
+)
+print(product.mean.shape, product.n_files)
 ```
 
-## Tests
+`compute_profile` also supports `UPDRAFT_FLUX`, `UPDRAFT_EXTENT`, and
+`UPDRAFT_INTENSITY`. The derived products resolve their omega and mesh-fraction
+inputs through the same reader and reducer.
+
+For FA conversion:
 
 ```bash
-pytest
+alaro-convert /data/untar-output /data/masked-netcdf \
+    --vars H00100TEMPERATUR H00100PRESSURE \
+    --mask-file /data/Radar_mask_latlon.nc
 ```
+
+## Find the implementation
+
+| Location | Responsibility |
+| --- | --- |
+| `common/` | Experiment identities, paths, settings, coordinates, process helpers |
+| `data/` | Readers, source discovery, profile products, cache formats, exports |
+| `analysis/` | Numerical reductions and physical diagnostics |
+| `dsd/` | Surface, vertical-profile, and grid-cell DSD calculations |
+| `plotting/` | Figure construction from computed products |
+| `workflows/` | Argument parsing and execution stages for reusable commands |
+| `ddh/` | DDH extraction, aggregation, layer metrics, and budget figures |
+| `recipes/` | Named paper, supplementary, IOP, DSD, diagnostic, and maintenance runs |
+| `scripts/` | Compatibility launchers for the recipes |
+
+See [architecture and extension guidance](docs/architecture.md),
+[cache and scientific conventions](docs/cache-and-science.md), and
+[migration notes](docs/migration.md).
+
+## Validate changes
+
+```bash
+python -m pytest -q
+ruff check .
+ruff format --check alaro_analysis scripts tests
+```
+
+Tests cover numerical reductions, masks, cache provenance, configuration,
+DDH aggregation, recipe isolation, dependency direction, and command help.
+They do not run the multi-year archives or regenerate publication figures.

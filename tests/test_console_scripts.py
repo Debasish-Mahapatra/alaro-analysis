@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -21,17 +20,13 @@ def test_expected_console_scripts_are_declared():
     assert scripts["alaro-temperature"] == "alaro_analysis.workflows.temperature:main"
     assert scripts["alaro-hydrometeor"] == "alaro_analysis.workflows.hydrometeor:main"
     assert scripts["alaro-diagnostics"] == "alaro_analysis.workflows.diagnostics:main"
-    assert scripts["alaro-radiation-compare"] == (
-        "alaro_analysis.workflows.radiation_compare:main"
-    )
+    assert scripts["alaro-radiation-compare"] == ("alaro_analysis.workflows.radiation_compare:main")
     assert scripts["alaro-pair-analysis"] == "alaro_analysis.workflows.pair_analysis:main"
     assert scripts["alaro-panel-anomaly"] == "alaro_analysis.workflows.panel_anomaly:main"
     assert scripts["alaro-disdrometer-masked-domain"] == (
         "alaro_analysis.workflows.disdrometer_masked_domain:main"
     )
-    assert scripts["alaro-disdrometer-dsd"] == (
-        "alaro_analysis.workflows.disdrometer_dsd:main"
-    )
+    assert scripts["alaro-disdrometer-dsd"] == ("alaro_analysis.workflows.disdrometer_dsd:main")
     assert scripts["alaro-radiosonde-profiles"] == (
         "alaro_analysis.workflows.radiosonde_profiles:main"
     )
@@ -59,9 +54,7 @@ def test_expected_console_scripts_are_declared():
     assert scripts["alaro-dsd-vertical-profiles"] == (
         "alaro_analysis.workflows.dsd_vertical_profiles:main"
     )
-    assert scripts["alaro-dsd-cfad-profiles"] == (
-        "alaro_analysis.workflows.dsd_cfad_profiles:main"
-    )
+    assert scripts["alaro-dsd-cfad-profiles"] == ("alaro_analysis.workflows.dsd_cfad_profiles:main")
     assert scripts["alaro-dsd-cfad-strong-convection"] == (
         "alaro_analysis.workflows.dsd_cfad_strong_convection:main"
     )
@@ -89,9 +82,7 @@ def test_expected_console_scripts_are_declared():
     assert scripts["alaro-deaccumulate-precipitation"] == (
         "alaro_analysis.workflows.deaccumulate_precipitation:main"
     )
-    assert scripts["alaro-kt273-diurnal"] == (
-        "alaro_analysis.workflows.kt273_diurnal:main"
-    )
+    assert scripts["alaro-kt273-diurnal"] == ("alaro_analysis.workflows.kt273_diurnal:main")
     assert scripts["alaro-microphysics-budget"] == (
         "alaro_analysis.workflows.microphysics_budget:main"
     )
@@ -112,6 +103,7 @@ def test_fa_stack_is_optional():
 @pytest.mark.parametrize(
     "module",
     [
+        "alaro_analysis.recipes",
         "alaro_analysis.converter.cli",
         "alaro_analysis.workflows.surface",
         "alaro_analysis.workflows.temperature",
@@ -156,9 +148,17 @@ def test_command_module_help_smoke(module: str):
         text=True,
         capture_output=True,
         check=False,
+        timeout=30,
     )
-    if result.returncode != 0 and "No module named" in result.stderr:
-        pytest.skip(f"Optional command dependency missing: {result.stderr.strip()}")
 
     assert result.returncode == 0, result.stderr
     assert "--help" in result.stdout
+
+
+def test_tracking_help_does_not_require_tobac(monkeypatch):
+    from alaro_analysis.tobac.rainfall_tracking import main
+
+    monkeypatch.setitem(sys.modules, "tobac", None)
+    with pytest.raises(SystemExit) as result:
+        main(["--help"])
+    assert result.value.code == 0
