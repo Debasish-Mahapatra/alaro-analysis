@@ -11,14 +11,16 @@ Uses pre-computed diurnal cycle data from extract_diurnal_cycle.py.
 """
 
 import os
-import numpy as np
+
 import matplotlib
-matplotlib.use('Agg')
+import numpy as np
+
+matplotlib.use("Agg")
+import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
+from matplotlib.colors import TwoSlopeNorm
 
 from alaro_analysis.common.figio import strip_cbar_zeros
-from matplotlib.colors import TwoSlopeNorm
-import matplotlib.gridspec as gridspec
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -32,33 +34,34 @@ EXP_LABELS = {"control": "C1M", "graupel": "G1M", "2mom": "G2M"}
 VARIABLES = ["CT", "QV", "QL", "QI", "QR", "QS", "QG", "UU", "VV", "TKE", "TTE"]
 
 VAR_INFO = {
-    "CT":  {"name": "Temperature (CT)",        "unit": "K/h"},
-    "QG":  {"name": "Graupel (QG)",            "unit": "g/kg/h"},
-    "QI":  {"name": "Cloud Ice (QI)",          "unit": "g/kg/h"},
-    "QL":  {"name": "Cloud Water (QL)",        "unit": "g/kg/h"},
-    "QR":  {"name": "Rain (QR)",               "unit": "g/kg/h"},
-    "QS":  {"name": "Snow (QS)",               "unit": "g/kg/h"},
-    "QV":  {"name": "Water Vapour (QV)",       "unit": "g/kg/h"},
-    "TKE": {"name": "TKE",                     "unit": "J/kg/h"},
-    "TTE": {"name": "Total Turb. Energy (TTE)","unit": "J/kg/h"},
-    "UU":  {"name": "Zonal Momentum (UU)",     "unit": "m/s/h"},
-    "VV":  {"name": "Meridional Momentum (VV)","unit": "m/s/h"},
+    "CT": {"name": "Temperature (CT)", "unit": "K/h"},
+    "QG": {"name": "Graupel (QG)", "unit": "g/kg/h"},
+    "QI": {"name": "Cloud Ice (QI)", "unit": "g/kg/h"},
+    "QL": {"name": "Cloud Water (QL)", "unit": "g/kg/h"},
+    "QR": {"name": "Rain (QR)", "unit": "g/kg/h"},
+    "QS": {"name": "Snow (QS)", "unit": "g/kg/h"},
+    "QV": {"name": "Water Vapour (QV)", "unit": "g/kg/h"},
+    "TKE": {"name": "TKE", "unit": "J/kg/h"},
+    "TTE": {"name": "Total Turb. Energy (TTE)", "unit": "J/kg/h"},
+    "UU": {"name": "Zonal Momentum (UU)", "unit": "m/s/h"},
+    "VV": {"name": "Meridional Momentum (VV)", "unit": "m/s/h"},
 }
 
 FREEZING_K = 273.15
 
-plt.rcParams.update({
-    'font.size': 13,
-    'axes.labelsize': 14,
-    'axes.titlesize': 15,
-    'xtick.labelsize': 12,
-    'ytick.labelsize': 12,
-})
+plt.rcParams.update(
+    {
+        "font.size": 13,
+        "axes.labelsize": 14,
+        "axes.titlesize": 15,
+        "xtick.labelsize": 12,
+        "ytick.labelsize": 12,
+    }
+)
 
 
 def load_freezing_level(exp):
-    fpath = os.path.join(YEARLY_DIR, exp, "CT_TEMP", "data",
-                         "CT_TEMP.DHFDLABOF+0024.T_MEAN.dta")
+    fpath = os.path.join(YEARLY_DIR, exp, "CT_TEMP", "data", "CT_TEMP.DHFDLABOF+0024.T_MEAN.dta")
     if not os.path.isfile(fpath):
         return None
     data = np.loadtxt(fpath)
@@ -85,7 +88,7 @@ def plot_diurnal_hovmollers():
             ppath = os.path.join(DATA_DIR, exp, "pressure.npy")
             if not os.path.isfile(fpath) or not os.path.isfile(ppath):
                 continue
-            matrices[exp] = np.load(fpath)   # [24, 87]
+            matrices[exp] = np.load(fpath)  # [24, 87]
             if pressure is None:
                 pressure = np.load(ppath)
 
@@ -119,10 +122,9 @@ def plot_diurnal_hovmollers():
             # matrices[exp] is [24, n_lev], need to transpose for
             # pcolormesh(hour_edges, p_edges, data[n_lev, 24])
             im = ax.pcolormesh(
-                hour_edges, p_edges, matrices[exp].T,
-                cmap='RdBu_r', norm=norm, shading='flat'
+                hour_edges, p_edges, matrices[exp].T, cmap="RdBu_r", norm=norm, shading="flat"
             )
-            ax.set_title(EXP_LABELS[exp], fontsize=18, fontweight='bold')
+            ax.set_title(EXP_LABELS[exp], fontsize=18, fontweight="bold")
             ax.set_xlabel("Hour (UTC)", fontsize=14)
             ax.set_xlim(0, 24)
             ax.set_xticks(np.arange(0, 25, 3))
@@ -136,14 +138,23 @@ def plot_diurnal_hovmollers():
             # Freezing level
             p_freeze = load_freezing_level(exp)
             if p_freeze is not None:
-                ax.axhline(p_freeze, color='black', linewidth=2.0,
-                           linestyle='--', alpha=0.85, zorder=5)
-                ax.text(23.5, p_freeze - 12, '0\u00b0C',
-                        fontsize=10, fontweight='bold', color='black',
-                        ha='right', va='bottom', alpha=0.85,
-                        bbox=dict(boxstyle='round,pad=0.15',
-                                  facecolor='white', alpha=0.7,
-                                  edgecolor='none'))
+                ax.axhline(
+                    p_freeze, color="black", linewidth=2.0, linestyle="--", alpha=0.85, zorder=5
+                )
+                ax.text(
+                    23.5,
+                    p_freeze - 12,
+                    "0\u00b0C",
+                    fontsize=10,
+                    fontweight="bold",
+                    color="black",
+                    ha="right",
+                    va="bottom",
+                    alpha=0.85,
+                    bbox=dict(
+                        boxstyle="round,pad=0.15", facecolor="white", alpha=0.7, edgecolor="none"
+                    ),
+                )
 
         cbar = fig.colorbar(im, cax=cax)
         strip_cbar_zeros(cbar)
@@ -151,10 +162,13 @@ def plot_diurnal_hovmollers():
 
         fig.suptitle(
             f"{info['name']} — Mean Diurnal Cycle (2-yr average)",
-            fontsize=17, fontweight='bold', y=1.01)
+            fontsize=17,
+            fontweight="bold",
+            y=1.01,
+        )
 
         outpath = os.path.join(OUTPUT_DIR, f"{var}_diurnal_hovmoller.png")
-        fig.savefig(outpath, dpi=450, bbox_inches='tight')
+        fig.savefig(outpath, dpi=450, bbox_inches="tight")
         plt.close(fig)
         print(f"  {var} -> {os.path.basename(outpath)}")
 

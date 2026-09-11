@@ -18,9 +18,9 @@ state variables are not — they are snapshots at each output time.
 """
 
 import os
-import sys
 import shutil
-import subprocess
+import sys
+
 import numpy as np
 
 # ─── Configuration ────────────────────────────────────────────────────────────
@@ -30,8 +30,13 @@ OUTPUT_DIR = os.path.join(SCRIPT_DIR, "..", "diurnal-cycle-data")
 WORK_DIR = os.path.join(SCRIPT_DIR, "..", "_work_diurnal")
 
 CONVERSION_LIST = os.path.join(
-    SCRIPT_DIR, "..", "alaro-24h-budgets", "_runtime",
-    "ddh_budget_lists", "alaro", "conversion_list"
+    SCRIPT_DIR,
+    "..",
+    "alaro-24h-budgets",
+    "_runtime",
+    "ddh_budget_lists",
+    "alaro",
+    "conversion_list",
 )
 
 DDHT = shutil.which("ddht")
@@ -47,24 +52,32 @@ N_HOURS = 24
 # Map from budget variable name to DDH state variable article names
 # V??0 = initial state, V??1 = state at forecast hour h
 VAR_ARTICLES = {
-    "CT":  ("VCT0", "VCT1"),   # Temperature (K)
-    "QV":  ("VQV0", "VQV1"),   # Water vapour (g/kg)
-    "QL":  ("VQL0", "VQL1"),   # Cloud water (g/kg)
-    "QI":  ("VQN0", "VQN1"),   # Cloud ice (g/kg) — QI stored as QN
-    "QR":  ("VQR0", "VQR1"),   # Rain (g/kg)
-    "QS":  ("VQS0", "VQS1"),   # Snow (g/kg)
-    "QG":  ("VQG0", "VQG1"),   # Graupel (g/kg)
-    "UU":  ("VUU0", "VUU1"),   # Zonal wind (m/s)
-    "VV":  ("VVV0", "VVV1"),   # Meridional wind (m/s)
-    "TKE": ("VTK0", "VTK1"),   # TKE (J/kg)
-    "TTE": ("VTT0", "VTT1"),   # TTE (J/kg)
+    "CT": ("VCT0", "VCT1"),  # Temperature (K)
+    "QV": ("VQV0", "VQV1"),  # Water vapour (g/kg)
+    "QL": ("VQL0", "VQL1"),  # Cloud water (g/kg)
+    "QI": ("VQN0", "VQN1"),  # Cloud ice (g/kg) — QI stored as QN
+    "QR": ("VQR0", "VQR1"),  # Rain (g/kg)
+    "QS": ("VQS0", "VQS1"),  # Snow (g/kg)
+    "QG": ("VQG0", "VQG1"),  # Graupel (g/kg)
+    "UU": ("VUU0", "VUU1"),  # Zonal wind (m/s)
+    "VV": ("VVV0", "VVV1"),  # Meridional wind (m/s)
+    "TKE": ("VTK0", "VTK1"),  # TKE (J/kg)
+    "TTE": ("VTT0", "VTT1"),  # TTE (J/kg)
 }
 
 # Units for the hourly CHANGE (delta per hour)
 VAR_UNITS = {
-    "CT": "K/h", "QV": "g/kg/h", "QL": "g/kg/h", "QI": "g/kg/h",
-    "QR": "g/kg/h", "QS": "g/kg/h", "QG": "g/kg/h",
-    "UU": "m/s/h", "VV": "m/s/h", "TKE": "J/kg/h", "TTE": "J/kg/h",
+    "CT": "K/h",
+    "QV": "g/kg/h",
+    "QL": "g/kg/h",
+    "QI": "g/kg/h",
+    "QR": "g/kg/h",
+    "QS": "g/kg/h",
+    "QG": "g/kg/h",
+    "UU": "m/s/h",
+    "VV": "m/s/h",
+    "TKE": "J/kg/h",
+    "TTE": "J/kg/h",
 }
 
 # Build ddht command list (extract all state variables in one pass)
@@ -75,7 +88,7 @@ for v0, v1 in VAR_ARTICLES.values():
 
 LC_DDHT = ""
 for art in sorted(_all_articles):
-    LC_DDHT += f"0\n{art} +\nECR\"{art}\"\n"
+    LC_DDHT += f'0\n{art} +\nECR"{art}"\n'
 
 LC_DDHI = "\n".join(sorted(_all_articles)) + "\n"
 
@@ -107,18 +120,12 @@ def extract_hourly_states(input_path, work_dir):
     saved_cwd = os.getcwd()
     os.chdir(work_dir)
 
-    rc = os.system(
-        f'{DDHT} -cCALC -1{input_basename} -s{s_file} -llc.ddht '
-        f'>/dev/null 2>&1'
-    )
+    rc = os.system(f"{DDHT} -cCALC -1{input_basename} -s{s_file} -llc.ddht >/dev/null 2>&1")
     if rc != 0:
         os.chdir(saved_cwd)
         return None
 
-    rc = os.system(
-        f'{DDHI} -1VP -stmp -llc.ddhi -Fddhi_list.tmp '
-        f'-ymax15. {s_file} >/dev/null 2>&1'
-    )
+    rc = os.system(f"{DDHI} -1VP -stmp -llc.ddhi -Fddhi_list.tmp -ymax15. {s_file} >/dev/null 2>&1")
     os.chdir(saved_cwd)
     if rc != 0:
         return None
@@ -148,8 +155,7 @@ def process_experiment(experiment):
     days = get_all_days(experiment)
     sampled = days[::SAMPLE_EVERY]
     exp_label = EXP_LABELS[experiment]
-    print(f"  {exp_label}: {len(sampled)} sampled days "
-          f"(every {SAMPLE_EVERY}th of {len(days)})")
+    print(f"  {exp_label}: {len(sampled)} sampled days (every {SAMPLE_EVERY}th of {len(days)})")
 
     # Accumulators: sum of hourly changes and count
     # diurnal[var][hour, level]
@@ -209,20 +215,19 @@ def process_experiment(experiment):
                         continue
 
                 change = v_current - v_prev
-                diurnal_sum[var][h - 1, :len(change)] += change
-                diurnal_count[var][h - 1, :len(change)] += 1
+                diurnal_sum[var][h - 1, : len(change)] += change
+                diurnal_count[var][h - 1, : len(change)] += 1
 
         if (di + 1) % 20 == 0:
-            print(f"    {di+1}/{len(sampled)} days done")
+            print(f"    {di + 1}/{len(sampled)} days done")
 
     print(f"    {len(sampled)} days done")
 
     # Compute mean
     diurnal_mean = {}
     for var in VAR_ARTICLES:
-        with np.errstate(invalid='ignore'):
-            mean = np.where(diurnal_count[var] > 0,
-                            diurnal_sum[var] / diurnal_count[var], 0.0)
+        with np.errstate(invalid="ignore"):
+            mean = np.where(diurnal_count[var] > 0, diurnal_sum[var] / diurnal_count[var], 0.0)
         diurnal_mean[var] = mean
 
     return diurnal_mean, pressure

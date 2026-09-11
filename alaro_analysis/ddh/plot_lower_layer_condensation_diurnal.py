@@ -4,6 +4,7 @@ The DDH lead files contain tendencies averaged from the beginning of the
 forecast to each lead.  This diagnostic reconstructs hourly increments before
 plotting, so the x-axis shows the hour in which the condensation occurred.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -18,7 +19,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+from alaro_analysis.common.cli_config import parse_configured_args
 from alaro_analysis.common.constants import EXPERIMENT_LABELS
+from alaro_analysis.common.paths import runs_path
 from alaro_analysis.ddh.io import (
     AGG_DIR,
     EXPERIMENTS,
@@ -37,11 +40,7 @@ from alaro_analysis.ddh.plot_style import (
     TOTAL_LINEWIDTH,
 )
 
-
-DEFAULT_OUTPUT_DIR = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/Analysis/figures/"
-    "DDH-condensation_diurnal_partition"
-)
+DEFAULT_OUTPUT_DIR = runs_path("Analysis/figures/DDH-condensation_diurnal_partition")
 DATA_TXT_SUBDIR = "data_txt"
 EXPERIMENT_ORDER = tuple(EXPERIMENTS.keys())
 LEADS = tuple(range(1, 25))
@@ -319,13 +318,9 @@ def write_absolute_txt(
         fh.write(f"Figure: {figure_path}\n")
         fh.write(f"Layer: {layer_label}.\n")
         fh.write("Variable: QV budget condensation sink.\n")
-        fh.write(
-            "Hourly amounts are reconstructed by differencing accumulated DDH lead means.\n"
-        )
+        fh.write("Hourly amounts are reconstructed by differencing accumulated DDH lead means.\n")
         fh.write("The plotted x-axis is shifted to UTC-4.\n")
-        fh.write(
-            "Amount units: g kg-1 km per hour. Rate-equivalent units: g kg-1 day-1 km.\n\n"
-        )
+        fh.write("Amount units: g kg-1 km per hour. Rate-equivalent units: g kg-1 day-1 km.\n\n")
 
         _write_section(
             fh,
@@ -574,12 +569,8 @@ def write_csv(path: Path, data: dict[str, list[HourlyCondensation]]) -> None:
                         "convective_rate_equiv_gkgday_km": _fmt(
                             record.convective_rate_equiv_gkgday_km
                         ),
-                        "resolved_rate_equiv_gkgday_km": _fmt(
-                            record.resolved_rate_equiv_gkgday_km
-                        ),
-                        "total_rate_equiv_gkgday_km": _fmt(
-                            record.total_rate_equiv_gkgday_km
-                        ),
+                        "resolved_rate_equiv_gkgday_km": _fmt(record.resolved_rate_equiv_gkgday_km),
+                        "total_rate_equiv_gkgday_km": _fmt(record.total_rate_equiv_gkgday_km),
                         "cumulative_convective_amount_gkg_km": _fmt(
                             record.cumulative_convective_amount_gkg_km
                         ),
@@ -651,8 +642,7 @@ def plot_absolute(
         ax.set_ylabel("Hourly amount\n(g kg$^{-1}$ km)")
         layer_top = records[-1].layer_top_km if records else float("nan")
         ax.set_title(
-            f"{EXPERIMENT_LABELS.get(experiment, experiment)}  "
-            f"(top {layer_top:.2f} km)",
+            f"{EXPERIMENT_LABELS.get(experiment, experiment)}  (top {layer_top:.2f} km)",
             loc="left",
         )
         ax.grid(alpha=PANEL_GRID_ALPHA)
@@ -843,7 +833,7 @@ def main() -> None:
         help="Numeric altitude in km, or 'freezing' for each experiment's mean freezing level.",
     )
     parser.add_argument("--reference", default="control")
-    args = parser.parse_args()
+    args = parse_configured_args(parser, "plot_lower_layer_condensation_diurnal", argv=None)
     run(
         agg_dir=args.agg_dir,
         output_dir=args.output_dir,

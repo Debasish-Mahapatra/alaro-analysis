@@ -16,10 +16,11 @@ extraction list targeting only VCT0 and VCT1 articles.
 """
 
 import os
-import sys
 import shutil
 import subprocess
+import sys
 import tempfile
+
 import numpy as np
 
 # ─── Configuration ────────────────────────────────────────────────────────────
@@ -29,8 +30,13 @@ OUTPUT_DIR = os.path.join(SCRIPT_DIR, "..", "temperature-profiles")
 YEARLY_DIR = os.path.join(SCRIPT_DIR, "..", "yearly-average-data")
 
 CONVERSION_LIST = os.path.join(
-    SCRIPT_DIR, "..", "alaro-24h-budgets", "_runtime",
-    "ddh_budget_lists", "alaro", "conversion_list"
+    SCRIPT_DIR,
+    "..",
+    "alaro-24h-budgets",
+    "_runtime",
+    "ddh_budget_lists",
+    "alaro",
+    "conversion_list",
 )
 
 DDHT = shutil.which("ddht")
@@ -39,7 +45,7 @@ DDHI = shutil.which("ddhi")
 EXPERIMENTS = ["control", "graupel", "2mom"]
 EXP_LABELS = {"control": "C1M", "graupel": "G1M", "2mom": "G2M"}
 INPUT_FILE = "DHFDLABOF+0024"
-VARIABLE = "CT_TEMP"   # our output "variable" name
+VARIABLE = "CT_TEMP"  # our output "variable" name
 
 # ddht extraction list: read VCT0 and VCT1 from the binary
 LC_DDHT = """\
@@ -89,25 +95,14 @@ def extract_temperature(input_path, work_dir):
 
     # Run ddht
     s_file = f"{input_basename}.s"
-    cmd_ddht = [
-        DDHT, "-cCALC",
-        f"-1{input_basename}",
-        f"-s{s_file}",
-        "-llc.ddht"
-    ]
-    result = subprocess.run(cmd_ddht, cwd=work_dir,
-                            capture_output=True, text=True)
+    cmd_ddht = [DDHT, "-cCALC", f"-1{input_basename}", f"-s{s_file}", "-llc.ddht"]
+    result = subprocess.run(cmd_ddht, cwd=work_dir, capture_output=True, text=True)
     if result.returncode != 0:
         return None
 
     # Run ddhi
-    cmd_ddhi = [
-        DDHI, "-1VP", "-stmp",
-        "-llc.ddhi", "-Fddhi_list.tmp",
-        "-ymax15.", s_file
-    ]
-    result = subprocess.run(cmd_ddhi, cwd=work_dir,
-                            capture_output=True, text=True)
+    cmd_ddhi = [DDHI, "-1VP", "-stmp", "-llc.ddhi", "-Fddhi_list.tmp", "-ymax15.", s_file]
+    result = subprocess.run(cmd_ddhi, cwd=work_dir, capture_output=True, text=True)
     if result.returncode != 0:
         return None
 
@@ -125,7 +120,7 @@ def extract_temperature(input_path, work_dir):
 def save_dta(filepath, pressure, values):
     """Save a .dta file in the same format as the budget pipeline."""
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
-    with open(filepath, 'w') as f:
+    with open(filepath, "w") as f:
         for p, v in zip(pressure, values):
             f.write(f"  {p:25.16E}  {v:25.16E}\n")
 
@@ -141,9 +136,7 @@ def process_experiment(experiment):
     n_ok = 0
 
     for i, day in enumerate(days):
-        input_path = os.path.join(
-            RAW_DATA_DIR, experiment, "output", day, INPUT_FILE
-        )
+        input_path = os.path.join(RAW_DATA_DIR, experiment, "output", day, INPUT_FILE)
         if not os.path.isfile(input_path):
             continue
 
@@ -151,8 +144,7 @@ def process_experiment(experiment):
         day_out = os.path.join(OUTPUT_DIR, experiment, day, VARIABLE, "data")
 
         # Check if already done
-        vct0_out = os.path.join(day_out,
-                                f"{VARIABLE}.{INPUT_FILE}.VCT0.dta")
+        vct0_out = os.path.join(day_out, f"{VARIABLE}.{INPUT_FILE}.VCT0.dta")
         if os.path.isfile(vct0_out):
             n_ok += 1
             continue
@@ -171,16 +163,13 @@ def process_experiment(experiment):
 
             # Save VCT0, VCT1, and T_MEAN
             prefix = f"{VARIABLE}.{INPUT_FILE}"
-            save_dta(os.path.join(day_out, f"{prefix}.VCT0.dta"),
-                     pressure, vct0)
-            save_dta(os.path.join(day_out, f"{prefix}.VCT1.dta"),
-                     pressure, vct1)
-            save_dta(os.path.join(day_out, f"{prefix}.T_MEAN.dta"),
-                     pressure, t_mean)
+            save_dta(os.path.join(day_out, f"{prefix}.VCT0.dta"), pressure, vct0)
+            save_dta(os.path.join(day_out, f"{prefix}.VCT1.dta"), pressure, vct1)
+            save_dta(os.path.join(day_out, f"{prefix}.T_MEAN.dta"), pressure, t_mean)
 
         n_ok += 1
         if (i + 1) % 100 == 0:
-            print(f"  {exp_label}: {i+1}/{len(days)} days processed")
+            print(f"  {exp_label}: {i + 1}/{len(days)} days processed")
 
     print(f"  {exp_label}: {n_ok}/{len(days)} days OK")
     return n_ok
@@ -198,8 +187,7 @@ def compute_yearly_average(experiment):
 
         for day in days:
             fpath = os.path.join(
-                OUTPUT_DIR, experiment, day, VARIABLE, "data",
-                f"{prefix}.{comp}.dta"
+                OUTPUT_DIR, experiment, day, VARIABLE, "data", f"{prefix}.{comp}.dta"
             )
             if not os.path.isfile(fpath):
                 continue
@@ -213,13 +201,11 @@ def compute_yearly_average(experiment):
             continue
 
         avg = np.mean(profiles, axis=0)
-        out_path = os.path.join(
-            YEARLY_DIR, experiment, VARIABLE, "data",
-            f"{prefix}.{comp}.dta"
-        )
+        out_path = os.path.join(YEARLY_DIR, experiment, VARIABLE, "data", f"{prefix}.{comp}.dta")
         save_dta(out_path, pressure, avg)
-        print(f"  {exp_label}/{comp}: averaged {len(profiles)} days -> "
-              f"{os.path.basename(out_path)}")
+        print(
+            f"  {exp_label}/{comp}: averaged {len(profiles)} days -> {os.path.basename(out_path)}"
+        )
 
 
 def main():

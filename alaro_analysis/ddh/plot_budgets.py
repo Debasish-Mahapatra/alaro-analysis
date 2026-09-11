@@ -22,6 +22,7 @@ Usage:
   conda activate epygram
   python -m alaro_analysis.ddh.plot_budgets [--lead 0024]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -30,13 +31,20 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
+from alaro_analysis.common.cli_config import parse_configured_args
+
 from .io import (
-    EXP_COLORS, EXPERIMENTS, FIG_DIR, T_FREEZE_K, Z_MAX_KM,
-    draw_freeze_lines, freezing_level_km, load_budget, load_temperature,
-    set_altitude_axis, tick_formatter,
+    EXP_COLORS,
+    EXPERIMENTS,
+    FIG_DIR,
+    draw_freeze_lines,
+    freezing_level_km,
+    load_budget,
+    load_temperature,
+    set_altitude_axis,
+    tick_formatter,
 )
 from .plot_style import process_color
-
 
 CONDENSATION_PROFILE_SUBDIR = "condensation_profile"
 CONDENSATION_PROFILE_FILENAME = "1_condensation_profile.png"
@@ -58,6 +66,7 @@ PANEL_LABEL_FONTSIZE = 14
 # Derived quantities
 # --------------------------------------------------------------------------
 
+
 def condensation_profile(exp_cache: dict) -> dict[str, np.ndarray]:
     out = {}
     ql = exp_cache.get("QL")
@@ -67,8 +76,8 @@ def condensation_profile(exp_cache: dict) -> dict[str, np.ndarray]:
     for name, blocks, var in (
         ("cond_cv_liquid", ("cond-cv",), ql),
         ("cond_rs_liquid", ("cond-rs",), ql),
-        ("cond_cv_ice",    ("cond-cv",), qi),
-        ("cond_rs_ice",    ("cond-rs",), qi),
+        ("cond_cv_ice", ("cond-cv",), qi),
+        ("cond_rs_ice", ("cond-rs",), qi),
     ):
         b = var["blocks"]
         if all(block in b for block in blocks):
@@ -90,8 +99,8 @@ def evap_sublim_profile(exp_cache: dict) -> dict[str, np.ndarray]:
             continue
         b = v["blocks"]
         if "evap-cv" in b and "evap-rs" in b:
-            out[f"{sp}_evap_cv"]    = b["evap-cv"]
-            out[f"{sp}_evap_rs"]    = b["evap-rs"]
+            out[f"{sp}_evap_cv"] = b["evap-cv"]
+            out[f"{sp}_evap_rs"] = b["evap-rs"]
             out[f"{sp}_evap_total"] = b["evap-cv"] + b["evap-rs"]
     tot_keys = [k for k in out if k.endswith("_total")]
     if tot_keys:
@@ -107,16 +116,15 @@ def precip_profile(exp_cache: dict) -> dict[str, np.ndarray]:
             continue
         b = v["blocks"]
         if "prec-cv" in b and "prec-rs" in b:
-            out[f"{sp}_prec_cv"]    = b["prec-cv"]
-            out[f"{sp}_prec_rs"]    = b["prec-rs"]
+            out[f"{sp}_prec_cv"] = b["prec-cv"]
+            out[f"{sp}_prec_rs"] = b["prec-rs"]
             out[f"{sp}_prec_total"] = b["prec-cv"] + b["prec-rs"]
     return out
 
 
 def species_storage_profile(exp_cache: dict, var: str) -> np.ndarray | None:
     """Return the mean mixing-ratio profile used by the storage plot."""
-    mean_key = {"QL": "VQLM", "QI": "VQIM", "QR": "VQRM",
-                "QS": "VQSM", "QG": "VQGM"}
+    mean_key = {"QL": "VQLM", "QI": "VQIM", "QR": "VQRM", "QS": "VQSM", "QG": "VQGM"}
     v = exp_cache.get(var)
     if v is None:
         return None
@@ -285,8 +293,7 @@ def _write_profile_header(
     fh.write(f"{description}\n")
     fh.write(f"Units: {units}.\n\n")
     fh.write(
-        "Shared x-axis limits: "
-        f"{_format_txt_value(xlim[0])}, {_format_txt_value(xlim[1])}.\n\n"
+        f"Shared x-axis limits: {_format_txt_value(xlim[0])}, {_format_txt_value(xlim[1])}.\n\n"
     )
 
 
@@ -295,10 +302,7 @@ def _write_freezing_section(fh, temps) -> None:
         fh,
         "Freezing-level data",
         ("experiment", "label", "z_freeze_km"),
-        [
-            (exp, label, freezing_level_km(temps.get(exp, {})))
-            for exp, label in EXPERIMENTS.items()
-        ],
+        [(exp, label, freezing_level_km(temps.get(exp, {}))) for exp, label in EXPERIMENTS.items()],
     )
 
 
@@ -460,7 +464,9 @@ def write_condense_vs_evap_txt(all_data, temps, path: Path) -> Path:
         fh.write("Variables: condensation source and evaporation/sublimation back to vapour.\n")
         fh.write("Units: g kg-1 day-1.\n\n")
         xlim = common_condense_vs_evap_xlim(all_data)
-        fh.write(f"Shared x-axis limits: {_format_txt_value(xlim[0])}, {_format_txt_value(xlim[1])}.\n\n")
+        fh.write(
+            f"Shared x-axis limits: {_format_txt_value(xlim[0])}, {_format_txt_value(xlim[1])}.\n\n"
+        )
 
         _write_csv_section(
             fh,
@@ -507,6 +513,7 @@ def write_condense_vs_evap_txt(all_data, temps, path: Path) -> Path:
 # Plots
 # --------------------------------------------------------------------------
 
+
 def plot_total_condensation(all_data, temps, path):
     path.parent.mkdir(parents=True, exist_ok=True)
     xlim = common_total_condensation_xlim(all_data)
@@ -541,11 +548,16 @@ def plot_evap_sublim_by_species(all_data, temps, path):
     path.parent.mkdir(parents=True, exist_ok=True)
     xlim = common_evap_sublim_xlim(all_data)
     fig, axes = plt.subplots(1, 3, figsize=(14, 6), sharex=True, sharey=True)
-    for index, (ax, (sp, sp_label)) in enumerate(zip(axes, (
-        ("rain", "Rain evaporation"),
-        ("snow", "Snow sublimation"),
-        ("graupel", "Graupel sublimation"),
-    ))):
+    for index, (ax, (sp, sp_label)) in enumerate(
+        zip(
+            axes,
+            (
+                ("rain", "Rain evaporation"),
+                ("snow", "Snow sublimation"),
+                ("graupel", "Graupel sublimation"),
+            ),
+        )
+    ):
         for exp, label in EXPERIMENTS.items():
             ev = evap_sublim_profile(all_data[exp])
             key = f"{sp}_evap_total"
@@ -579,15 +591,24 @@ def plot_condense_vs_evap(all_data, temps, path):
         c = condensation_profile(all_data[exp])
         e = evap_sublim_profile(all_data[exp])
         if "cond_total" in c:
-            ax.plot(c["cond_total"], z, color=process_color("Condensation"), lw=2,
-                    label="Condensation (source)")
+            ax.plot(
+                c["cond_total"],
+                z,
+                color=process_color("Condensation"),
+                lw=2,
+                label="Condensation (source)",
+            )
         if "evap_sublim_all" in e:
-            ax.plot(e["evap_sublim_all"], z, color=process_color("Evaporation"), lw=2,
-                    label="Evap + sublim (back to vapour)")
+            ax.plot(
+                e["evap_sublim_all"],
+                z,
+                color=process_color("Evaporation"),
+                lw=2,
+                label="Evap + sublim (back to vapour)",
+            )
         z0 = freezing_level_km(temps.get(exp, {}))
         if np.isfinite(z0):
-            ax.axhline(z0, color="k", lw=1.0, ls="--", alpha=0.85,
-                       label=r"0 $^{\circ}$C isotherm")
+            ax.axhline(z0, color="k", lw=1.0, ls="--", alpha=0.85, label=r"0 $^{\circ}$C isotherm")
         ax.axvline(0, color="k", lw=0.6, alpha=0.6)
         ax.grid(alpha=0.3)
         ax.set_title(label, color="black", fontsize=PANEL_TITLE_FONTSIZE)
@@ -608,11 +629,16 @@ def plot_precip_per_species(all_data, temps, path):
     path.parent.mkdir(parents=True, exist_ok=True)
     xlim = common_precip_xlim(all_data)
     fig, axes = plt.subplots(1, 3, figsize=(14, 6), sharex=True, sharey=True)
-    for index, (ax, (sp, title)) in enumerate(zip(axes, (
-        ("rain", "Rain flux"),
-        ("snow", "Snow flux"),
-        ("graupel", "Graupel flux"),
-    ))):
+    for index, (ax, (sp, title)) in enumerate(
+        zip(
+            axes,
+            (
+                ("rain", "Rain flux"),
+                ("snow", "Snow flux"),
+                ("graupel", "Graupel flux"),
+            ),
+        )
+    ):
         for exp, label in EXPERIMENTS.items():
             p = precip_profile(all_data[exp])
             key = f"{sp}_prec_total"
@@ -665,22 +691,22 @@ def plot_column_budget_bars(all_data, temps, path):
         labels.append(lbl)
         cond_vals.append(column_integrate(c.get("cond_total", np.zeros_like(z)), z))
         evap_vals.append(column_integrate(e.get("evap_sublim_all", np.zeros_like(z)), z))
-        ev_r.append(column_integrate(e.get("rain_evap_total",    np.zeros_like(z)), z))
-        ev_s.append(column_integrate(e.get("snow_evap_total",    np.zeros_like(z)), z))
+        ev_r.append(column_integrate(e.get("rain_evap_total", np.zeros_like(z)), z))
+        ev_s.append(column_integrate(e.get("snow_evap_total", np.zeros_like(z)), z))
         ev_g.append(column_integrate(e.get("graupel_evap_total", np.zeros_like(z)), z))
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
     x = np.arange(len(labels))
     w = 0.35
     bars1 = ax1.bar(
-        x - w/2,
+        x - w / 2,
         cond_vals,
         w,
         label="Condensation",
         color=process_color("Condensation"),
     )
     bars2 = ax1.bar(
-        x + w/2,
+        x + w / 2,
         evap_vals,
         w,
         label="Evap + sublim",
@@ -688,21 +714,26 @@ def plot_column_budget_bars(all_data, temps, path):
     )
     for bars, vals in [(bars1, cond_vals), (bars2, evap_vals)]:
         for b, v in zip(bars, vals):
-            ax1.text(b.get_x() + b.get_width()/2, v,
-                     f"{v:.2f}", ha="center", va="bottom", fontsize=9)
-    ax1.set_xticks(x); ax1.set_xticklabels(labels)
+            ax1.text(
+                b.get_x() + b.get_width() / 2, v, f"{v:.2f}", ha="center", va="bottom", fontsize=9
+            )
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(labels)
     ax1.set_ylabel(r"Column rate (g kg$^{-1}$ day$^{-1}$ km)")
     ax1.set_title("Column-integrated condensation and re-evap/sublim")
-    ax1.grid(alpha=0.3, axis="y"); ax1.legend()
+    ax1.grid(alpha=0.3, axis="y")
+    ax1.legend()
 
     w2 = 0.25
-    ax2.bar(x - w2, ev_r, w2, label="Rain evap",    color="#1f77b4")
-    ax2.bar(x,       ev_s, w2, label="Snow sublim",  color="#17becf")
+    ax2.bar(x - w2, ev_r, w2, label="Rain evap", color="#1f77b4")
+    ax2.bar(x, ev_s, w2, label="Snow sublim", color="#17becf")
     ax2.bar(x + w2, ev_g, w2, label="Graupel sublim", color="#9467bd")
-    ax2.set_xticks(x); ax2.set_xticklabels(labels)
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(labels)
     ax2.set_ylabel(r"Column rate (g kg$^{-1}$ day$^{-1}$ km)")
     ax2.set_title("Column-integrated re-evap/sublim per species")
-    ax2.grid(alpha=0.3, axis="y"); ax2.legend()
+    ax2.grid(alpha=0.3, axis="y")
+    ax2.legend()
 
     fig.tight_layout()
     fig.savefig(path, dpi=450, bbox_inches="tight")
@@ -722,10 +753,13 @@ def plot_precip_efficiency(all_data, temps, path):
         cc = column_integrate(c["cond_total"], z)
         ee = column_integrate(e["evap_sublim_all"], z)
         r = ee / cc if cc > 0 else np.nan
-        xs.append(i); ys.append(r); labels.append(lbl)
+        xs.append(i)
+        ys.append(r)
+        labels.append(lbl)
         ax.bar(i, r, color=EXP_COLORS[exp], width=0.6)
         ax.text(i, r, f"{r:.3f}", ha="center", va="bottom", fontsize=10)
-    ax.set_xticks(xs); ax.set_xticklabels(labels)
+    ax.set_xticks(xs)
+    ax.set_xticklabels(labels)
     ax.set_ylabel("Evap+sublim / Condensation  (column integrated)")
     ax.set_title("Fraction of condensate re-evaporated / re-sublimated aloft")
     ax.grid(alpha=0.3, axis="y")
@@ -740,15 +774,21 @@ def plot_species_storage(all_data, temps, path):
     path.parent.mkdir(parents=True, exist_ok=True)
     xlim = common_species_storage_xlim(all_data)
     fig, axes = plt.subplots(1, 5, figsize=(18, 6), sharex=True, sharey=True)
-    species = (("QL", "Cloud liquid"), ("QI", "Cloud ice"),
-               ("QR", "Rain"), ("QS", "Snow"), ("QG", "Graupel"))
+    species = (
+        ("QL", "Cloud liquid"),
+        ("QI", "Cloud ice"),
+        ("QR", "Rain"),
+        ("QS", "Snow"),
+        ("QG", "Graupel"),
+    )
     for index, (ax, (var, title)) in enumerate(zip(axes, species)):
         for exp, lbl in EXPERIMENTS.items():
             profile = species_storage_profile(all_data[exp], var)
             if profile is None:
                 continue
-            ax.plot(profile, all_data[exp][var]["altitude_km"],
-                    color=EXP_COLORS[exp], lw=2, label=lbl)
+            ax.plot(
+                profile, all_data[exp][var]["altitude_km"], color=EXP_COLORS[exp], lw=2, label=lbl
+            )
         draw_freeze_lines(ax, temps)
         ax.axvline(0, color="k", lw=0.6, alpha=0.6)
         ax.grid(alpha=0.3)
@@ -770,6 +810,7 @@ def plot_species_storage(all_data, temps, path):
 # Orchestration
 # --------------------------------------------------------------------------
 
+
 def run(lead: str = "0024", plot: str = "all") -> list:
     """Produce the main budget figures.  Returns output paths in order."""
     FIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -782,8 +823,9 @@ def run(lead: str = "0024", plot: str = "all") -> list:
                 all_data[exp][var] = d
         temps[exp] = load_temperature(exp)
         z0 = freezing_level_km(temps[exp])
-        print(f"  {exp:<8} 0 C isotherm: {z0:.2f} km"
-              if np.isfinite(z0) else f"  {exp:<8} no T data")
+        print(
+            f"  {exp:<8} 0 C isotherm: {z0:.2f} km" if np.isfinite(z0) else f"  {exp:<8} no T data"
+        )
 
     plan = [
         (
@@ -858,7 +900,7 @@ def main():
         default="all",
         help="Select one plot to regenerate, or all plots.",
     )
-    args = parser.parse_args()
+    args = parse_configured_args(parser, "plot_budgets", argv=None)
     run(lead=args.lead, plot=args.plot)
 
 

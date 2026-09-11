@@ -4,6 +4,7 @@ Anything used by more than one of aggregate_budgets, extract_temperature,
 plot_budgets, plot_case_study lives here so each script stays focused on its
 own orchestration logic.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -11,22 +12,32 @@ from pathlib import Path
 import matplotlib.ticker as mticker
 import numpy as np
 
+from alaro_analysis.common.paths import runs_path, workspace_path
+from alaro_analysis.data.cache import load_cache as read_npz_payload
+
+# Historical public alias used by DDH consumers.
 from ..common.constants import (
-    CP_D as CP_DRY,
-    EXPERIMENT_COLORS as EXP_COLORS,
+    CP_D,
     EXPERIMENT_LABELS,
+)
+from ..common.constants import (
+    EXPERIMENT_COLORS as EXP_COLORS,
+)
+from ..common.constants import (
     FREEZING_K as T_FREEZE_K,
 )
 from .plot_style import process_color
 
+CP_DRY = CP_D
+
 # ---------------------------------------------------------------------------
 # Filesystem layout
 # ---------------------------------------------------------------------------
-UNTAR_ROOT     = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/DDH-untar")
-PROCESSED_BASE = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/DDH-processed")
-AGG_DIR        = PROCESSED_BASE / "_aggregated"
-FIG_DIR        = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/figures/DDH-figures")
-LOG_ROOT       = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/alaro-analysis/cache/logs")
+UNTAR_ROOT = runs_path("DDH-untar")
+PROCESSED_BASE = runs_path("DDH-processed")
+AGG_DIR = PROCESSED_BASE / "_aggregated"
+FIG_DIR = runs_path("figures/DDH-figures")
+LOG_ROOT = workspace_path("cache/logs")
 
 # ---------------------------------------------------------------------------
 # Experiments
@@ -34,9 +45,7 @@ LOG_ROOT       = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/alaro-analysis/cache/logs")
 # The ddh pipeline runs on the three base experiments.  Label map reuses
 # :data:`alaro_analysis.common.constants.EXPERIMENT_LABELS` so adding a new
 # variant only requires editing the shared table.
-EXPERIMENTS: dict[str, str] = {
-    k: EXPERIMENT_LABELS[k] for k in ("control", "graupel", "2mom")
-}
+EXPERIMENTS: dict[str, str] = {k: EXPERIMENT_LABELS[k] for k in ("control", "graupel", "2mom")}
 # EXP_COLORS imported from common.constants.EXPERIMENT_COLORS (see import above).
 SPECIES_ALL: tuple[str, ...] = ("QV", "QL", "QI", "QR", "QS", "QG")
 
@@ -44,46 +53,52 @@ SPECIES_ALL: tuple[str, ...] = ("QV", "QL", "QI", "QR", "QS", "QG")
 # Physical constants & plot limits
 # ---------------------------------------------------------------------------
 # T_FREEZE_K and CP_DRY come from common.constants (see import above).
-Z_MAX_KM   = 20.0
+Z_MAX_KM = 20.0
 
 # ---------------------------------------------------------------------------
 # Budget-component colouring and human-readable labels
 # ---------------------------------------------------------------------------
 BLOCK_COLORS: dict[str, str] = {
-    "cond-cv":     process_color("Condensation"),
-    "cond-rs":     process_color("Condensation"),
-    "evap-cv":     process_color("Evaporation"),
-    "evap-rs":     process_color("Evaporation"),
-    "auto-cv":     process_color("Autoconversion"),
-    "auto-rs":     process_color("Autoconversion"),
-    "prec-cv":     process_color("Precipitation"),
-    "prec-rs":     process_color("Precipitation"),
-    "turdiff":     process_color("Turbulence (diff)"),
-    "turconv":     process_color("Turbulence (conv)"),
-    "dynam":       process_color("Dynamics"),
-    "neg":         process_color("Negativity correction"),
+    "cond-cv": process_color("Condensation"),
+    "cond-rs": process_color("Condensation"),
+    "evap-cv": process_color("Evaporation"),
+    "evap-rs": process_color("Evaporation"),
+    "auto-cv": process_color("Autoconversion"),
+    "auto-rs": process_color("Autoconversion"),
+    "prec-cv": process_color("Precipitation"),
+    "prec-rs": process_color("Precipitation"),
+    "turdiff": process_color("Turbulence (diff)"),
+    "turconv": process_color("Turbulence (conv)"),
+    "dynam": process_color("Dynamics"),
+    "neg": process_color("Negativity correction"),
     # Residuals / component sums across all species share a neutral colour.
-    "TQVRESIDUAL": "#bcbd22", "TQLRESIDUAL": "#bcbd22",
-    "TQIRESIDUAL": "#bcbd22", "TQNRESIDUAL": "#bcbd22",
-    "TQRRESIDUAL": "#bcbd22", "TQSRESIDUAL": "#bcbd22",
+    "TQVRESIDUAL": "#bcbd22",
+    "TQLRESIDUAL": "#bcbd22",
+    "TQIRESIDUAL": "#bcbd22",
+    "TQNRESIDUAL": "#bcbd22",
+    "TQRRESIDUAL": "#bcbd22",
+    "TQSRESIDUAL": "#bcbd22",
     "TQGRESIDUAL": "#bcbd22",
-    "TQLCOMPSUM":  "#888888", "TQICOMPSUM":  "#888888",
-    "TQNCOMPSUM":  "#888888", "TQRCOMPSUM":  "#888888",
-    "TQSCOMPSUM":  "#888888", "TQGCOMPSUM":  "#888888",
+    "TQLCOMPSUM": "#888888",
+    "TQICOMPSUM": "#888888",
+    "TQNCOMPSUM": "#888888",
+    "TQRCOMPSUM": "#888888",
+    "TQSCOMPSUM": "#888888",
+    "TQGCOMPSUM": "#888888",
 }
 BLOCK_LABELS: dict[str, str] = {
-    "cond-cv":   "condensation (convective)",
-    "cond-rs":   "condensation (resolved)",
-    "evap-cv":   "evaporation (convective)",
-    "evap-rs":   "evaporation (resolved)",
-    "auto-cv":   "autoconversion (convective)",
-    "auto-rs":   "autoconversion (resolved)",
-    "prec-cv":   "precipitation flux (convective)",
-    "prec-rs":   "precipitation flux (resolved)",
-    "turdiff":   "turbulent diffusion",
-    "turconv":   "turbulent convection",
-    "dynam":     "dynamics",
-    "neg":       "negative correction",
+    "cond-cv": "condensation (convective)",
+    "cond-rs": "condensation (resolved)",
+    "evap-cv": "evaporation (convective)",
+    "evap-rs": "evaporation (resolved)",
+    "auto-cv": "autoconversion (convective)",
+    "auto-rs": "autoconversion (resolved)",
+    "prec-cv": "precipitation flux (convective)",
+    "prec-rs": "precipitation flux (resolved)",
+    "turdiff": "turbulent diffusion",
+    "turconv": "turbulent convection",
+    "dynam": "dynamics",
+    "neg": "negative correction",
 }
 
 
@@ -105,6 +120,7 @@ def pretty_block_label(block: str) -> str:
 # ---------------------------------------------------------------------------
 # File IO
 # ---------------------------------------------------------------------------
+
 
 def read_dta(path: Path, ycoor: str = "VZ") -> tuple[np.ndarray, np.ndarray]:
     """Parse a two-column ddhb .dta file.
@@ -131,14 +147,14 @@ def load_budget(exp: str, var: str, lead: str = "0024") -> dict | None:
     path = AGG_DIR / f"lead{lead}_VZ" / f"{exp}_{var}.npz"
     if not path.exists():
         return None
-    d = np.load(path, allow_pickle=True)
-    alt = d["altitude_km"] if "altitude_km" in d.files else None
-    blocks = {k[len("block__"):]: d[k]
-              for k in d.files if k.startswith("block__")}
+    d = read_npz_payload(path, allow_pickle=True)
+    alt = d["altitude_km"] if "altitude_km" in d.keys() else None
+    blocks = {k[len("block__") :]: d[k] for k in d.keys() if k.startswith("block__")}
     return {
         "altitude_km": alt,
-        "blocks":      blocks,
-        "n_days":      int(d["days"].shape[0]),
+        "blocks": blocks,
+        "n_days": int(d["days"].shape[0]),
+        "counts": {k[len("count__") :]: d[k] for k in d.keys() if k.startswith("count__")},
     }
 
 
@@ -147,9 +163,9 @@ def load_temperature(exp: str) -> dict | None:
     path = AGG_DIR / f"temperature_{exp}.npz"
     if not path.exists():
         return None
-    d = np.load(path, allow_pickle=True)
+    d = read_npz_payload(path, allow_pickle=True)
     return {
-        "altitude_km":   d["altitude_km"],
+        "altitude_km": d["altitude_km"],
         "temperature_k": d["temperature_k"],
     }
 
@@ -157,6 +173,7 @@ def load_temperature(exp: str) -> dict | None:
 # ---------------------------------------------------------------------------
 # Plot helpers
 # ---------------------------------------------------------------------------
+
 
 def tick_formatter() -> mticker.FuncFormatter:
     """`%g` tick formatter (strips trailing zeros).  Apply to every axis."""
@@ -171,7 +188,7 @@ def freezing_level_km(temp: dict | None) -> float:
     """
     if temp is None:
         return float("nan")
-    z = np.asarray(temp["altitude_km"],   dtype=np.float64)
+    z = np.asarray(temp["altitude_km"], dtype=np.float64)
     t = np.asarray(temp["temperature_k"], dtype=np.float64)
     m = np.isfinite(z) & np.isfinite(t)
     z, t = z[m], t[m]
@@ -203,7 +220,5 @@ def draw_freeze_lines(ax, temps: dict[str, dict]) -> None:
     for exp, tdata in temps.items():
         z0 = freezing_level_km(tdata)
         if np.isfinite(z0):
-            ax.axhline(z0, color=EXP_COLORS.get(exp, "k"), lw=1.0, ls="--",
-                       alpha=0.7, zorder=1)
-    ax.plot([], [], color="k", lw=1.0, ls="--", alpha=0.7,
-            label=r"0 $^{\circ}$C isotherm")
+            ax.axhline(z0, color=EXP_COLORS.get(exp, "k"), lw=1.0, ls="--", alpha=0.7, zorder=1)
+    ax.plot([], [], color="k", lw=1.0, ls="--", alpha=0.7, label=r"0 $^{\circ}$C isotherm")

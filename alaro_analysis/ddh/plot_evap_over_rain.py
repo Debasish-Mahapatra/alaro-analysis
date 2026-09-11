@@ -18,6 +18,7 @@ that ends up re-evaporated rather than reaching the ground.
 
 Outputs ``figures/DDH-figures/evap_over_rain_profile_lead<HHHH>.png``.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -26,11 +27,12 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
+from alaro_analysis.common.cli_config import parse_configured_args
+
 from .io import (
     EXP_COLORS,
     EXPERIMENTS,
     FIG_DIR,
-    Z_MAX_KM,
     draw_freeze_lines,
     freezing_level_km,
     load_budget,
@@ -38,8 +40,7 @@ from .io import (
     set_altitude_axis,
     tick_formatter,
 )
-from .plot_budgets import column_integrate, evap_sublim_profile, precip_profile
-
+from .plot_budgets import column_integrate
 
 FREEZING_BAND_HALF_WIDTH_KM = 0.5
 
@@ -72,11 +73,18 @@ def evap_over_rain_profile(
     blocks = qr["blocks"]
     if not all(b in blocks for b in ("evap-cv", "evap-rs", "prec-cv", "prec-rs")):
         return None, None, None, None, None, None
-    evap = -(blocks["evap-cv"] + blocks["evap-rs"])     # positive => rain mass loss
-    prec = -(blocks["prec-cv"] + blocks["prec-rs"])     # positive => surface flux
+    evap = -(blocks["evap-cv"] + blocks["evap-rs"])  # positive => rain mass loss
+    prec = -(blocks["prec-cv"] + blocks["prec-rs"])  # positive => surface flux
     r_surface = column_integrate(prec, z)
     if not np.isfinite(r_surface) or r_surface <= 0.0:
-        return z, np.full_like(evap, np.nan), np.zeros_like(evap, dtype=bool), float(r_surface), None, None
+        return (
+            z,
+            np.full_like(evap, np.nan),
+            np.zeros_like(evap, dtype=bool),
+            float(r_surface),
+            None,
+            None,
+        )
 
     # Clip negatives to zero: any negative value in the QR phase-change
     # tendency is a snow-to-rain transition / melting artefact bleeding
@@ -141,8 +149,13 @@ def plot_evap_over_rain(args: argparse.Namespace) -> Path:
     if z_freezings:
         z_band_top = max(z_freezings)  # mask everything above (z_0C - half)
         z_band_lo = min(z_freezings) - args.band_half_km
-        ax.axhspan(z_band_lo, 20.0, color="#888888", alpha=0.18,
-                   label="excluded (melt + above-freezing noise)")
+        ax.axhspan(
+            z_band_lo,
+            20.0,
+            color="#888888",
+            alpha=0.18,
+            label="excluded (melt + above-freezing noise)",
+        )
     draw_freeze_lines(ax, temps)
     ax.axvline(0, color="k", lw=0.6, alpha=0.6)
     ax.grid(alpha=0.3)
@@ -175,7 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=FREEZING_BAND_HALF_WIDTH_KM,
         help="Half-width (km) of the band around the 0 deg C isotherm to mask. "
-             "QR evap-rs/cv blocks pick up snow-to-rain transition artefacts here.",
+        "QR evap-rs/cv blocks pick up snow-to-rain transition artefacts here.",
     )
     p.add_argument("--figure-dir", type=Path, default=FIG_DIR)
     return p
@@ -183,7 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parse_configured_args(parser, "plot_evap_over_rain", argv=argv)
     plot_evap_over_rain(args)
 
 

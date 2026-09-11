@@ -1,4 +1,5 @@
 """G1M-C1M process fingerprint for the graupel mechanism question."""
+
 from __future__ import annotations
 
 import argparse
@@ -12,30 +13,23 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from alaro_analysis.common.cli_config import parse_configured_args
+from alaro_analysis.common.paths import runs_path
 from alaro_analysis.ddh.io import AGG_DIR
-from alaro_analysis.ddh.plot_warm_layer_pathway_summary import compute_layer_metrics
+from alaro_analysis.ddh.layer_metrics import compute_layer_metrics
 
-
-DEFAULT_OUTPUT_DIR = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/Analysis/figures/"
-    "DDH-g1m_c1m_process_fingerprint"
-)
+DEFAULT_OUTPUT_DIR = runs_path("Analysis/figures/DDH-g1m_c1m_process_fingerprint")
 DATA_TXT_SUBDIR = "data_txt"
 FIGURE_NAME = "g1m_c1m_process_fingerprint.png"
 TEXT_NAME = "g1m_c1m_process_fingerprint.txt"
-UPDRAFT_TEXT = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/Analysis/figures/"
-    "DDH-updraft_condensation_check/data_txt/"
-    "lower_layer_condensation_updraft_consistency.txt"
+UPDRAFT_TEXT = runs_path(
+    "Analysis/figures/DDH-updraft_condensation_check/data_txt/lower_layer_condensation_updraft_consistency.txt"
 )
-RAINFALL_TEXT = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/Analysis/figures/"
-    "rainfall_spatial_bias_maps/data_txt/spatial_mean_rainfall_maps.txt"
+RAINFALL_TEXT = runs_path(
+    "Analysis/figures/rainfall_spatial_bias_maps/data_txt/spatial_mean_rainfall_maps.txt"
 )
-RADAR_LAYER_SUMMARY = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/figures/"
-    "radar-domain-entrainment-detrainment-checks/data_txt/"
-    "radar_domain_layer_summary.csv"
+RADAR_LAYER_SUMMARY = runs_path(
+    "figures/radar-domain-entrainment-detrainment-checks/data_txt/radar_domain_layer_summary.csv"
 )
 
 
@@ -274,22 +268,20 @@ def write_text(
         fh.write(f"DDH lead: {lead}\n")
         if updraft_domain == "radar":
             fh.write(f"Updraft source: radar-domain masked NetCDF summary {radar_layer_summary}\n")
-            fh.write("Condensation source/domain: DDH aggregated budget; DDH does not exist outside the DDH domain.\n")
+            fh.write(
+                "Condensation source/domain: DDH aggregated budget; DDH does not exist outside the DDH domain.\n"
+            )
         else:
             fh.write(f"Updraft source text: {UPDRAFT_TEXT}\n")
         if any(row.panel == "Rainfall" for row in rows):
             fh.write(f"Rainfall source text: {RAINFALL_TEXT}\n")
         fh.write("Percent change formula: (G1M / C1M - 1) * 100.\n")
         fh.write(
-            "Updraft diagnostics use UD_OMEGA and UD_MESH_FRAC only; "
-            "VITESSE_VERT is not used.\n\n"
+            "Updraft diagnostics use UD_OMEGA and UD_MESH_FRAC only; VITESSE_VERT is not used.\n\n"
         )
         fh.write("Plotted rows\n")
         fh.write("------------\n")
-        fh.write(
-            "panel,group,quantity,unit,c1m_value,g1m_value,"
-            "g1m_minus_c1m_percent\n"
-        )
+        fh.write("panel,group,quantity,unit,c1m_value,g1m_value,g1m_minus_c1m_percent\n")
         for row in rows:
             fh.write(
                 f"{row.panel},{row.group},{row.label},{row.unit},"
@@ -421,9 +413,7 @@ def make_plot(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Make a clean G1M-C1M process-fingerprint plot."
-    )
+    parser = argparse.ArgumentParser(description="Make a clean G1M-C1M process-fingerprint plot.")
     parser.add_argument("--agg-dir", type=Path, default=AGG_DIR)
     parser.add_argument("--lead", default="0024")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
@@ -439,7 +429,7 @@ def parse_args() -> argparse.Namespace:
         default=RADAR_LAYER_SUMMARY,
         help="Radar-domain layer summary CSV used when --updraft-domain=radar.",
     )
-    return parser.parse_args()
+    return parse_configured_args(parser, "plot_g1m_c1m_process_fingerprint", argv=None)
 
 
 def main() -> None:

@@ -21,16 +21,18 @@ Example
     run_pipeline()                              # everything, defaults
     run_pipeline(leads=("0024",), case_day=None) # skip +0012 / case study
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 
-from . import aggregate_budgets, extract_temperature, plot_budgets, plot_case_study
+from alaro_analysis.common.cli_config import parse_configured_args
 
 
-def aggregate_all(leads: tuple[str, ...] = ("0012", "0024"),
-                  ycoor: str = "VZ") -> None:
+def aggregate_all(leads: tuple[str, ...] = ("0012", "0024"), ycoor: str = "VZ") -> None:
     """Run ``aggregate_budgets`` for every forecast lead."""
+    from . import aggregate_budgets
+
     for lead in leads:
         print(f"--- aggregate_budgets  lead={lead}  ycoor={ycoor} ---")
         aggregate_budgets.run(lead=lead, ycoor=ycoor)
@@ -38,33 +40,39 @@ def aggregate_all(leads: tuple[str, ...] = ("0012", "0024"),
 
 def extract_temperatures() -> Path:
     """Compute the annual-mean temperature profile used for 0 C isotherms."""
+    from . import extract_temperature
+
     print("--- extract_temperature ---")
     return extract_temperature.run()
 
 
-def plot_all(lead: str = "0024",
-             case_day: str | None = None,
-             case_species: tuple[str, ...] = ("QV", "QL", "QI"),
-             case_tag: str | None = None) -> dict[str, list[Path] | Path]:
+def plot_all(
+    lead: str = "0024",
+    case_day: str | None = None,
+    case_species: tuple[str, ...] = ("QV", "QL", "QI"),
+    case_tag: str | None = None,
+) -> dict[str, list[Path] | Path]:
     """Produce the seven main figures plus one case-study figure."""
+    from . import plot_budgets, plot_case_study
+
     print(f"--- plot_budgets  lead={lead} ---")
     main_figs = plot_budgets.run(lead=lead)
     print("--- plot_case_study ---")
-    case_fig  = plot_case_study.run(day=case_day,
-                                    species=case_species,
-                                    tag=case_tag)
+    case_fig = plot_case_study.run(day=case_day, species=case_species, tag=case_tag)
     return {"main": main_figs, "case": case_fig}
 
 
-def run_pipeline(leads: tuple[str, ...] = ("0012", "0024"),
-                 ycoor: str = "VZ",
-                 plot_lead: str = "0024",
-                 case_day: str | None = None,
-                 case_species: tuple[str, ...] = ("QV", "QL", "QI"),
-                 case_tag: str | None = None,
-                 skip_aggregate: bool = False,
-                 skip_temperature: bool = False,
-                 skip_plots: bool = False) -> dict[str, list[Path] | Path] | None:
+def run_pipeline(
+    leads: tuple[str, ...] = ("0012", "0024"),
+    ycoor: str = "VZ",
+    plot_lead: str = "0024",
+    case_day: str | None = None,
+    case_species: tuple[str, ...] = ("QV", "QL", "QI"),
+    case_tag: str | None = None,
+    skip_aggregate: bool = False,
+    skip_temperature: bool = False,
+    skip_plots: bool = False,
+) -> dict[str, list[Path] | Path] | None:
     """End-to-end DDH analysis.
 
     The aggregation and temperature-extraction steps read the raw .dta files
@@ -78,27 +86,24 @@ def run_pipeline(leads: tuple[str, ...] = ("0012", "0024"),
         extract_temperatures()
     if skip_plots:
         return None
-    return plot_all(lead=plot_lead,
-                    case_day=case_day,
-                    case_species=case_species,
-                    case_tag=case_tag)
+    return plot_all(lead=plot_lead, case_day=case_day, case_species=case_species, case_tag=case_tag)
 
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--leads", nargs="+", default=["0012", "0024"],
-                        help="Forecast leads to aggregate.")
-    parser.add_argument("--plot-lead", default="0024",
-                        help="Lead used for the main seven figures.")
-    parser.add_argument("--case-day", default=None,
-                        help="Force a specific case-study day.")
+    parser.add_argument(
+        "--leads", nargs="+", default=["0012", "0024"], help="Forecast leads to aggregate."
+    )
+    parser.add_argument("--plot-lead", default="0024", help="Lead used for the main seven figures.")
+    parser.add_argument("--case-day", default=None, help="Force a specific case-study day.")
     parser.add_argument("--case-species", nargs="+", default=["QV", "QL", "QI"])
     parser.add_argument("--case-tag", default=None)
-    parser.add_argument("--skip-aggregate",   action="store_true")
+    parser.add_argument("--skip-aggregate", action="store_true")
     parser.add_argument("--skip-temperature", action="store_true")
-    parser.add_argument("--skip-plots",       action="store_true")
-    args = parser.parse_args()
+    parser.add_argument("--skip-plots", action="store_true")
+    args = parse_configured_args(parser, "pipeline", argv=None)
     run_pipeline(
         leads=tuple(args.leads),
         plot_lead=args.plot_lead,

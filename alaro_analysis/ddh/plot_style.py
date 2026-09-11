@@ -4,10 +4,10 @@ This module is the single source for the process-color convention used by DDH
 budget plots: one color per physical process, with linestyle separating
 resolved and convective/parametrized pathways.
 """
+
 from __future__ import annotations
 
 from typing import Any
-
 
 PROCESS_COLORS: dict[str, str] = {
     "Dynamics": "#1B6EC2",

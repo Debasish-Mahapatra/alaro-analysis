@@ -9,6 +9,7 @@ resolved condensation:
 Inputs are the aggregated DDH ``{experiment}_QV.npz`` files produced by
 ``alaro_analysis.ddh.aggregate_budgets``.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -21,6 +22,10 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+
+from alaro_analysis.common.cli_config import parse_configured_args
+from alaro_analysis.common.paths import runs_path
+from alaro_analysis.data.cache import save_npz_compressed
 
 from .io import (
     AGG_DIR,
@@ -43,10 +48,7 @@ from .plot_style import (
     partition_line_style,
 )
 
-
-PROCESSED_DATA_DIR = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/ddh_condensation"
-)
+PROCESSED_DATA_DIR = runs_path("processed-data/ddh_condensation")
 PLOT_DIR = FIG_DIR / "ddh_condensation"
 DATA_TXT_SUBDIR = "data_txt"
 PANEL_LABELS = ("(a)", "(b)", "(c)", "(d)", "(e)", "(f)")
@@ -96,9 +98,7 @@ def compute_partition(
     convective = _positive_sink(condcv)
     resolved = _positive_sink(condrs)
     if convective.shape != resolved.shape or convective.shape != z.shape:
-        raise ValueError(
-            "altitude_km, condcv, and condrs must have identical shapes"
-        )
+        raise ValueError("altitude_km, condcv, and condrs must have identical shapes")
 
     total = convective + resolved
     conv_frac = np.divide(
@@ -288,18 +288,21 @@ def write_plot_txt(partitions: list[CondensationPartition], path: Path) -> Path:
             ],
         )
         summary_rows = [
-            tuple(summarize_partition(part).get(field, "") for field in (
-                "experiment",
-                "lead",
-                "n_days",
-                "column_convective_gkgday_km",
-                "column_resolved_gkgday_km",
-                "column_total_gkgday_km",
-                "column_convective_fraction",
-                "column_resolved_fraction",
-                "peak_total_gkgday",
-                "peak_total_altitude_km",
-            ))
+            tuple(
+                summarize_partition(part).get(field, "")
+                for field in (
+                    "experiment",
+                    "lead",
+                    "n_days",
+                    "column_convective_gkgday_km",
+                    "column_resolved_gkgday_km",
+                    "column_total_gkgday_km",
+                    "column_convective_fraction",
+                    "column_resolved_fraction",
+                    "peak_total_gkgday",
+                    "peak_total_altitude_km",
+                )
+            )
             for part in partitions
         ]
         _write_csv_section(
@@ -385,18 +388,22 @@ def write_summary_csv(partitions: list[CondensationPartition], path: Path) -> No
     """Write one summary row per experiment."""
     path.parent.mkdir(parents=True, exist_ok=True)
     rows = [summarize_partition(part) for part in partitions]
-    fields = list(rows[0].keys()) if rows else [
-        "experiment",
-        "lead",
-        "n_days",
-        "column_convective_gkgday_km",
-        "column_resolved_gkgday_km",
-        "column_total_gkgday_km",
-        "column_convective_fraction",
-        "column_resolved_fraction",
-        "peak_total_gkgday",
-        "peak_total_altitude_km",
-    ]
+    fields = (
+        list(rows[0].keys())
+        if rows
+        else [
+            "experiment",
+            "lead",
+            "n_days",
+            "column_convective_gkgday_km",
+            "column_resolved_gkgday_km",
+            "column_total_gkgday_km",
+            "column_convective_fraction",
+            "column_resolved_fraction",
+            "peak_total_gkgday",
+            "peak_total_altitude_km",
+        ]
+    )
     with path.open("w", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=fields)
         writer.writeheader()
@@ -429,7 +436,7 @@ def save_npz(partitions: list[CondensationPartition], path: Path) -> None:
         payload[f"{prefix}_convective_fraction"] = part.convective_fraction
         payload[f"{prefix}_resolved_fraction"] = part.resolved_fraction
         payload[f"{prefix}_n_days"] = np.array(part.n_days, dtype=np.int64)
-    np.savez_compressed(path, **payload)
+    save_npz_compressed(path, **payload)
 
 
 def common_rate_xlim(
@@ -573,10 +580,7 @@ def run(
 ) -> dict[str, Path]:
     """Run the condensation partition analysis and return output paths."""
     lead_text = normalize_lead(lead)
-    partitions = [
-        load_partition(exp, lead=lead_text, agg_dir=agg_dir)
-        for exp in EXPERIMENTS
-    ]
+    partitions = [load_partition(exp, lead=lead_text, agg_dir=agg_dir) for exp in EXPERIMENTS]
 
     figure_path = plot_dir / f"condensation_partition_profile_lead{lead_text}.png"
     npz_path = processed_dir / f"condensation_partition_profile_lead{lead_text}.npz"
@@ -633,7 +637,7 @@ def main() -> None:
         action="store_true",
         help="Do not write the figure-side data_txt file.",
     )
-    args = parser.parse_args()
+    args = parse_configured_args(parser, "plot_condensation_partition", argv=None)
     run(
         lead=args.lead,
         agg_dir=args.agg_dir,

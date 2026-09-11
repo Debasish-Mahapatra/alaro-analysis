@@ -25,21 +25,31 @@ Outputs:
       case_YYYYMMDD_diff_0024_minus_0012.png
       case_YYYYMMDD_report.txt        ranking and chosen day
 """
+
 from __future__ import annotations
 
 import argparse
 import re
-import sys
 from multiprocessing import Pool
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 
+from alaro_analysis.common.cli_config import parse_configured_args
+
 from .io import (
-    BLOCK_COLORS, EXPERIMENTS, FIG_DIR as FIG_DIR_BASE, PROCESSED_BASE,
-    Z_MAX_KM, freezing_level_km, load_temperature, pretty_block_label,
+    BLOCK_COLORS,
+    EXPERIMENTS,
+    PROCESSED_BASE,
+    Z_MAX_KM,
+    freezing_level_km,
+    load_temperature,
+    pretty_block_label,
     tick_formatter,
+)
+from .io import (
+    FIG_DIR as FIG_DIR_BASE,
 )
 from .plot_style import pathway_from_block, pathway_line_attributes
 
@@ -111,27 +121,29 @@ def select_case(days_per_exp: dict[str, list[str]]) -> tuple[str, dict[str, floa
     with Pool(N_WORKERS) as pool:
         for exp, day, s in pool.imap_unordered(_prominence_score, tasks):
             scores.setdefault(day, {})[exp] = s
-    common_days = [d for d, m in scores.items()
-                   if all(e in m for e in EXPERIMENTS)]
+    common_days = [d for d, m in scores.items() if all(e in m for e in EXPERIMENTS)]
     if not common_days:
         raise SystemExit("No day has all three experiments with neg data")
-    ranked = sorted(common_days,
-                    key=lambda d: min(scores[d][e] for e in EXPERIMENTS),
-                    reverse=True)
+    ranked = sorted(common_days, key=lambda d: min(scores[d][e] for e in EXPERIMENTS), reverse=True)
     best = ranked[0]
     return best, {d: min(scores[d][e] for e in EXPERIMENTS) for d in ranked[:20]}
 
 
-def plot_grid(case_data: dict[str, dict[str, dict[str, np.ndarray]]],
-              temps, path: Path, title: str, is_diff: bool = False):
+def plot_grid(
+    case_data: dict[str, dict[str, dict[str, np.ndarray]]],
+    temps,
+    path: Path,
+    title: str,
+    is_diff: bool = False,
+):
     """case_data: exp -> species -> block -> profile (includes __altitude_km__).
 
     Plots SPECIES rows x EXPERIMENTS columns.  Neg block drawn in black/thick.
     """
     exps = list(case_data.keys())
-    fig, axes = plt.subplots(len(SPECIES), len(exps),
-                             figsize=(4.5 * len(exps), 3.2 * len(SPECIES)),
-                             sharey=True)
+    fig, axes = plt.subplots(
+        len(SPECIES), len(exps), figsize=(4.5 * len(exps), 3.2 * len(SPECIES)), sharey=True
+    )
     if len(SPECIES) == 1:
         axes = np.array([axes])
     if len(exps) == 1:
@@ -154,8 +166,16 @@ def plot_grid(case_data: dict[str, dict[str, dict[str, np.ndarray]]],
                 lw = 2.0 if block == "neg" else 1.0
                 zorder = 6 if block == "neg" else 2
                 ls, alpha = pathway_line_attributes(pathway_from_block(block))
-                ax.plot(profile, z, color=color, lw=lw, ls=ls, alpha=alpha,
-                        label=pretty_block_label(block), zorder=zorder)
+                ax.plot(
+                    profile,
+                    z,
+                    color=color,
+                    lw=lw,
+                    ls=ls,
+                    alpha=alpha,
+                    label=pretty_block_label(block),
+                    zorder=zorder,
+                )
             z0 = freezing_level_km(temps.get(exp))
             if np.isfinite(z0):
                 ax.axhline(z0, color="k", lw=1.0, ls="--", alpha=0.8, zorder=1)
@@ -171,8 +191,7 @@ def plot_grid(case_data: dict[str, dict[str, dict[str, np.ndarray]]],
                 unit = r"$\Delta$ rate" if is_diff else "rate"
                 ax.set_xlabel(f"{unit} (g kg$^{{-1}}$ day$^{{-1}}$)")
             if i == 0 and j == len(exps) - 1:
-                ax.legend(fontsize=7, loc="center left",
-                          bbox_to_anchor=(1.02, 0.5))
+                ax.legend(fontsize=7, loc="center left", bbox_to_anchor=(1.02, 0.5))
 
     fig.suptitle(title, fontsize=14, fontweight="bold")
     fig.tight_layout()
@@ -203,9 +222,11 @@ def diff_case(case_0024: dict, case_0012: dict) -> dict:
     return out
 
 
-def run(day: str | None = None,
-        species: tuple[str, ...] | list[str] = SPECIES_DEFAULT,
-        tag: str | None = None) -> Path:
+def run(
+    day: str | None = None,
+    species: tuple[str, ...] | list[str] = SPECIES_DEFAULT,
+    tag: str | None = None,
+) -> Path:
     """Make the +0024 minus +0012 case-study figure.
 
     Parameters
@@ -228,8 +249,7 @@ def run(day: str | None = None,
     for exp in EXPERIMENTS:
         root = PROCESSED_BASE / "lead0024_VZ" / exp
         days_per_exp[exp] = sorted(
-            d.name for d in root.iterdir()
-            if d.is_dir() and d.name.startswith("DDH20")
+            d.name for d in root.iterdir() if d.is_dir() and d.name.startswith("DDH20")
         )
     # Defensive intersection: only rank days present in every experiment.
     common = set(days_per_exp["control"])
@@ -254,19 +274,24 @@ def run(day: str | None = None,
     date_tag = best_day.replace("DDH", "")
     suffix = f"_{tag}" if tag else ""
     fig_path = FIG_DIR / f"case_{date_tag}_diff_0024_minus_0012{suffix}.png"
-    plot_grid(case_diff, temps, fig_path,
-              f"Budget change between +0024 and +0012 on {date_tag}",
-              is_diff=True)
+    plot_grid(
+        case_diff,
+        temps,
+        fig_path,
+        f"Budget change between +0024 and +0012 on {date_tag}",
+        is_diff=True,
+    )
 
     if ranking:
         report = FIG_DIR / f"case_{date_tag}_report.txt"
         with open(report, "w") as f:
             f.write(f"Selected case day: {best_day}\n")
-            f.write("Metric: for each day, min over experiments of the max "
-                    "|neg| rate across species in 0-20 km (+0024 data).\n\n")
+            f.write(
+                "Metric: for each day, min over experiments of the max "
+                "|neg| rate across species in 0-20 km (+0024 data).\n\n"
+            )
             f.write("Top-20 days by that metric:\n")
-            for day_, score in sorted(ranking.items(),
-                                      key=lambda kv: -kv[1])[:20]:
+            for day_, score in sorted(ranking.items(), key=lambda kv: -kv[1])[:20]:
                 f.write(f"  {day_}  {score:10.3f}\n")
         print(f"  report: {report}")
     return fig_path
@@ -274,16 +299,24 @@ def run(day: str | None = None,
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--day", default=None,
-                        help="Force a specific day (e.g. DDH20140716); "
-                             "default: auto-pick prominent-neg day.")
-    parser.add_argument("--species", nargs="+", default=list(SPECIES_DEFAULT),
-                        choices=("QV", "QL", "QI", "QR", "QS", "QG"),
-                        help="Species to include in the figure (one row each).")
-    parser.add_argument("--tag", default=None,
-                        help="Output filename suffix, e.g. 'QL' -> "
-                             "case_<day>_diff_0024_minus_0012_QL.png.")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--day",
+        default=None,
+        help="Force a specific day (e.g. DDH20140716); default: auto-pick prominent-neg day.",
+    )
+    parser.add_argument(
+        "--species",
+        nargs="+",
+        default=list(SPECIES_DEFAULT),
+        choices=("QV", "QL", "QI", "QR", "QS", "QG"),
+        help="Species to include in the figure (one row each).",
+    )
+    parser.add_argument(
+        "--tag",
+        default=None,
+        help="Output filename suffix, e.g. 'QL' -> case_<day>_diff_0024_minus_0012_QL.png.",
+    )
+    args = parse_configured_args(parser, "plot_case_study", argv=None)
     run(day=args.day, species=tuple(args.species), tag=args.tag)
 
 

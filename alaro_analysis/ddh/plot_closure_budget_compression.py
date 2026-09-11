@@ -4,6 +4,7 @@ The figure combines DDH condensation profiles with resolved updraft mass-flux
 profiles to show the low-level condensation/updraft asymmetry after adding
 graupel.  It writes both the PNG and the text data used for the plot.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -19,23 +20,15 @@ import numpy as np
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
+from alaro_analysis.common.cli_config import parse_configured_args
+from alaro_analysis.common.paths import runs_path
 from alaro_analysis.ddh.io import AGG_DIR, EXPERIMENTS
-from alaro_analysis.ddh.plot_warm_layer_pathway_summary import compute_layer_metrics
+from alaro_analysis.ddh.layer_metrics import compute_layer_metrics
 
-
-DEFAULT_OUTPUT_DIR = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/Analysis/figures/"
-    "DDH-closure_budget_compression"
-)
-DEFAULT_CONDENSATION_DIR = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/ddh_condensation"
-)
-DEFAULT_UPDRAFT_DIR = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/data/updraft_flux/2years"
-)
-DEFAULT_HEIGHT_DIR = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/data/geopotential/2years"
-)
+DEFAULT_OUTPUT_DIR = runs_path("Analysis/figures/DDH-closure_budget_compression")
+DEFAULT_CONDENSATION_DIR = runs_path("processed-data/ddh_condensation")
+DEFAULT_UPDRAFT_DIR = runs_path("processed-data/data/updraft_flux/2years")
+DEFAULT_HEIGHT_DIR = runs_path("processed-data/data/geopotential/2years")
 DATA_TXT_SUBDIR = "data_txt"
 FIGURE_NAME = "closure_budget_compression.png"
 TEXT_NAME = "closure_budget_compression.txt"
@@ -144,12 +137,8 @@ def load_condensation_profiles(
                 experiment=experiment,
                 label=_label(experiment),
                 altitude_km=np.asarray(data[f"{experiment}_altitude_km"], dtype=float),
-                convective_gkgday=np.asarray(
-                    data[f"{experiment}_convective_gkgday"], dtype=float
-                ),
-                resolved_gkgday=np.asarray(
-                    data[f"{experiment}_resolved_gkgday"], dtype=float
-                ),
+                convective_gkgday=np.asarray(data[f"{experiment}_convective_gkgday"], dtype=float),
+                resolved_gkgday=np.asarray(data[f"{experiment}_resolved_gkgday"], dtype=float),
                 total_gkgday=np.asarray(data[f"{experiment}_total_gkgday"], dtype=float),
             )
     return out
@@ -267,12 +256,7 @@ def mean_between_heights(
 ) -> float:
     height = np.asarray(height_km, dtype=float)
     values = np.asarray(values, dtype=float)
-    keep = (
-        np.isfinite(height)
-        & np.isfinite(values)
-        & (height >= bottom_km)
-        & (height <= top_km)
-    )
+    keep = np.isfinite(height) & np.isfinite(values) & (height >= bottom_km) & (height <= top_km)
     if not np.any(keep):
         return float("nan")
     return float(np.mean(values[keep]))
@@ -310,8 +294,7 @@ def build_summary_metrics(
             label=_label(experiment),
             column_total_gkgday_km=column_total,
             condensation_peak_height_km=peak_height,
-            column_total_divided_by_peak_height_gkgday=column_total
-            / max(peak_height, 1.0e-12),
+            column_total_divided_by_peak_height_gkgday=column_total / max(peak_height, 1.0e-12),
             warm_reservoir_0_3km_gkg_km=warm.get(experiment, float("nan")),
             convective_condensation_0_3km_gkgday_km=convective_0_3,
             mean_updraft_flux_0_3km_kg_m2_s=mean_flux_0_3,
@@ -534,10 +517,7 @@ def plot_figure(
         ),
         (
             r"warm reservoir 0-3 km" "\n" r"($\times 10^{-4}$ g kg$^{-1}$ km)",
-            [
-                metrics[experiment].warm_reservoir_0_3km_gkg_km * 1.0e4
-                for experiment in experiments
-            ],
+            [metrics[experiment].warm_reservoir_0_3km_gkg_km * 1.0e4 for experiment in experiments],
         ),
         (
             r"0-3 km convective condensation /"
@@ -545,10 +525,7 @@ def plot_figure(
             r"0-3 km mean updraft flux"
             "\n"
             r"($\times 10^3$)",
-            [
-                metrics[experiment].condensation_per_flux_x10minus3
-                for experiment in experiments
-            ],
+            [metrics[experiment].condensation_per_flux_x10minus3 for experiment in experiments],
         ),
     ]
 
@@ -630,15 +607,25 @@ def write_data_txt(
         fh.write(f"Figure: {figure_path}\n")
         fh.write(f"DPI: {dpi}\n")
         fh.write(f"Lead: {lead}\n")
-        fh.write("Inputs: upstream processed DDH condensation NPZ, upstream processed two-year updraft flux NPZ caches, and DDH aggregate QL/QR warm-reservoir data.\n")
+        fh.write(
+            "Inputs: upstream processed DDH condensation NPZ, upstream processed two-year updraft flux NPZ caches, and DDH aggregate QL/QR warm-reservoir data.\n"
+        )
         fh.write(f"Condensation source: {condensation_npz_path(condensation_dir, lead)}\n")
         fh.write(f"Updraft source directory: {updraft_dir}\n")
         fh.write(f"Updraft height source directory: {height_dir}\n")
         fh.write(f"DDH aggregate source directory: {agg_dir}\n")
-        fh.write("Mass flux profile: time mean over all 24 local hours, weighted by per-level sample count.\n")
-        fh.write("Low-level updraft flux metric: simple mean of the time-mean mass-flux profile over model levels whose heights are between 0 and 3 km.\n")
-        fh.write("Low-level convective condensation metric: vertical integral of the convective condensation profile from 0 to 3 km.\n\n")
-        fh.write("Note: peak height is the altitude of maximum total condensation, not a diagnosed active-cloud-top height.\n\n")
+        fh.write(
+            "Mass flux profile: time mean over all 24 local hours, weighted by per-level sample count.\n"
+        )
+        fh.write(
+            "Low-level updraft flux metric: simple mean of the time-mean mass-flux profile over model levels whose heights are between 0 and 3 km.\n"
+        )
+        fh.write(
+            "Low-level convective condensation metric: vertical integral of the convective condensation profile from 0 to 3 km.\n\n"
+        )
+        fh.write(
+            "Note: peak height is the altitude of maximum total condensation, not a diagnosed active-cloud-top height.\n\n"
+        )
 
         fh.write("Summary bars\n")
         fh.write("------------\n")
@@ -798,7 +785,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    args = build_parser().parse_args(argv)
+    args = parse_configured_args(build_parser(), "ddh_closure_budget_compression", argv=argv)
     figure_path, text_path = make_closure_budget_compression(
         output_dir=args.output_dir,
         condensation_dir=args.condensation_dir,

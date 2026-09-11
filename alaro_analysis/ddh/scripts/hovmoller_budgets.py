@@ -8,14 +8,17 @@ For each variable and component:
 """
 
 import os
-import numpy as np
+
 import matplotlib
-matplotlib.use('Agg')
+import numpy as np
+
+matplotlib.use("Agg")
+from datetime import datetime
+
 import matplotlib.pyplot as plt
+from matplotlib.colors import TwoSlopeNorm
 
 from alaro_analysis.common.figio import strip_cbar_zeros
-from matplotlib.colors import TwoSlopeNorm
-from datetime import datetime, timedelta
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 RESULTS_DIR = "/mnt/scratch/MANAUS/DDH/alaro-24h-budgets/results"
@@ -57,7 +60,7 @@ def get_components(variable):
         return []
     prefix = f"{variable}.DHFDLABOF+0024."
     return sorted(
-        f[len(prefix):-4]
+        f[len(prefix) : -4]
         for f in os.listdir(sample_dir)
         if f.startswith(prefix) and f.endswith(".dta")
     )
@@ -77,19 +80,32 @@ def classify_component(comp):
 def get_display_name(comp):
     """Short display name for a component."""
     names = {
-        "auto-cv": "Autoconv. (cv)", "auto-rs": "Autoconv. (rs)",
-        "cond-cv": "Condensation (cv)", "cond-rs": "Condensation (rs)",
-        "condcv": "Condensation (cv)", "condrs": "Condensation (rs)",
-        "evap-cv": "Evaporation (cv)", "evap-rs": "Evaporation (rs)",
-        "evapcv": "Evaporation (cv)", "evaprs": "Evaporation (rs)",
-        "prec-cv": "Precipitation (cv)", "prec-rs": "Precipitation (rs)",
-        "micro-cv": "Microphysics (cv)", "micro-rs": "Microphysics (rs)",
-        "rad-sol": "Radiation: Solar", "rad-ther": "Radiation: IR",
-        "turconv": "Turbulence (cv)", "turdiff": "Turbulence (diff)",
-        "dynam": "Dynamics", "dyn": "Dynamics",
-        "neg": "Neg. correction", "gwd-drag": "GWD drag",
-        "advection": "Advection", "buoyancy": "Buoyancy",
-        "diffusion": "Diffusion", "dissipation": "Dissipation",
+        "auto-cv": "Autoconv. (cv)",
+        "auto-rs": "Autoconv. (rs)",
+        "cond-cv": "Condensation (cv)",
+        "cond-rs": "Condensation (rs)",
+        "condcv": "Condensation (cv)",
+        "condrs": "Condensation (rs)",
+        "evap-cv": "Evaporation (cv)",
+        "evap-rs": "Evaporation (rs)",
+        "evapcv": "Evaporation (cv)",
+        "evaprs": "Evaporation (rs)",
+        "prec-cv": "Precipitation (cv)",
+        "prec-rs": "Precipitation (rs)",
+        "micro-cv": "Microphysics (cv)",
+        "micro-rs": "Microphysics (rs)",
+        "rad-sol": "Radiation: Solar",
+        "rad-ther": "Radiation: IR",
+        "turconv": "Turbulence (cv)",
+        "turdiff": "Turbulence (diff)",
+        "dynam": "Dynamics",
+        "dyn": "Dynamics",
+        "neg": "Neg. correction",
+        "gwd-drag": "GWD drag",
+        "advection": "Advection",
+        "buoyancy": "Buoyancy",
+        "diffusion": "Diffusion",
+        "dissipation": "Dissipation",
         "shear": "Shear",
     }
     cat = classify_component(comp)
@@ -110,8 +126,7 @@ def load_timeseries(experiment, variable, component, days):
 
     for day in days:
         filepath = os.path.join(
-            RESULTS_DIR, experiment, day, variable, "data",
-            f"{prefix}{component}.dta"
+            RESULTS_DIR, experiment, day, variable, "data", f"{prefix}{component}.dta"
         )
         if os.path.isfile(filepath):
             try:
@@ -173,17 +188,16 @@ def plot_hovmoller(variable, component, days, dates):
         norm = TwoSlopeNorm(vmin=-vmax, vcenter=0, vmax=vmax)
 
         im = ax.pcolormesh(
-            np.arange(n_days), pressure, data.T,
-            cmap='RdBu_r', norm=norm, shading='nearest'
+            np.arange(n_days), pressure, data.T, cmap="RdBu_r", norm=norm, shading="nearest"
         )
 
-        ax.set_title(title, fontsize=24, fontweight='bold')
+        ax.set_title(title, fontsize=24, fontweight="bold")
         ax.set_xlabel("Time", fontsize=18)
         if col == 0:
             ax.set_ylabel("Pressure (hPa)", fontsize=18)
         ax.set_ylim(1050, 0)
         ax.set_yticks(np.arange(0, 1100, 100))
-        ax.tick_params(axis='both', labelsize=14)
+        ax.tick_params(axis="both", labelsize=14)
 
         # Month ticks on x-axis
         ax.set_xticks(month_ticks)
@@ -198,16 +212,15 @@ def plot_hovmoller(variable, component, days, dates):
 
     fig.suptitle(
         f"{info['name']} — {disp_name}\nHovmöller (time-height), 2014–2015",
-        fontsize=24, fontweight='bold', y=1.02
+        fontsize=24,
+        fontweight="bold",
+        y=1.02,
     )
     fig.tight_layout()
 
-    outpath = os.path.join(
-        OUTPUT_DIR, variable,
-        f"{variable}_{component}_hovmoller.png"
-    )
+    outpath = os.path.join(OUTPUT_DIR, variable, f"{variable}_{component}_hovmoller.png")
     os.makedirs(os.path.dirname(outpath), exist_ok=True)
-    fig.savefig(outpath, dpi=450, bbox_inches='tight')
+    fig.savefig(outpath, dpi=450, bbox_inches="tight")
     plt.close(fig)
     return outpath
 

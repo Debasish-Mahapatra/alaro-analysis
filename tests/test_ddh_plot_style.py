@@ -1,6 +1,7 @@
+from alaro_analysis.ddh.io import BLOCK_COLORS
 from alaro_analysis.ddh.plot_style import (
-    CONVECTION_LINESTYLE,
     CONVECTION_COLOR,
+    CONVECTION_LINESTYLE,
     FREEZING_COLOR,
     FREEZING_LINESTYLE,
     PROCESS_COLORS,
@@ -8,11 +9,10 @@ from alaro_analysis.ddh.plot_style import (
     RESOLVED_LINESTYLE,
     get_line_style,
     get_process_name,
+    partition_line_style,
     pathway_from_block,
     pathway_line_attributes,
-    partition_line_style,
 )
-from alaro_analysis.ddh.io import BLOCK_COLORS
 from alaro_analysis.ddh.scripts import plot_time_average
 
 

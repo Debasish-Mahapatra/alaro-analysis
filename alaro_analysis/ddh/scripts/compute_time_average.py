@@ -19,12 +19,13 @@ where <term> is the budget-term part of the original filename, e.g.
 """
 
 import argparse
-import os
 import sys
-from pathlib import Path
 from collections import defaultdict
+from pathlib import Path
 
 import numpy as np
+
+from alaro_analysis.common.cli_config import parse_configured_args
 
 
 def discover_terms(results_root: Path, experiment: str) -> dict:
@@ -45,9 +46,7 @@ def discover_terms(results_root: Path, experiment: str) -> dict:
     terms: dict[tuple[str, str], list[Path]] = defaultdict(list)
 
     # Iterate over day directories (DDH20140101, DDH20140102, …)
-    day_dirs = sorted(
-        d for d in exp_dir.iterdir() if d.is_dir() and d.name.startswith("DDH")
-    )
+    day_dirs = sorted(d for d in exp_dir.iterdir() if d.is_dir() and d.name.startswith("DDH"))
 
     for day_dir in day_dirs:
         # Iterate over variable directories (CT, QV, TTE, …)
@@ -137,7 +136,7 @@ def main():
         default=["control", "graupel", "2mom"],
         help="Experiments to process.",
     )
-    args = parser.parse_args()
+    args = parse_configured_args(parser, "compute_time_average", argv=None)
 
     results_root = args.results_root
     output_root = args.output_root
@@ -163,7 +162,9 @@ def main():
         for (var_name, term_name), dta_files in sorted(terms.items()):
             out_path = output_root / exp / var_name / f"{term_name}.dta"
             n_averaged = compute_and_write_average(dta_files, out_path)
-            print(f"  {var_name:>4s}/{term_name:<20s}  →  averaged {n_averaged:>4d} days  →  {out_path.name}")
+            print(
+                f"  {var_name:>4s}/{term_name:<20s}  →  averaged {n_averaged:>4d} days  →  {out_path.name}"
+            )
 
         print()
 

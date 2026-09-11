@@ -8,6 +8,7 @@ keeps the phase-change terms as species-specific profiles:
 
 The ALARO Q budgets aggregated here do not expose a separate melting block.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -20,6 +21,10 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+
+from alaro_analysis.common.cli_config import parse_configured_args
+from alaro_analysis.common.paths import runs_path
+from alaro_analysis.data.cache import save_npz_compressed
 
 from .io import (
     AGG_DIR,
@@ -45,10 +50,7 @@ from .plot_style import (
     partition_line_style,
 )
 
-
-PROCESSED_DATA_DIR = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/ddh_phase_changes"
-)
+PROCESSED_DATA_DIR = runs_path("processed-data/ddh_phase_changes")
 PLOT_DIR = FIG_DIR / "ddh_phase_changes"
 DATA_TXT_SUBDIR = "data_txt"
 PANEL_LABELS = ("(a)", "(b)", "(c)", "(d)", "(e)", "(f)")
@@ -123,9 +125,7 @@ def compute_phase_profile(
         raise ValueError("sign must be 'source' or 'loss'")
 
     if convection.shape != resolved.shape or convection.shape != z.shape:
-        raise ValueError(
-            "altitude_km, convection_block, and resolved_block must match"
-        )
+        raise ValueError("altitude_km, convection_block, and resolved_block must match")
     return PhaseChangeProfile(
         experiment=experiment,
         lead=normalize_lead(lead),
@@ -542,11 +542,7 @@ def plot_species_panels(
 
     title = selected[0].title
     xlim = common_positive_xlim(selected)
-    process_name = (
-        "Condensation"
-        if process == "condensation_deposition"
-        else "Evaporation"
-    )
+    process_name = "Condensation" if process == "condensation_deposition" else "Evaporation"
     process_label = {
         "condensation_deposition": "condensation/deposition",
         "evaporation_sublimation": "evaporation/sublimation",
@@ -675,9 +671,7 @@ def plot_total_sublimation_experiment_comparison(
 ) -> Path | None:
     """Plot total sublimation profiles for all experiments on one axis."""
     selected = [
-        p
-        for p in profiles
-        if p.process == "sublimation" and p.species == TOTAL_SUBLIMATION_SPECIES
+        p for p in profiles if p.process == "sublimation" and p.species == TOTAL_SUBLIMATION_SPECIES
     ]
     if not selected:
         return None
@@ -726,9 +720,7 @@ def plot_total_evaporation_experiment_comparison(
 ) -> Path | None:
     """Plot total rain evaporation profiles for all experiments on one axis."""
     selected = [
-        p
-        for p in profiles
-        if p.process == "evaporation" and p.species == TOTAL_EVAPORATION_SPECIES
+        p for p in profiles if p.process == "evaporation" and p.species == TOTAL_EVAPORATION_SPECIES
     ]
     if not selected:
         return None
@@ -878,7 +870,7 @@ def save_npz(profiles: list[PhaseChangeProfile], path: Path) -> None:
     payload["profile_keys"] = np.array(
         [f"{p.experiment}_{p.variable}_{p.process}" for p in profiles], dtype="U64"
     )
-    np.savez_compressed(path, **payload)
+    save_npz_compressed(path, **payload)
 
 
 def write_availability_note(path: Path) -> None:
@@ -972,9 +964,7 @@ def run(
         show_titles=show_titles,
     )
     if total_evaporation_comparison_path is not None:
-        outputs["total_evaporation_by_experiment_figure"] = (
-            total_evaporation_comparison_path
-        )
+        outputs["total_evaporation_by_experiment_figure"] = total_evaporation_comparison_path
         if write_txt:
             txt_path = write_experiment_comparison_txt(
                 total_evaporation_profiles,
@@ -1008,9 +998,7 @@ def run(
         show_titles=show_titles,
     )
     if total_sublimation_comparison_path is not None:
-        outputs["total_sublimation_by_experiment_figure"] = (
-            total_sublimation_comparison_path
-        )
+        outputs["total_sublimation_by_experiment_figure"] = total_sublimation_comparison_path
         if write_txt:
             txt_path = write_experiment_comparison_txt(
                 total_sublimation_profiles,
@@ -1022,9 +1010,17 @@ def run(
                 outputs["total_sublimation_by_experiment_txt"] = txt_path
 
     npz_path = processed_dir / f"phase_changes_by_hydrometeor_lead{lead_text}.npz"
-    by_level_csv = processed_dir / "analytics" / f"phase_changes_by_hydrometeor_lead{lead_text}_by_level.csv"
-    summary_csv = processed_dir / "analytics" / f"phase_changes_by_hydrometeor_lead{lead_text}_summary.csv"
-    note_path = processed_dir / "analytics" / f"phase_changes_by_hydrometeor_lead{lead_text}_availability.txt"
+    by_level_csv = (
+        processed_dir / "analytics" / f"phase_changes_by_hydrometeor_lead{lead_text}_by_level.csv"
+    )
+    summary_csv = (
+        processed_dir / "analytics" / f"phase_changes_by_hydrometeor_lead{lead_text}_summary.csv"
+    )
+    note_path = (
+        processed_dir
+        / "analytics"
+        / f"phase_changes_by_hydrometeor_lead{lead_text}_availability.txt"
+    )
     save_npz(output_profiles, npz_path)
     write_by_level_csv(output_profiles, by_level_csv)
     write_summary_csv(output_profiles, summary_csv)
@@ -1055,7 +1051,7 @@ def main() -> None:
         action="store_true",
         help="Do not write matching data_txt/*.txt files.",
     )
-    args = parser.parse_args()
+    args = parse_configured_args(parser, "plot_phase_changes", argv=None)
     run(
         lead=args.lead,
         agg_dir=args.agg_dir,

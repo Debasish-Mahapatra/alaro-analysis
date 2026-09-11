@@ -9,6 +9,7 @@ Output structure:
 """
 
 import os
+
 import numpy as np
 
 # ─── Configuration ────────────────────────────────────────────────────────────
@@ -37,7 +38,7 @@ def get_components(experiment, variable):
     prefix = f"{variable}.DHFDLABOF+0024."
     for f in sorted(os.listdir(sample_dir)):
         if f.startswith(prefix) and f.endswith(".dta"):
-            comp = f[len(prefix):-4]
+            comp = f[len(prefix) : -4]
             components.append(comp)
     return components
 
@@ -57,8 +58,7 @@ def compute_and_save_avg(experiment, variable, component, output_base):
 
     for day in days:
         filepath = os.path.join(
-            RESULTS_DIR, experiment, day, variable, "data",
-            f"{prefix}{component}.dta"
+            RESULTS_DIR, experiment, day, variable, "data", f"{prefix}{component}.dta"
         )
         if not os.path.isfile(filepath):
             continue
@@ -78,7 +78,7 @@ def compute_and_save_avg(experiment, variable, component, output_base):
     os.makedirs(out_dir, exist_ok=True)
     out_file = os.path.join(out_dir, f"{prefix}{component}.dta")
 
-    with open(out_file, 'w') as f:
+    with open(out_file, "w") as f:
         for p_val, v_val in zip(pressure, avg):
             f.write(f"  {p_val:25.16E}  {v_val:25.16E}\n")
 

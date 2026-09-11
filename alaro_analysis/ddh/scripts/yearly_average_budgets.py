@@ -12,9 +12,11 @@ Conventions:
 """
 
 import os
-import numpy as np
+
 import matplotlib
-matplotlib.use('Agg')
+import numpy as np
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 # ─── Configuration ────────────────────────────────────────────────────────────
@@ -48,77 +50,67 @@ VAR_INFO = {
 #   Turbulence: diffusion = solid, convection = dashed (same color)
 
 # Process colors
-C_AUTO   = "#1f77b4"  # blue       — autoconversion
-C_COND   = "#d62728"  # red        — condensation
-C_EVAP   = "#2ca02c"  # green      — evaporation
-C_PREC   = "#ff7f0e"  # orange     — precipitation
-C_MICRO  = "#9467bd"  # purple     — microphysics (CT)
-C_RAD    = "#e6ab02"  # gold       — radiation (solar & thermal)
-C_TURB   = "#8c564b"  # brown      — turbulence (diffusion & convection)
-C_DYN    = "#7f7f7f"  # gray       — dynamics
-C_NEG    = "#bcbd22"  # olive      — negativity correction
-C_GWD    = "#e377c2"  # pink       — gravity wave drag
-C_ADV    = "#17becf"  # cyan       — advection
-C_BUOY   = "#2ca02c"  # green      — buoyancy
-C_SHEAR  = "#1f77b4"  # blue       — shear
-C_DISS   = "#d62728"  # red        — dissipation
-C_DIFF   = "#8c564b"  # brown      — diffusion (TKE/TTE)
+C_AUTO = "#1f77b4"  # blue       — autoconversion
+C_COND = "#d62728"  # red        — condensation
+C_EVAP = "#2ca02c"  # green      — evaporation
+C_PREC = "#ff7f0e"  # orange     — precipitation
+C_MICRO = "#9467bd"  # purple     — microphysics (CT)
+C_RAD = "#e6ab02"  # gold       — radiation (solar & thermal)
+C_TURB = "#8c564b"  # brown      — turbulence (diffusion & convection)
+C_DYN = "#7f7f7f"  # gray       — dynamics
+C_NEG = "#bcbd22"  # olive      — negativity correction
+C_GWD = "#e377c2"  # pink       — gravity wave drag
+C_ADV = "#17becf"  # cyan       — advection
+C_BUOY = "#2ca02c"  # green      — buoyancy
+C_SHEAR = "#1f77b4"  # blue       — shear
+C_DISS = "#d62728"  # red        — dissipation
+C_DIFF = "#8c564b"  # brown      — diffusion (TKE/TTE)
 
 # (color, linestyle, display_label)
 PROCESS_STYLE = {
     # Autoconversion: blue, cv=dashed rs=solid
-    "auto-cv":   (C_AUTO,  "--", "Autoconv. (cv)"),
-    "auto-rs":   (C_AUTO,  "-",  "Autoconv. (rs)"),
-
+    "auto-cv": (C_AUTO, "--", "Autoconv. (cv)"),
+    "auto-rs": (C_AUTO, "-", "Autoconv. (rs)"),
     # Condensation: red, cv=dashed rs=solid
-    "cond-cv":   (C_COND,  "--", "Condensation (cv)"),
-    "cond-rs":   (C_COND,  "-",  "Condensation (rs)"),
-    "condcv":    (C_COND,  "--", "Condensation (cv)"),
-    "condrs":    (C_COND,  "-",  "Condensation (rs)"),
-
+    "cond-cv": (C_COND, "--", "Condensation (cv)"),
+    "cond-rs": (C_COND, "-", "Condensation (rs)"),
+    "condcv": (C_COND, "--", "Condensation (cv)"),
+    "condrs": (C_COND, "-", "Condensation (rs)"),
     # Evaporation: green, cv=dashed rs=solid
-    "evap-cv":   (C_EVAP,  "--", "Evaporation (cv)"),
-    "evap-rs":   (C_EVAP,  "-",  "Evaporation (rs)"),
-    "evapcv":    (C_EVAP,  "--", "Evaporation (cv)"),
-    "evaprs":    (C_EVAP,  "-",  "Evaporation (rs)"),
-
+    "evap-cv": (C_EVAP, "--", "Evaporation (cv)"),
+    "evap-rs": (C_EVAP, "-", "Evaporation (rs)"),
+    "evapcv": (C_EVAP, "--", "Evaporation (cv)"),
+    "evaprs": (C_EVAP, "-", "Evaporation (rs)"),
     # Precipitation: orange, cv=dashed rs=solid
-    "prec-cv":   (C_PREC,  "--", "Precipitation (cv)"),
-    "prec-rs":   (C_PREC,  "-",  "Precipitation (rs)"),
-
+    "prec-cv": (C_PREC, "--", "Precipitation (cv)"),
+    "prec-rs": (C_PREC, "-", "Precipitation (rs)"),
     # Microphysics (CT only): purple, cv=dashed rs=solid
-    "micro-cv":  (C_MICRO, "--", "Microphysics (cv)"),
-    "micro-rs":  (C_MICRO, "-",  "Microphysics (rs)"),
-
+    "micro-cv": (C_MICRO, "--", "Microphysics (cv)"),
+    "micro-rs": (C_MICRO, "-", "Microphysics (rs)"),
     # Radiation: SAME gold color, solar=solid, thermal=dashed
-    "rad-sol":   (C_RAD,   "-",  "Radiation: Solar"),
-    "rad-ther":  (C_RAD,   "--", "Radiation: IR"),
-
+    "rad-sol": (C_RAD, "-", "Radiation: Solar"),
+    "rad-ther": (C_RAD, "--", "Radiation: IR"),
     # Turbulence: SAME brown color, diffusion=solid, convection=dashed
-    "turconv":   (C_TURB,  "--", "Turbulence (cv)"),
-    "turdiff":   (C_TURB,  "-",  "Turbulence (diff)"),
-
+    "turconv": (C_TURB, "--", "Turbulence (cv)"),
+    "turdiff": (C_TURB, "-", "Turbulence (diff)"),
     # Dynamics: gray
-    "dynam":     (C_DYN,   "-",  "Dynamics"),
-    "dyn":       (C_DYN,   "-",  "Dynamics"),
-
+    "dynam": (C_DYN, "-", "Dynamics"),
+    "dyn": (C_DYN, "-", "Dynamics"),
     # Negativity correction: olive
-    "neg":       (C_NEG,   "-",  "Neg. correction"),
-
+    "neg": (C_NEG, "-", "Neg. correction"),
     # Gravity wave drag: pink
-    "gwd-drag":  (C_GWD,   "-",  "GWD drag"),
-
+    "gwd-drag": (C_GWD, "-", "GWD drag"),
     # TKE/TTE specific terms
-    "advection":   (C_ADV,   "-",  "Advection"),
-    "buoyancy":    (C_BUOY,  "-",  "Buoyancy"),
-    "diffusion":   (C_DIFF,  "-",  "Diffusion"),
-    "dissipation": (C_DISS,  "-",  "Dissipation"),
-    "shear":       (C_SHEAR, "-",  "Shear"),
+    "advection": (C_ADV, "-", "Advection"),
+    "buoyancy": (C_BUOY, "-", "Buoyancy"),
+    "diffusion": (C_DIFF, "-", "Diffusion"),
+    "dissipation": (C_DISS, "-", "Dissipation"),
+    "shear": (C_SHEAR, "-", "Shear"),
 }
 
 RESIDUAL_STYLE = ("#999999", "-.", "Residual")
-COMPSUM_STYLE  = ("#999999", ":",  "Component sum")
-TENDENCY_STYLE = ("#000000", "-",  "Total tendency")
+COMPSUM_STYLE = ("#999999", ":", "Component sum")
+TENDENCY_STYLE = ("#000000", "-", "Total tendency")
 
 
 def read_dta(filepath):
@@ -139,7 +131,7 @@ def get_components(experiment, variable):
     prefix = f"{variable}.DHFDLABOF+0024."
     for f in sorted(os.listdir(sample_dir)):
         if f.startswith(prefix) and f.endswith(".dta"):
-            comp = f[len(prefix):-4]
+            comp = f[len(prefix) : -4]
             components.append(comp)
     return components
 
@@ -159,8 +151,7 @@ def compute_total_avg(experiment, variable, component):
 
     for day in days:
         filepath = os.path.join(
-            RESULTS_DIR, experiment, day, variable, "data",
-            f"{prefix}{component}.dta"
+            RESULTS_DIR, experiment, day, variable, "data", f"{prefix}{component}.dta"
         )
         if not os.path.isfile(filepath):
             continue
@@ -241,13 +232,12 @@ def plot_variable(variable):
     ratio = max(ranges) / max(min(ranges), 1e-30)
     share_x = ratio < 5.0
 
-    fig, axes = plt.subplots(1, 3, figsize=(28, 12), sharey=True,
-                              sharex=share_x)
+    fig, axes = plt.subplots(1, 3, figsize=(28, 12), sharey=True, sharex=share_x)
 
     for col, experiment in enumerate(EXPERIMENTS):
         ax = axes[col]
         label = EXP_LABELS[experiment]
-        ax.set_title(label, fontsize=26, fontweight='bold')
+        ax.set_title(label, fontsize=26, fontweight="bold")
 
         for comp in plot_comps:
             key = (experiment, comp)
@@ -257,10 +247,9 @@ def plot_variable(variable):
 
             color, ls, lw, display_label = get_style(comp)
             # Negate pressure (stored as negative in .dta files)
-            ax.plot(avg, -pressure, color=color, linestyle=ls,
-                    linewidth=lw, label=display_label)
+            ax.plot(avg, -pressure, color=color, linestyle=ls, linewidth=lw, label=display_label)
 
-        ax.axvline(0, color='gray', linewidth=0.8, linestyle='-')
+        ax.axvline(0, color="gray", linewidth=0.8, linestyle="-")
         ax.set_xlabel(info["unit"], fontsize=20)
         if col == 0:
             ax.set_ylabel("Pressure (hPa)", fontsize=20)
@@ -268,7 +257,7 @@ def plot_variable(variable):
         ax.set_ylim(1050, 0)
         ax.set_yticks(np.arange(0, 1100, 100))
         ax.grid(True, alpha=0.3)
-        ax.tick_params(axis='both', labelsize=17)
+        ax.tick_params(axis="both", labelsize=17)
 
     # Single legend from first subplot — deduplicated
     handles, labels = axes[0].get_legend_handles_labels()
@@ -280,15 +269,26 @@ def plot_variable(variable):
                 seen[l] = True
                 unique_h.append(h)
                 unique_l.append(l)
-        fig.legend(unique_h, unique_l, loc='center right',
-                   bbox_to_anchor=(1.13, 0.5), fontsize=18, frameon=True,
-                   framealpha=0.9, edgecolor='black')
+        fig.legend(
+            unique_h,
+            unique_l,
+            loc="center right",
+            bbox_to_anchor=(1.13, 0.5),
+            fontsize=18,
+            frameon=True,
+            framealpha=0.9,
+            edgecolor="black",
+        )
 
-    fig.suptitle(f"{info['name']} — 2-Year Mean 24h Budget (2014–2015)",
-                 fontsize=26, fontweight='bold', y=1.02)
+    fig.suptitle(
+        f"{info['name']} — 2-Year Mean 24h Budget (2014–2015)",
+        fontsize=26,
+        fontweight="bold",
+        y=1.02,
+    )
     fig.tight_layout()
     outpath = os.path.join(OUTPUT_DIR, f"{variable}_2yr_avg_budget.png")
-    fig.savefig(outpath, dpi=450, bbox_inches='tight')
+    fig.savefig(outpath, dpi=450, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {outpath}")
 

@@ -14,19 +14,20 @@ Usage:
   conda activate epygram
   python -m alaro_analysis.ddh.extract_temperature
 """
+
 from __future__ import annotations
 
-import sys
 import time
 from multiprocessing import Pool
 from pathlib import Path
 
 import numpy as np
-import epygram
+
+from alaro_analysis.data.cache import save_npz_compressed
 
 from .io import AGG_DIR, CP_DRY, EXPERIMENTS, LOG_ROOT, PROCESSED_BASE, UNTAR_ROOT
 
-ALT_SRC  = PROCESSED_BASE / "lead0024_VZ"
+ALT_SRC = PROCESSED_BASE / "lead0024_VZ"
 LOG_PATH = LOG_ROOT / "extract_temperature.log"
 N_WORKERS = 32
 
@@ -38,6 +39,8 @@ def _read_temperature_k(path: Path) -> np.ndarray | None:
     (mass per unit area).  Thus T_K = VCT0 / VPP0 / cp.
     """
     try:
+        import epygram
+
         r = epygram.formats.resource(str(path), "r", fmt="LFA")
         fields = r.listfields()
         if "VCT0" not in fields or "VPP0" not in fields:
@@ -70,7 +73,7 @@ def _mean_altitude(exp: str) -> np.ndarray | None:
         if not vqlm.exists():
             continue
         arr = np.loadtxt(vqlm)
-        altitudes.append(arr[:, 0])   # altitude in km, no sign flip needed
+        altitudes.append(arr[:, 0])  # altitude in km, no sign flip needed
     if not altitudes:
         return None
     # Alignments: all days use the same number of model levels.
@@ -85,15 +88,19 @@ def run() -> Path:
     Returns the path to the log file for inspection.
     """
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    import epygram
+
     epygram.init_env()
 
     with open(LOG_PATH, "w") as logf:
         t0 = time.time()
         for exp in EXPERIMENTS:
             exp_untar_root = UNTAR_ROOT / exp / "output"
-            day_dirs = sorted(d for d in exp_untar_root.iterdir()
-                              if d.is_dir() and d.name.startswith("DDH20"))
-            logf.write(f"{exp}: {len(day_dirs)} day dirs\n"); logf.flush()
+            day_dirs = sorted(
+                d for d in exp_untar_root.iterdir() if d.is_dir() and d.name.startswith("DDH20")
+            )
+            logf.write(f"{exp}: {len(day_dirs)} day dirs\n")
+            logf.flush()
 
             tasks = [(exp, d) for d in day_dirs]
             sums = None
@@ -112,7 +119,8 @@ def run() -> Path:
                         sums[mask] += t[mask]
                         counts[mask] += 1
             if sums is None:
-                logf.write(f"  {exp}: no VTT0 read\n"); continue
+                logf.write(f"  {exp}: no VTT0 read\n")
+                continue
             n_days = int(counts.max())
             temp_k = np.where(counts > 0, sums / np.maximum(counts, 1), np.nan)
 
@@ -124,15 +132,17 @@ def run() -> Path:
             n = min(len(alt_km), len(temp_k))
             out = AGG_DIR / f"temperature_{exp}.npz"
             AGG_DIR.mkdir(parents=True, exist_ok=True)
-            np.savez_compressed(
+            save_npz_compressed(
                 out,
                 altitude_km=alt_km[:n],
                 temperature_k=temp_k[:n],
                 n_days=n_days,
             )
-            logf.write(f"  {exp}: T range {np.nanmin(temp_k):.1f}-{np.nanmax(temp_k):.1f} K, "
-                       f"alt range {np.nanmin(alt_km):.2f}-{np.nanmax(alt_km):.2f} km, "
-                       f"n_days={n_days} -> {out}\n")
+            logf.write(
+                f"  {exp}: T range {np.nanmin(temp_k):.1f}-{np.nanmax(temp_k):.1f} K, "
+                f"alt range {np.nanmin(alt_km):.2f}-{np.nanmax(alt_km):.2f} km, "
+                f"n_days={n_days} -> {out}\n"
+            )
             logf.flush()
         logf.write(f"DONE in {time.time() - t0:.1f}s\n")
     print(f"Log: {LOG_PATH}")
