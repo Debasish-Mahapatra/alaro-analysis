@@ -23,7 +23,7 @@ def test_signed_omega_and_all_missing_domain():
 def test_extended_diagnostics_use_the_same_valid_domain(tmp_path):
     import xarray as xr
 
-    from alaro_analysis.workflows.diagnostics import compute_downdraft_profiles
+    from alaro_analysis.analysis.diagnostic_profiles import compute_downdraft_profiles
     from alaro_analysis.common.models import SpatialWindow
 
     names = {name: name for name in ("UD_OMEGA", "UD_MESH_FRAC", "DD_OMEGA", "DD_MESH_FRAC")}

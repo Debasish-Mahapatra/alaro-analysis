@@ -14,7 +14,11 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
 
-from alaro_analysis.common.constants import EXPERIMENTS, EXPERIMENT_COLORS, EXPERIMENT_LABELS
+from alaro_analysis.common.constants import (
+    EXPERIMENT_COLORS,
+    EXPERIMENT_LABELS,
+    EXPERIMENTS,
+)
 from alaro_analysis.common.models import VerticalAxis
 from alaro_analysis.common.vertical import centers_to_edges
 from alaro_analysis.plotting.scales import robust_anomaly_scale, robust_log_limits
@@ -189,9 +193,7 @@ def plot_three_panel_diurnal(
         )
     else:
         anom_scale_val = anom_scale
-    diff_norm = mcolors.TwoSlopeNorm(
-        vmin=-anom_scale_val, vcenter=0.0, vmax=anom_scale_val
-    )
+    diff_norm = mcolors.TwoSlopeNorm(vmin=-anom_scale_val, vcenter=0.0, vmax=anom_scale_val)
 
     fig, axes = plt.subplots(1, 3, figsize=(20, 7), constrained_layout=True)
     for idx, ax in enumerate(axes):
@@ -204,40 +206,60 @@ def plot_three_panel_diurnal(
         if axis.is_height_km:
             ax.set_ylim(0.0, max_height_km)
         ax.text(
-            0.02, 0.98, f"({chr(ord('a') + idx)})",
-            transform=ax.transAxes, ha="left", va="top", fontsize=14,
+            0.02,
+            0.98,
+            f"({chr(ord('a') + idx)})",
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=14,
             fontweight="bold",
             bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.95, "pad": 2.0},
         )
 
     # Panel (a): absolute
     pcm_abs = axes[0].pcolormesh(
-        hour_edges, y_edges, ctrl_plot,
-        cmap=abs_cmap, norm=abs_norm, shading="auto",
+        hour_edges,
+        y_edges,
+        ctrl_plot,
+        cmap=abs_cmap,
+        norm=abs_norm,
+        shading="auto",
     )
     axes[0].set_title(
         f"{EXPERIMENT_LABELS['control']} ({variable_label}, Absolute)",
-        fontsize=14, fontweight="bold",
+        fontsize=14,
+        fontweight="bold",
     )
 
     # Panel (b): G1M - C1M
     axes[1].pcolormesh(
-        hour_edges, y_edges, diff_g1_plot,
-        cmap=anom_cmap, norm=diff_norm, shading="auto",
+        hour_edges,
+        y_edges,
+        diff_g1_plot,
+        cmap=anom_cmap,
+        norm=diff_norm,
+        shading="auto",
     )
     axes[1].set_title(
         f"{EXPERIMENT_LABELS['graupel']} - {EXPERIMENT_LABELS['control']}",
-        fontsize=14, fontweight="bold",
+        fontsize=14,
+        fontweight="bold",
     )
 
     # Panel (c): G2M - G1M
     pcm_diff = axes[2].pcolormesh(
-        hour_edges, y_edges, diff_g2_plot,
-        cmap=anom_cmap, norm=diff_norm, shading="auto",
+        hour_edges,
+        y_edges,
+        diff_g2_plot,
+        cmap=anom_cmap,
+        norm=diff_norm,
+        shading="auto",
     )
     axes[2].set_title(
         f"{EXPERIMENT_LABELS['2mom']} - {EXPERIMENT_LABELS['graupel']}",
-        fontsize=14, fontweight="bold",
+        fontsize=14,
+        fontweight="bold",
     )
 
     # Freezing level overlay
@@ -250,22 +272,28 @@ def plot_three_panel_diurnal(
             if line is None or not np.isfinite(line).any():
                 continue
             ax.plot(
-                hours_arr, line,
-                color="black", linewidth=1.8, linestyle="--",
-                label=f"Freezing level ({EXPERIMENT_LABELS[exp]})", zorder=10,
+                hours_arr,
+                line,
+                color="black",
+                linewidth=1.8,
+                linestyle="--",
+                label=f"Freezing level ({EXPERIMENT_LABELS[exp]})",
+                zorder=10,
             )
             ax.legend(loc="upper right", fontsize=12, framealpha=0.9)
 
-    fig.suptitle(
-        f"{period_label} - {variable_label}", fontsize=16, fontweight="bold"
-    )
+    fig.suptitle(f"{period_label} - {variable_label}", fontsize=16, fontweight="bold")
 
     # Colorbars
     abs_label = f"Mean {variable_label}"
     if variable_unit:
         abs_label += f" [{variable_unit}]"
     cbar_abs = fig.colorbar(
-        pcm_abs, ax=axes[0], orientation="horizontal", fraction=0.08, pad=0.16,
+        pcm_abs,
+        ax=axes[0],
+        orientation="horizontal",
+        fraction=0.08,
+        pad=0.16,
     )
     cbar_abs.set_label(abs_label, fontsize=14)
     cbar_abs.ax.tick_params(labelsize=12)
@@ -274,7 +302,11 @@ def plot_three_panel_diurnal(
     if variable_unit:
         diff_label += f" [{variable_unit}]"
     cbar_diff = fig.colorbar(
-        pcm_diff, ax=axes[1:], orientation="horizontal", fraction=0.08, pad=0.16,
+        pcm_diff,
+        ax=axes[1:],
+        orientation="horizontal",
+        fraction=0.08,
+        pad=0.16,
     )
     cbar_diff.set_label(diff_label, fontsize=14)
     cbar_diff.ax.tick_params(labelsize=12)
