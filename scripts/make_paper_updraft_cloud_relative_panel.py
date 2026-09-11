@@ -100,6 +100,15 @@ def load_temperature(exp: str) -> np.ndarray | None:
         return np.asarray(d["mean"], dtype=np.float64)
 
 
+# The old caches come from hydrometeor.py's UPDRAFT_FLUX, which evaluates
+# np.where(mesh > 0, ..., 0.0) on the padded 75x72 crop: the NaN cells outside
+# the radar mask enter the mean as zeros, so every cached flux is low by exactly
+# 75*72/2822.  Scale the old cache by that before comparing, or the cross-check
+# reports a spurious ~91% mismatch.  extent/cloud/temp use a plain nanmean and
+# are unaffected.
+OLD_CACHE_DILUTION = {"flux": (75 * 72) / 2822}
+
+
 def crosscheck_against_cache() -> None:
     """Print max |recomputed - cached| so the netcdf recompute is verifiable."""
     for key, old_dir in OLD_CACHE_DIRS.items():
@@ -111,12 +120,14 @@ def crosscheck_against_cache() -> None:
             old, _, _, _ = load_diurnal_profile_cache(str(old_path))
             with np.load(new_path) as d:
                 new = np.asarray(d["mean"], dtype=np.float64)
-            old = np.asarray(old, dtype=np.float64)
+            scale = OLD_CACHE_DILUTION.get(key, 1.0)
+            old = np.asarray(old, dtype=np.float64) * scale
             n = min(old.shape[0], new.shape[0])
             diff = np.abs(new[:n] - old[:n])
             denom = float(np.nanmax(np.abs(old[:n]))) or 1.0
+            tag = f" (old x {scale:.4f})" if scale != 1.0 else ""
             print(
-                f"  cross-check {key:7s} {exp:8s}: max|new-old|={np.nanmax(diff):.3e} "
+                f"  cross-check {key:7s} {exp:8s}: max|new-old{tag}|={np.nanmax(diff):.3e} "
                 f"({100 * np.nanmax(diff) / denom:.3f}% of field max)",
                 flush=True,
             )

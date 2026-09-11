@@ -6,6 +6,7 @@ For every experiment this reads, per hourly file, the full-domain mean vertical
 profile of:
   * updraft extent      = mean(UD_MESH_FRAC)
   * updraft mass flux   = mean( where(mesh>0, (-UD_OMEGA*mesh)/g, 0) )
+                          (NaN-safe: only the 2822 radar-mask cells count)
   * cloud cover         = mean(CLOUD_FRACTI)
   * temperature         = mean(TEMPERATURE)            (for the freezing line)
 then bins by Amazon local hour (UTC-4) and averages over the full 2-year run.
@@ -58,8 +59,14 @@ def _worker(task: tuple[str, str, str, str, int]):
             as_time_level_yx(read_field_array(mesh_p, "UD_MESH_FRAC"), mesh_p), SW, mesh_p
         )
         ext, _ = nanmean_with_count(mesh, axis=(0, 2, 3))
+        # The NaN guard matters: the netcdf crop is 75x72 but only 2822 of those
+        # 5400 cells are inside the radar mask, the rest are NaN.  Without it,
+        # `NaN > 0` is False, those cells enter as 0.0, and the nanmean divides
+        # by 5400 instead of 2822 -- every flux is then low by exactly 1.9135.
+        finite = np.isfinite(omega) & np.isfinite(mesh)
         flux, _ = nanmean_with_count(
-            np.where(mesh > 0, (-omega * mesh) / G, 0.0), axis=(0, 2, 3)
+            np.where(finite, np.where(mesh > 0, (-omega * mesh) / G, 0.0), np.nan),
+            axis=(0, 2, 3),
         )
     except Exception:
         ext = flux = None
