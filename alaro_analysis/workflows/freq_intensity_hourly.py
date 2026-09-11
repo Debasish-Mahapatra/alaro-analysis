@@ -1,13 +1,16 @@
 """Build (hour, |omega|) 2D histograms per experiment, parameterized updrafts only.
 Writes /gpfs/me01/me/CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/freq_intensity_hourly/ud_only.npz for the plotting step."""
-from pathlib import Path
+
 import re
+
 import numpy as np
 import xarray as xr
 
 from alaro_analysis.common.parallel import imap_unordered_progress
+from alaro_analysis.common.paths import runs_path
+from alaro_analysis.data.cache import save_npz
 
-DATA = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/ALARO")
+DATA = runs_path("ALARO")
 EXPERIMENTS = ("control", "graupel", "2mom")
 UTC_OFFSET = -4
 HOUR_RE = re.compile(r"\+(\d{4})\.nc$")
@@ -27,7 +30,7 @@ def _process_day(args):
     exp, day_name = args
     base = DATA / exp / "masked-netcdf"
     H = np.zeros((24, N_INT), dtype=np.int64)
-    ncells = np.zeros(24, dtype=np.int64)   # total finite cells per hour, for normalising
+    ncells = np.zeros(24, dtype=np.int64)  # total finite cells per hour, for normalising
 
     for f in sorted((base / "UD_OMEGA" / day_name).iterdir()):
         if not f.name.endswith(".nc"):
@@ -62,27 +65,44 @@ def _process_day(args):
 def main():
     tasks = []
     for exp in EXPERIMENTS:
-        for d in sorted(x.name for x in (DATA / exp / "masked-netcdf" / "UD_OMEGA").iterdir()
-                        if x.is_dir() and x.name.startswith("pf")):
+        for d in sorted(
+            x.name
+            for x in (DATA / exp / "masked-netcdf" / "UD_OMEGA").iterdir()
+            if x.is_dir() and x.name.startswith("pf")
+        ):
             tasks.append((exp, d))
     print(f"tasks: {len(tasks)} (days x experiments)", flush=True)
 
-    agg = {e: [np.zeros((24, N_INT), dtype=np.int64),
-               np.zeros(24, dtype=np.int64)] for e in EXPERIMENTS}
+    agg = {
+        e: [np.zeros((24, N_INT), dtype=np.int64), np.zeros(24, dtype=np.int64)]
+        for e in EXPERIMENTS
+    }
 
     for exp, H, n in imap_unordered_progress(_process_day, tasks, desc="days"):
         agg[exp][0] += H
         agg[exp][1] += n
 
-    np.savez("/gpfs/me01/me/CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/freq_intensity_hourly/ud_only.npz",
-             bin_edges=BIN_EDGES,
-             bin_centers=BIN_CENTERS,
-             **{f"{e}_hist": agg[e][0] for e in EXPERIMENTS},
-             **{f"{e}_ncells": agg[e][1] for e in EXPERIMENTS})
+    save_npz(
+        str(runs_path("processed-data/freq_intensity_hourly/ud_only.npz")),
+        bin_edges=BIN_EDGES,
+        bin_centers=BIN_CENTERS,
+        **{f"{e}_hist": agg[e][0] for e in EXPERIMENTS},
+        **{f"{e}_ncells": agg[e][1] for e in EXPERIMENTS},
+    )
     for e in EXPERIMENTS:
         H, n = agg[e]
         print(f"{e}: total counts={H.sum():,}  total finite cells={n.sum():,}", flush=True)
-    print("saved /gpfs/me01/me/CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/freq_intensity_hourly/ud_only.npz", flush=True)
+    print(
+        "saved /gpfs/me01/me/CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/freq_intensity_hourly/ud_only.npz",
+        flush=True,
+    )
+
+
+def __getattr__(name):
+    """Compatibility for moved functions; new callers use the owning module."""
+    from alaro_analysis.common.legacy_exports import resolve_export
+
+    return resolve_export(__name__, name)
 
 
 if __name__ == "__main__":

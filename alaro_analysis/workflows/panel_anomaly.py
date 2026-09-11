@@ -18,13 +18,13 @@ from pathlib import Path
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
-
-from alaro_analysis.common.figio import strip_cbar_zeros
 import numpy as np
 
 from alaro_analysis.common.cli_config import add_config_argument, parse_configured_args
-from alaro_analysis.common.constants import EXPERIMENTS, EXPERIMENT_LABELS
+from alaro_analysis.common.constants import EXPERIMENT_LABELS
+from alaro_analysis.common.figio import strip_cbar_zeros
 from alaro_analysis.common.models import VerticalAxis
+from alaro_analysis.common.paths import runs_path
 from alaro_analysis.common.vertical import (
     centers_to_edges,
     compute_freezing_line_km,
@@ -35,7 +35,6 @@ from alaro_analysis.data.cache import (
     load_height_axis,
     load_temperature_profile,
 )
-from alaro_analysis.plotting.scales import robust_anomaly_scale
 
 try:
     import cmaps  # type: ignore
@@ -48,13 +47,14 @@ except Exception:
 
 DEFAULT_INTERMEDIATE_DIRS = [
     Path("/Users/dev/Desktop/paper-1/data.npz/data"),
-    Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data"),
+    runs_path("processed-data"),
 ]
 DEFAULT_OUTPUT_DIR = Path("/Users/dev/Desktop/paper-1/figures")
 
 # ---------------------------------------------------------------------------
 # Plotting
 # ---------------------------------------------------------------------------
+
 
 def plot_multi_variable_anomaly_panel(
     anomalies: list[np.ndarray],
@@ -68,6 +68,8 @@ def plot_multi_variable_anomaly_panel(
     fixed_anom_scales: list[float | None] | None = None,
     dpi: int = 450,
 ) -> None:
+    from alaro_analysis.plotting.scales import robust_anomaly_scale
+
     n_panels = len(anomalies)
     axis_label_fs = 22
     tick_label_fs = 20
@@ -93,15 +95,11 @@ def plot_multi_variable_anomaly_panel(
     hour_edges = np.arange(25, dtype=np.float64) - 0.5
     y_edges = centers_to_edges(y)
 
-    fig, axes = plt.subplots(
-        1, n_panels, figsize=(20, 7), constrained_layout=True
-    )
+    fig, axes = plt.subplots(1, n_panels, figsize=(20, 7), constrained_layout=True)
     if n_panels == 1:
         axes = [axes]
 
-    for idx, (anom, title, label) in enumerate(
-        zip(anomalies, panel_titles, panel_labels)
-    ):
+    for idx, (anom, title, label) in enumerate(zip(anomalies, panel_titles, panel_labels)):
         ax = axes[idx]
         anom_sorted = anom[order, :]
         if axis.is_height_km:
@@ -113,14 +111,16 @@ def plot_multi_variable_anomaly_panel(
             anom_scale = fixed_anom_scales[idx]
         else:
             anom_scale = robust_anomaly_scale(anom_plot.filled(np.nan))
-        diff_norm = mcolors.TwoSlopeNorm(
-            vmin=-anom_scale, vcenter=0.0, vmax=anom_scale
-        )
+        diff_norm = mcolors.TwoSlopeNorm(vmin=-anom_scale, vcenter=0.0, vmax=anom_scale)
 
         ax.set_facecolor("#d3d3d3")
         pcm = ax.pcolormesh(
-            hour_edges, y_edges, anom_plot,
-            cmap="RdBu_r", norm=diff_norm, shading="auto",
+            hour_edges,
+            y_edges,
+            anom_plot,
+            cmap="RdBu_r",
+            norm=diff_norm,
+            shading="auto",
         )
         ax.set_title(title, fontsize=title_fs, fontweight="bold")
         ax.set_xlabel("Hour (Amazon UTC-4)", fontsize=axis_label_fs)
@@ -135,9 +135,14 @@ def plot_multi_variable_anomaly_panel(
             ax.set_ylim(0.0, max_height_km)
 
         ax.text(
-            0.02, 0.98, f"({chr(ord('a') + idx)})",
-            transform=ax.transAxes, ha="left", va="top",
-            fontsize=panel_tag_fs, fontweight="bold",
+            0.02,
+            0.98,
+            f"({chr(ord('a') + idx)})",
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=panel_tag_fs,
+            fontweight="bold",
             bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.95, "pad": 2.0},
         )
 
@@ -150,9 +155,13 @@ def plot_multi_variable_anomaly_panel(
         if fl is not None and np.isfinite(fl).any():
             hours = np.arange(24, dtype=np.float64)
             ax.plot(
-                hours, fl,
-                color="black", linewidth=1.8, linestyle="--",
-                label="Freezing level", zorder=10,
+                hours,
+                fl,
+                color="black",
+                linewidth=1.8,
+                linestyle="--",
+                label="Freezing level",
+                zorder=10,
             )
             ax.legend(loc="upper right", fontsize=legend_fs, framealpha=0.9)
 
@@ -176,6 +185,8 @@ def plot_abs_anomaly_panel(
     fixed_anom_scale: float | None = None,
     dpi: int = 450,
 ) -> None:
+    from alaro_analysis.plotting.scales import robust_anomaly_scale
+
     axis_label_fs = 22
     tick_label_fs = 20
     panel_tag_fs = 20
@@ -202,9 +213,7 @@ def plot_abs_anomaly_panel(
     panels = [absolute, anomaly1, anomaly2]
     labels = [abs_cbar_label, anom_cbar_label, anom_cbar_label]
 
-    for idx, (data, title, label) in enumerate(
-        zip(panels, panel_titles, labels)
-    ):
+    for idx, (data, title, label) in enumerate(zip(panels, panel_titles, labels)):
         ax = axes[idx]
         data_sorted = data[order, :]
         if axis.is_height_km:
@@ -228,7 +237,9 @@ def plot_abs_anomaly_panel(
                 vmin, vmax = 1e-12, 1.0
             norm = mcolors.LogNorm(vmin=vmin, vmax=vmax)
             pcm = ax.pcolormesh(
-                hour_edges, y_edges, data_plot,
+                hour_edges,
+                y_edges,
+                data_plot,
                 cmap=cmaps.WhiteBlueGreenYellowRed if cmaps is not None else "turbo",
                 norm=norm,
                 shading="auto",
@@ -239,12 +250,14 @@ def plot_abs_anomaly_panel(
                 anom_scale = fixed_anom_scale
             else:
                 anom_scale = robust_anomaly_scale(data_plot.filled(np.nan))
-            norm = mcolors.TwoSlopeNorm(
-                vmin=-anom_scale, vcenter=0.0, vmax=anom_scale
-            )
+            norm = mcolors.TwoSlopeNorm(vmin=-anom_scale, vcenter=0.0, vmax=anom_scale)
             pcm = ax.pcolormesh(
-                hour_edges, y_edges, data_plot,
-                cmap="RdBu_r", norm=norm, shading="auto",
+                hour_edges,
+                y_edges,
+                data_plot,
+                cmap="RdBu_r",
+                norm=norm,
+                shading="auto",
             )
 
         ax.set_title(title, fontsize=title_fs, fontweight="bold")
@@ -260,9 +273,14 @@ def plot_abs_anomaly_panel(
             ax.set_ylim(0.0, max_height_km)
 
         ax.text(
-            0.02, 0.98, f"({chr(ord('a') + idx)})",
-            transform=ax.transAxes, ha="left", va="top",
-            fontsize=panel_tag_fs, fontweight="bold",
+            0.02,
+            0.98,
+            f"({chr(ord('a') + idx)})",
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=panel_tag_fs,
+            fontweight="bold",
             bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.95, "pad": 2.0},
         )
 
@@ -275,9 +293,13 @@ def plot_abs_anomaly_panel(
         if fl is not None and np.isfinite(fl).any():
             hours = np.arange(24, dtype=np.float64)
             ax.plot(
-                hours, fl,
-                color="black", linewidth=1.8, linestyle="--",
-                label="Freezing level", zorder=10,
+                hours,
+                fl,
+                color="black",
+                linewidth=1.8,
+                linestyle="--",
+                label="Freezing level",
+                zorder=10,
             )
             ax.legend(loc="upper right", fontsize=legend_fs, framealpha=0.9)
 
@@ -290,6 +312,7 @@ def plot_abs_anomaly_panel(
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -356,6 +379,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     args = parse_args()
     roots = [p.resolve() for p in args.intermediate_dir]
@@ -375,18 +399,18 @@ def main() -> None:
     print("Loading cached diurnal profiles ...", flush=True)
 
     cf_ctrl = load_diurnal_mean(roots, "CLOUD_FRACTI", period_sub, "control", stag)
-    cf_g1   = load_diurnal_mean(roots, "CLOUD_FRACTI", period_sub, "graupel", stag)
+    cf_g1 = load_diurnal_mean(roots, "CLOUD_FRACTI", period_sub, "graupel", stag)
 
     rh_ctrl = load_diurnal_mean(roots, "HUMI.RELATIVE", period_sub, "control", stag)
-    rh_g1   = load_diurnal_mean(roots, "HUMI.RELATIVE", period_sub, "graupel", stag)
+    rh_g1 = load_diurnal_mean(roots, "HUMI.RELATIVE", period_sub, "graupel", stag)
 
     rain_ctrl = load_diurnal_mean(roots, "RAIN", period_sub, "control", stag)
-    rain_g1   = load_diurnal_mean(roots, "RAIN", period_sub, "graupel", stag)
-    rain_g2   = load_diurnal_mean(roots, "RAIN", period_sub, "2mom", stag)
+    rain_g1 = load_diurnal_mean(roots, "RAIN", period_sub, "graupel", stag)
+    rain_g2 = load_diurnal_mean(roots, "RAIN", period_sub, "2mom", stag)
 
     lwc_ctrl = load_diurnal_mean(roots, "LIQUID_WATER", period_sub, "control", stag)
-    lwc_g1   = load_diurnal_mean(roots, "LIQUID_WATER", period_sub, "graupel", stag)
-    lwc_g2   = load_diurnal_mean(roots, "LIQUID_WATER", period_sub, "2mom", stag)
+    lwc_g1 = load_diurnal_mean(roots, "LIQUID_WATER", period_sub, "graupel", stag)
+    lwc_g2 = load_diurnal_mean(roots, "LIQUID_WATER", period_sub, "2mom", stag)
 
     # ------- load height axes for interpolation -------
     axis_g1 = load_height_axis(
@@ -414,23 +438,23 @@ def main() -> None:
         )
 
     # Interpolate all non-control profiles to control height grid
-    cf_g1_i   = interp_to_ctrl(axis_g1, cf_g1)
-    rh_g1_i   = interp_to_ctrl(axis_g1, rh_g1)
+    cf_g1_i = interp_to_ctrl(axis_g1, cf_g1)
+    rh_g1_i = interp_to_ctrl(axis_g1, rh_g1)
     rain_g1_i = interp_to_ctrl(axis_g1, rain_g1)
     rain_g2_i = interp_to_ctrl(axis_g2, rain_g2)
-    lwc_g1_i  = interp_to_ctrl(axis_g1, lwc_g1)
-    lwc_g2_i  = interp_to_ctrl(axis_g2, lwc_g2)
+    lwc_g1_i = interp_to_ctrl(axis_g1, lwc_g1)
+    lwc_g2_i = interp_to_ctrl(axis_g2, lwc_g2)
 
     # Truncate control profiles to same vertical extent
     n = target_h.size
     cf_ctrl_t = cf_ctrl[:n, :]
     rh_ctrl_t = rh_ctrl[:n, :]
     rain_ctrl_t = rain_ctrl[:n, :]
-    lwc_ctrl_t  = lwc_ctrl[:n, :]
+    lwc_ctrl_t = lwc_ctrl[:n, :]
 
     # ------- compute anomalies -------
-    anom_cf = cf_g1_i - cf_ctrl_t            # G1M − C1M
-    anom_rh = rh_g1_i - rh_ctrl_t            # G1M − C1M
+    anom_cf = cf_g1_i - cf_ctrl_t  # G1M − C1M
+    anom_rh = rh_g1_i - rh_ctrl_t  # G1M − C1M
     anom_rain_lwc = (rain_g2_i + lwc_g2_i) - (rain_g1_i + lwc_g1_i)  # G2M − G1M
 
     print("Anomalies computed.", flush=True)
@@ -489,10 +513,10 @@ def main() -> None:
 
     # ------- Rain + LWC  absolute + anomaly panel -------
     rlwc_ctrl = rain_ctrl_t + lwc_ctrl_t
-    rlwc_g1   = rain_g1_i + lwc_g1_i
-    rlwc_g2   = rain_g2_i + lwc_g2_i
-    anom_rlwc_g1_c1 = rlwc_g1 - rlwc_ctrl   # G1M − C1M
-    anom_rlwc_g2_g1 = rlwc_g2 - rlwc_g1     # G2M − G1M
+    rlwc_g1 = rain_g1_i + lwc_g1_i
+    rlwc_g2 = rain_g2_i + lwc_g2_i
+    anom_rlwc_g1_c1 = rlwc_g1 - rlwc_ctrl  # G1M − C1M
+    anom_rlwc_g2_g1 = rlwc_g2 - rlwc_g1  # G2M − G1M
 
     # Panels: (a) C1M abs → control, (b) G1M-C1M → graupel, (c) G2M-G1M → 2mom
     output_rlwc = args.output_dir.resolve() / "rain_lwc_abs_anomaly_panel.png"
@@ -520,6 +544,13 @@ def main() -> None:
     )
 
     print("Done.", flush=True)
+
+
+def __getattr__(name):
+    """Compatibility for pre-refactor imports; new callers use the owning module."""
+    from alaro_analysis.common.legacy_exports import resolve_export
+
+    return resolve_export(__name__, name)
 
 
 if __name__ == "__main__":

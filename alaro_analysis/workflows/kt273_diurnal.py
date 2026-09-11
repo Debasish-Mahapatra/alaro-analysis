@@ -43,7 +43,11 @@ import numpy as np
 import xarray as xr
 
 from alaro_analysis.analysis.derived import compute_theta_e_field
-from alaro_analysis.common.constants import EXPERIMENT_COLORS as EXP_COLORS, G, SEASONS
+from alaro_analysis.common.cli_config import parse_configured_args
+from alaro_analysis.common.constants import EXPERIMENT_COLORS as EXP_COLORS
+from alaro_analysis.common.constants import SEASONS, G
+from alaro_analysis.common.paths import runs_path
+from alaro_analysis.data.cache import save_npz_compressed
 
 warnings.filterwarnings("ignore", message="Mean of empty slice", category=RuntimeWarning)
 
@@ -52,40 +56,36 @@ warnings.filterwarnings("ignore", message="Mean of empty slice", category=Runtim
 # Configuration
 # ---------------------------------------------------------------------------
 
-DATA_ROOT = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/ALARO")
-OUTPUT_DIR = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/figures/kt273_diurnal")
-CACHE_DIR = Path(
-    "/gpfs/me01/me/CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/kt273_diurnal"
-)
+DATA_ROOT = runs_path("ALARO")
+OUTPUT_DIR = runs_path("figures/kt273_diurnal")
+CACHE_DIR = runs_path("processed-data/kt273_diurnal")
 
 EXPERIMENTS = {"control": "C1M", "graupel": "G1M", "2mom": "G2M"}
 # EXP_COLORS imported from common.constants.EXPERIMENT_COLORS above.
 
 MIN_LEAD_HOUR = 0
 N_WORKERS = 34
-BL_TOP_M = 1500.0   # reference AGL height for theta_e gradient
-UTC_OFFSET_HOURS = -4   # Amazon local time is UTC-4
+BL_TOP_M = 1500.0  # reference AGL height for theta_e gradient
+UTC_OFFSET_HOURS = -4  # Amazon local time is UTC-4
 
 
 # Variable short key -> (cached dir name, y-axis label, unit)
 KT273_SCALARS: dict[str, tuple[str, str, str]] = {
-    "graupel":     ("KT273GRAUPEL",     "Graupel mixing ratio at 0 C",    "kg/kg"),
-    "rain":        ("KT273RAIN",        "Rain mixing ratio at 0 C",       "kg/kg"),
-    "snow":        ("KT273SNOW",        "Snow mixing ratio at 0 C",       "kg/kg"),
-    "liquid":      ("KT273LIQUID_WATE", "Cloud liquid water at 0 C",      "kg/kg"),
-    "solid":       ("KT273SOLID_WATER", "Cloud ice at 0 C",               "kg/kg"),
-    "dd_omega":    ("KT273DD_OMEGA",    "Downdraft omega at 0 C",         "Pa/s"),
-    "dd_mesh":     ("KT273DD_MESH_FRA", "Downdraft mesh fraction at 0 C", "-"),
-    "ud_omega":    ("KT273UD_OMEGA",    "Updraft omega at 0 C",           "Pa/s"),
-    "ud_mesh":     ("KT273UD_MESH_FRA", "Updraft mesh fraction at 0 C",   "-"),
-    "humi":        ("KT273HUMI.SPECIF", "Specific humidity at 0 C",       "kg/kg"),
+    "graupel": ("KT273GRAUPEL", "Graupel mixing ratio at 0 C", "kg/kg"),
+    "rain": ("KT273RAIN", "Rain mixing ratio at 0 C", "kg/kg"),
+    "snow": ("KT273SNOW", "Snow mixing ratio at 0 C", "kg/kg"),
+    "liquid": ("KT273LIQUID_WATE", "Cloud liquid water at 0 C", "kg/kg"),
+    "solid": ("KT273SOLID_WATER", "Cloud ice at 0 C", "kg/kg"),
+    "dd_omega": ("KT273DD_OMEGA", "Downdraft omega at 0 C", "Pa/s"),
+    "dd_mesh": ("KT273DD_MESH_FRA", "Downdraft mesh fraction at 0 C", "-"),
+    "ud_omega": ("KT273UD_OMEGA", "Updraft omega at 0 C", "Pa/s"),
+    "ud_mesh": ("KT273UD_MESH_FRA", "Updraft mesh fraction at 0 C", "-"),
+    "humi": ("KT273HUMI.SPECIF", "Specific humidity at 0 C", "kg/kg"),
 }
 
 DERIVED_LABELS: dict[str, tuple[str, str]] = {
-    "dd_mass_flux":  ("Downdraft mass flux at 0 C",
-                      r"kg m$^{-2}$ s$^{-1}$"),
-    "ud_mass_flux":  ("Updraft mass flux at 0 C",
-                      r"kg m$^{-2}$ s$^{-1}$"),
+    "dd_mass_flux": ("Downdraft mass flux at 0 C", r"kg m$^{-2}$ s$^{-1}$"),
+    "ud_mass_flux": ("Updraft mass flux at 0 C", r"kg m$^{-2}$ s$^{-1}$"),
     "bl_thetae_grad": (
         r"BL $\theta_e$ gradient  ($\theta_e$(1.5 km AGL) - $\theta_e$(surf)) / 1.5 km",
         "K/km",
@@ -96,6 +96,7 @@ DERIVED_LABELS: dict[str, tuple[str, str]] = {
 # ---------------------------------------------------------------------------
 # I/O helpers
 # ---------------------------------------------------------------------------
+
 
 def list_days(exp_dir: Path, variable: str) -> list[Path]:
     root = exp_dir / "masked-netcdf" / variable
@@ -141,6 +142,7 @@ def _read_arr(filepath: Path) -> np.ndarray:
 # Per-day accumulator
 # ---------------------------------------------------------------------------
 
+
 def _process_day(args):
     exp_dir, day_dir = args
     day_name = day_dir.name
@@ -157,7 +159,7 @@ def _process_day(args):
 
     for lead, step_file in steps:
         step_name = step_file.name
-        hour = (lead + UTC_OFFSET_HOURS) % 24   # local hour (Amazon UTC-4)
+        hour = (lead + UTC_OFFSET_HOURS) % 24  # local hour (Amazon UTC-4)
 
         # ---- KT273 scalar diagnostics: domain-mean of each cached field
         kt_vals: dict[str, float] = {}
@@ -187,25 +189,28 @@ def _process_day(args):
         # ---- BL theta_e gradient: needs TEMPERATURE, HUMI.SPECIFI, PRESSURE, GEOPOTENTIEL
         bl_grad = np.nan
         try:
-            t   = _read_arr(exp_dir / "masked-netcdf" / "TEMPERATURE"  / day_name / step_name)
-            q   = _read_arr(exp_dir / "masked-netcdf" / "HUMI.SPECIFI" / day_name / step_name)
-            p   = _read_arr(exp_dir / "masked-netcdf" / "PRESSURE"     / day_name / step_name)
-            gz  = _read_arr(exp_dir / "masked-netcdf" / "GEOPOTENTIEL" / day_name / step_name)
+            t = _read_arr(exp_dir / "masked-netcdf" / "TEMPERATURE" / day_name / step_name)
+            q = _read_arr(exp_dir / "masked-netcdf" / "HUMI.SPECIFI" / day_name / step_name)
+            p = _read_arr(exp_dir / "masked-netcdf" / "PRESSURE" / day_name / step_name)
+            gz = _read_arr(exp_dir / "masked-netcdf" / "GEOPOTENTIEL" / day_name / step_name)
         except Exception:
             t = q = p = gz = None
 
         if t is not None and q is not None and p is not None and gz is not None:
             # Drop leading time dim if present → (L, y, x)
             if t.ndim == 4:
-                t = t[0]; q = q[0]; p = p[0]; gz = gz[0]
+                t = t[0]
+                q = q[0]
+                p = p[0]
+                gz = gz[0]
 
             # Guard against all-NaN files
             if np.isfinite(t).any() and np.isfinite(q).any() and np.isfinite(p).any():
                 p_pa = p if np.nanmax(p) >= 2000.0 else p * 100.0
-                theta_e_lyx = compute_theta_e_field(t, q, p_pa)   # (L, y, x)
+                theta_e_lyx = compute_theta_e_field(t, q, p_pa)  # (L, y, x)
 
                 theta_e_prof = np.nanmean(theta_e_lyx, axis=(1, 2))  # (L,)
-                z_prof       = np.nanmean(gz,         axis=(1, 2))   # (L,) m AGL ~ geopotential m
+                z_prof = np.nanmean(gz, axis=(1, 2))  # (L,) m AGL ~ geopotential m
 
                 # Identify surface (lowest z) and 1500 m level via linear interp
                 valid = np.isfinite(theta_e_prof) & np.isfinite(z_prof)
@@ -225,13 +230,15 @@ def _process_day(args):
         # ---- Accumulate into hour bins
         for key, val in kt_vals.items():
             if np.isfinite(val):
-                sums[key][hour]   += val
+                sums[key][hour] += val
                 counts[key][hour] += 1
-        for key, val in (("dd_mass_flux", dd_flux),
-                          ("ud_mass_flux", ud_flux),
-                          ("bl_thetae_grad", bl_grad)):
+        for key, val in (
+            ("dd_mass_flux", dd_flux),
+            ("ud_mass_flux", ud_flux),
+            ("bl_thetae_grad", bl_grad),
+        ):
             if np.isfinite(val):
-                sums[key][hour]   += val
+                sums[key][hour] += val
                 counts[key][hour] += 1
 
     return {"sums": sums, "counts": counts}
@@ -240,6 +247,7 @@ def _process_day(args):
 # ---------------------------------------------------------------------------
 # Compute / cache / load (per experiment, per period)
 # ---------------------------------------------------------------------------
+
 
 def accumulate(
     experiment: str,
@@ -263,8 +271,8 @@ def accumulate(
     tasks = [(exp_dir, d) for d in days]
 
     all_keys = list(KT273_SCALARS) + list(DERIVED_LABELS)
-    agg_sums   = {k: np.zeros(24, dtype=np.float64) for k in all_keys}
-    agg_counts = {k: np.zeros(24, dtype=np.int64)   for k in all_keys}
+    agg_sums = {k: np.zeros(24, dtype=np.float64) for k in all_keys}
+    agg_counts = {k: np.zeros(24, dtype=np.int64) for k in all_keys}
     n_used = 0
 
     with Pool(N_WORKERS) as pool:
@@ -272,15 +280,15 @@ def accumulate(
             if res is None:
                 continue
             for k in all_keys:
-                agg_sums[k]   += res["sums"][k]
+                agg_sums[k] += res["sums"][k]
                 agg_counts[k] += res["counts"][k]
             n_used += 1
             if (idx + 1) % 100 == 0:
-                print(f"  kt273 {experiment}/{period_key}: {idx+1}/{len(days)}", flush=True)
+                print(f"  kt273 {experiment}/{period_key}: {idx + 1}/{len(days)}", flush=True)
 
     print(f"  kt273 {experiment}/{period_key}: DONE {n_used} days", flush=True)
     return {
-        "sums":   agg_sums,
+        "sums": agg_sums,
         "counts": agg_counts,
         "n_days": n_used,
     }
@@ -306,7 +314,7 @@ def save_cache(experiment: str, period_key: str, result: dict) -> Path:
     for k, v in result["counts"].items():
         flat[f"cnt__{k}"] = v
     flat["n_days"] = np.array(result["n_days"])
-    np.savez_compressed(path, **flat)
+    save_npz_compressed(path, **flat)
     print(f"  saved {path}")
     return path
 
@@ -316,19 +324,20 @@ def load_cache(experiment: str, period_key: str) -> dict | None:
     if not path.exists():
         return None
     d = np.load(path)
-    sums:   dict[str, np.ndarray] = {}
+    sums: dict[str, np.ndarray] = {}
     counts: dict[str, np.ndarray] = {}
     for k in d.files:
         if k.startswith("sum__"):
-            sums[k[len("sum__"):]] = d[k]
+            sums[k[len("sum__") :]] = d[k]
         elif k.startswith("cnt__"):
-            counts[k[len("cnt__"):]] = d[k]
+            counts[k[len("cnt__") :]] = d[k]
     return {"sums": sums, "counts": counts, "n_days": int(d["n_days"])}
 
 
 # ---------------------------------------------------------------------------
 # Plotting
 # ---------------------------------------------------------------------------
+
 
 def _figure_filename(diag_key: str, period_key: str) -> str:
     base = diag_key  # keys are already lowercase and clean
@@ -337,17 +346,16 @@ def _figure_filename(diag_key: str, period_key: str) -> str:
     return f"{base}_diurnal_{period_key}.png"
 
 
-def _plot_one(diag_key: str, label: str, unit: str,
-              finals: dict[str, dict[str, np.ndarray]],
-              period_key: str) -> None:
+def _plot_one(
+    diag_key: str, label: str, unit: str, finals: dict[str, dict[str, np.ndarray]], period_key: str
+) -> None:
     fig, ax = plt.subplots(figsize=(9, 5))
     hours = np.arange(24)
     for exp, exp_label in EXPERIMENTS.items():
         y = finals.get(exp, {}).get(diag_key)
         if y is None:
             continue
-        ax.plot(hours, y, color=EXP_COLORS[exp], lw=2.0, marker="o", ms=3,
-                label=exp_label)
+        ax.plot(hours, y, color=EXP_COLORS[exp], lw=2.0, marker="o", ms=3, label=exp_label)
     ax.set_xlim(0, 23)
     ax.set_xticks(np.arange(0, 24, 3))
     ax.set_xlabel("Hour (Amazon UTC-4)")
@@ -379,7 +387,10 @@ def plot_all(finals_by_period: dict[str, dict[str, dict[str, np.ndarray]]]) -> N
 # Orchestration
 # ---------------------------------------------------------------------------
 
-def _build_periods(modes: list[str], seasons: list[str]) -> list[tuple[str, tuple[int, ...] | None]]:
+
+def _build_periods(
+    modes: list[str], seasons: list[str]
+) -> list[tuple[str, tuple[int, ...] | None]]:
     specs: list[tuple[str, tuple[int, ...] | None]] = []
     if "full" in modes:
         specs.append(("full_2yr", None))
@@ -394,15 +405,15 @@ def _build_periods(modes: list[str], seasons: list[str]) -> list[tuple[str, tupl
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--max-days", type=int, default=None)
-    parser.add_argument("--force", action="store_true",
-                        help="Recompute even if cache exists.")
-    parser.add_argument("--experiments", nargs="+", default=list(EXPERIMENTS),
-                        choices=list(EXPERIMENTS))
-    parser.add_argument("--analysis-modes", nargs="+",
-                        default=("full",),
-                        choices=("full", "seasonal"))
+    parser.add_argument("--force", action="store_true", help="Recompute even if cache exists.")
+    parser.add_argument(
+        "--experiments", nargs="+", default=list(EXPERIMENTS), choices=list(EXPERIMENTS)
+    )
+    parser.add_argument(
+        "--analysis-modes", nargs="+", default=("full",), choices=("full", "seasonal")
+    )
     parser.add_argument("--seasons", nargs="+", default=list(SEASONS.keys()))
-    args = parser.parse_args()
+    args = parse_configured_args(parser, "kt273_diurnal", argv=None)
 
     periods = _build_periods(list(args.analysis_modes), list(args.seasons))
 
@@ -421,6 +432,13 @@ def main() -> None:
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     plot_all(finals_by_period)
+
+
+def __getattr__(name):
+    """Compatibility for moved functions; new callers use the owning module."""
+    from alaro_analysis.common.legacy_exports import resolve_export
+
+    return resolve_export(__name__, name)
 
 
 if __name__ == "__main__":

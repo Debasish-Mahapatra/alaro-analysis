@@ -23,7 +23,9 @@ def test_lcl_start_height_is_inferred_from_height_level_name():
 def test_pressure_coercion_handles_log_pa_and_hpa():
     log_pa = np.log(np.array([100000.0, 90000.0]))
     np.testing.assert_allclose(coerce_pressure_to_pa(log_pa), [100000.0, 90000.0])
-    np.testing.assert_allclose(coerce_pressure_to_pa(np.array([1000.0, 950.0])), [100000.0, 95000.0])
+    np.testing.assert_allclose(
+        coerce_pressure_to_pa(np.array([1000.0, 950.0])), [100000.0, 95000.0]
+    )
     np.testing.assert_allclose(coerce_pressure_to_pa(np.array([100000.0])), [100000.0])
 
 

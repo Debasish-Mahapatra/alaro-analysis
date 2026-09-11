@@ -11,22 +11,27 @@ Differences from the naive version:
     so a stuck day fails its task instead of deadlocking the pool.
   * workers skip days quietly on any exception; we log them.
 """
-from pathlib import Path
-from concurrent.futures import ProcessPoolExecutor, TimeoutError as FutTimeout
+
 import re
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import TimeoutError as FutTimeout
+
 import numpy as np
 import xarray as xr
 
-DATA = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/ALARO")
+from alaro_analysis.common.paths import runs_path
+from alaro_analysis.data.cache import save_npz
+
+DATA = runs_path("ALARO")
 EXPERIMENTS = ("control", "graupel", "2mom")
 SPECIES = ("RAIN", "SNOW", "GRAUPEL", "LIQUID_WATER", "SOLID_WATER")
 HOUR_RE = re.compile(r"\+(\d{4})\.nc$")
 UTC_OFFSET = -4
 G = 9.80665
-PER_TASK_TIMEOUT_S = 90          # kill any day that takes >90 s
-CHUNK = 100                       # save partial aggregate every CHUNK days
-OUT_NPZ = Path("/gpfs/me01/me/CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/sui_cmpe1/sui_cmpe1.npz")
-PARTIAL_NPZ = Path("/gpfs/me01/me/CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/sui_cmpe1/sui_cmpe1_partial.npz")
+PER_TASK_TIMEOUT_S = 90  # kill any day that takes >90 s
+CHUNK = 100  # save partial aggregate every CHUNK days
+OUT_NPZ = runs_path("processed-data/sui_cmpe1/sui_cmpe1.npz")
+PARTIAL_NPZ = runs_path("processed-data/sui_cmpe1/sui_cmpe1_partial.npz")
 
 
 def _read(p):
@@ -40,17 +45,17 @@ def _dp_pa(p):
         return np.abs(p)
     ph = np.empty((n + 1,) + p.shape[1:], dtype=np.float64)
     ph[1:-1] = 0.5 * (p[:-1] + p[1:])
-    ph[0]    = p[0]  + (p[0]  - ph[1])
-    ph[-1]   = p[-1] - (ph[-2] - p[-1])
+    ph[0] = p[0] + (p[0] - ph[1])
+    ph[-1] = p[-1] - (ph[-2] - p[-1])
     return np.abs(ph[:-1] - ph[1:])
 
 
 def _process_day(args):
     exp, day_name = args
     base = DATA / exp / "masked-netcdf"
-    sum_C  = np.zeros(24, dtype=np.float64)
+    sum_C = np.zeros(24, dtype=np.float64)
     sum_Ps = np.zeros(24, dtype=np.float64)
-    cnt    = np.zeros(24, dtype=np.int64)
+    cnt = np.zeros(24, dtype=np.int64)
 
     try:
         files = sorted((base / "PRESSURE" / day_name).iterdir())
@@ -69,7 +74,7 @@ def _process_day(args):
         hour_local = (lead + UTC_OFFSET) % 24
         step = f.name
         try:
-            p  = _read(base / "PRESSURE" / day_name / step)
+            p = _read(base / "PRESSURE" / day_name / step)
             cv = _read(base / "CV_PREC_FLUX" / day_name / step)
             st = _read(base / "ST_PREC_FLUX" / day_name / step)
         except Exception:
@@ -101,9 +106,9 @@ def _process_day(args):
         if not np.isfinite(flux_surface):
             flux_surface = 0.0
 
-        sum_C[hour_local]  += C_mean
+        sum_C[hour_local] += C_mean
         sum_Ps[hour_local] += flux_surface
-        cnt[hour_local]    += 1
+        cnt[hour_local] += 1
 
     return exp, sum_C, sum_Ps, cnt
 
@@ -112,25 +117,27 @@ def save_snapshot(agg, processed, total, where):
     out = {}
     for e in EXPERIMENTS:
         sC, sP, cn = agg[e]
-        out[f"{e}_C_sum"]  = sC
+        out[f"{e}_C_sum"] = sC
         out[f"{e}_Ps_sum"] = sP
         out[f"{e}_counts"] = cn
     out["processed"] = np.array(processed)
-    out["total"]     = np.array(total)
-    np.savez(where, **out)
+    out["total"] = np.array(total)
+    save_npz(where, **out)
 
 
 def main():
     tasks = []
     for exp in EXPERIMENTS:
-        for d in sorted(x.name for x in (DATA / exp / "masked-netcdf" / "PRESSURE").iterdir()
-                        if x.is_dir() and x.name.startswith("pf")):
+        for d in sorted(
+            x.name
+            for x in (DATA / exp / "masked-netcdf" / "PRESSURE").iterdir()
+            if x.is_dir() and x.name.startswith("pf")
+        ):
             tasks.append((exp, d))
     total = len(tasks)
     print(f"tasks: {total}", flush=True)
 
-    agg = {e: [np.zeros(24), np.zeros(24), np.zeros(24, dtype=np.int64)]
-           for e in EXPERIMENTS}
+    agg = {e: [np.zeros(24), np.zeros(24), np.zeros(24, dtype=np.int64)] for e in EXPERIMENTS}
     processed = 0
     timeouts = []
 
@@ -148,7 +155,9 @@ def main():
             except Exception:
                 processed += 1
                 continue
-            agg[exp][0] += sC; agg[exp][1] += sP; agg[exp][2] += cn
+            agg[exp][0] += sC
+            agg[exp][1] += sP
+            agg[exp][2] += cn
             processed += 1
             if processed % 50 == 0 or processed == total:
                 print(f"  {processed}/{total}  (timeouts={len(timeouts)})", flush=True)
@@ -163,16 +172,26 @@ def main():
         cn_safe = np.maximum(cn, 1)
         mC = np.where(cn > 0, sC / cn_safe, np.nan)
         mP = np.where(cn > 0, sP / cn_safe, np.nan)
-        result[f"{e}_C_mean"]  = mC
+        result[f"{e}_C_mean"] = mC
         result[f"{e}_Ps_mean"] = mP
-        result[f"{e}_counts"]  = cn
-        print(f"  {e}: [C] mean {mC.min():.3e}..{mC.max():.3e} kg/m2  "
-              f"P_s mean {mP.min():.3e}..{mP.max():.3e} kg/m2/s", flush=True)
+        result[f"{e}_counts"] = cn
+        print(
+            f"  {e}: [C] mean {mC.min():.3e}..{mC.max():.3e} kg/m2  "
+            f"P_s mean {mP.min():.3e}..{mP.max():.3e} kg/m2/s",
+            flush=True,
+        )
 
-    np.savez(OUT_NPZ, **result)
+    save_npz(OUT_NPZ, **result)
     if timeouts:
         print(f"  timed-out days: {len(timeouts)}  first few: {timeouts[:5]}", flush=True)
     print(f"saved {OUT_NPZ}", flush=True)
+
+
+def __getattr__(name):
+    """Compatibility for moved functions; new callers use the owning module."""
+    from alaro_analysis.common.legacy_exports import resolve_export
+
+    return resolve_export(__name__, name)
 
 
 if __name__ == "__main__":

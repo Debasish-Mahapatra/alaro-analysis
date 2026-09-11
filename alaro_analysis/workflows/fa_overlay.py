@@ -20,26 +20,21 @@ try:
     import cartopy.crs as ccrs
     import cartopy.feature as cfeature
 except Exception as exc:  # noqa: BLE001
-    raise RuntimeError(
-        "cartopy is required for this script (borders/rivers map layers)."
-    ) from exc
+    raise RuntimeError("cartopy is required for this script (borders/rivers map layers).") from exc
 
 import matplotlib.pyplot as plt
-
-from alaro_analysis.common.figio import strip_cbar_zeros
 from matplotlib.colors import ListedColormap
 from matplotlib.patches import Rectangle
 
-import faxarray as fx
-
+from alaro_analysis.common.cli_config import parse_configured_args
+from alaro_analysis.common.figio import strip_cbar_zeros
 from alaro_analysis.data.dataset_io import select_data_var_name
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Draw South America map with FA domain boundary and converted "
-            "masked NetCDF overlay."
+            "Draw South America map with FA domain boundary and converted masked NetCDF overlay."
         )
     )
     parser.add_argument("--fa-file", type=Path, required=True, help="Path to raw FA file.")
@@ -180,7 +175,7 @@ def parse_args() -> argparse.Namespace:
         help="Output PNG file path.",
     )
     parser.add_argument("--dpi", type=int, default=450, help="Output DPI (default: 450).")
-    return parser.parse_args()
+    return parse_configured_args(parser, "fa_overlay", argv=None)
 
 
 def _to_2d_field(da: xr.DataArray) -> xr.DataArray:
@@ -197,6 +192,8 @@ def _to_2d_field(da: xr.DataArray) -> xr.DataArray:
 
 
 def _load_fa_lon_lat(fa_file: Path, fa_reference_var: str) -> tuple[np.ndarray, np.ndarray]:
+    import faxarray as fx
+
     ds = None
     try:
         ds = fx.open_dataset(
@@ -239,7 +236,9 @@ def _grid_boundary(lon: np.ndarray, lat: np.ndarray) -> tuple[np.ndarray, np.nda
     return boundary_lon, boundary_lat
 
 
-def _load_masked_overlay(masked_nc_file: Path, masked_var: Optional[str]) -> tuple[np.ndarray, np.ndarray, np.ndarray, str]:
+def _load_masked_overlay(
+    masked_nc_file: Path, masked_var: Optional[str]
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, str]:
     with xr.open_dataset(masked_nc_file, decode_times=False) as ds:
         var_name = select_data_var_name(ds, masked_var)
         field = _to_2d_field(ds[var_name])
@@ -256,9 +255,7 @@ def _load_masked_overlay(masked_nc_file: Path, masked_var: Optional[str]) -> tup
             lat = ds.coords["lat"]
 
         if lon is None or lat is None:
-            raise ValueError(
-                "Masked NetCDF must provide lon/lat in variables or coords."
-            )
+            raise ValueError("Masked NetCDF must provide lon/lat in variables or coords.")
 
         lon_arr = np.asarray(lon.values, dtype=np.float64)
         lat_arr = np.asarray(lat.values, dtype=np.float64)
@@ -278,7 +275,9 @@ def _load_masked_overlay(masked_nc_file: Path, masked_var: Optional[str]) -> tup
         return lon2d, lat2d, data, var_name
 
 
-def _bounds_from_points(lon: np.ndarray, lat: np.ndarray) -> tuple[float, float, float, float] | None:
+def _bounds_from_points(
+    lon: np.ndarray, lat: np.ndarray
+) -> tuple[float, float, float, float] | None:
     finite = np.isfinite(lon) & np.isfinite(lat)
     if not np.any(finite):
         return None
@@ -292,7 +291,9 @@ def _bounds_from_points(lon: np.ndarray, lat: np.ndarray) -> tuple[float, float,
     )
 
 
-def _merge_bounds(bounds_list: list[tuple[float, float, float, float]]) -> tuple[float, float, float, float]:
+def _merge_bounds(
+    bounds_list: list[tuple[float, float, float, float]],
+) -> tuple[float, float, float, float]:
     lon_min = min(b[0] for b in bounds_list)
     lon_max = max(b[1] for b in bounds_list)
     lat_min = min(b[2] for b in bounds_list)
@@ -315,9 +316,13 @@ def _expand_bounds(
 def _draw_base(ax) -> None:
     ax.add_feature(cfeature.OCEAN.with_scale("50m"), facecolor="#dfefff", zorder=0)
     ax.add_feature(cfeature.LAND.with_scale("50m"), facecolor="#f8f5ee", zorder=0)
-    ax.add_feature(cfeature.COASTLINE.with_scale("50m"), linewidth=0.8, edgecolor="#444444", zorder=2)
+    ax.add_feature(
+        cfeature.COASTLINE.with_scale("50m"), linewidth=0.8, edgecolor="#444444", zorder=2
+    )
     ax.add_feature(cfeature.BORDERS.with_scale("50m"), linewidth=0.7, edgecolor="#444444", zorder=2)
-    ax.add_feature(cfeature.RIVERS.with_scale("50m"), linewidth=0.6, edgecolor="#4f81bd", alpha=0.8, zorder=1)
+    ax.add_feature(
+        cfeature.RIVERS.with_scale("50m"), linewidth=0.6, edgecolor="#4f81bd", alpha=0.8, zorder=1
+    )
 
 
 def _draw_analysis_boundary(
@@ -492,7 +497,14 @@ def main() -> None:
             label="Analysis-domain boundary (masked NetCDF footprint)",
         )
     if (not args.boundary_only) and args.overlay_mode == "footprint":
-        ax.plot([], [], color=args.analysis_boundary_color, linewidth=4.0, alpha=0.6, label="4 km masked-data footprint")
+        ax.plot(
+            [],
+            [],
+            color=args.analysis_boundary_color,
+            linewidth=4.0,
+            alpha=0.6,
+            label="4 km masked-data footprint",
+        )
 
     if not args.no_gridlines:
         grid = ax.gridlines(
@@ -560,7 +572,9 @@ def main() -> None:
         if args.boundary_only:
             title = "Domain Boundaries: FA Domain + Analysis Domain"
         else:
-            title = f"South America Domain Map: Raw FA Boundary + Masked NetCDF Overlay ({overlay_var})"
+            title = (
+                f"South America Domain Map: Raw FA Boundary + Masked NetCDF Overlay ({overlay_var})"
+            )
     ax.set_title(title, fontsize=12, fontweight="bold", pad=8)
     handles, labels = ax.get_legend_handles_labels()
     if args.legend_location == "outside" and handles:
@@ -583,6 +597,13 @@ def main() -> None:
     print(f"[saved] {args.output}")
     print(f"FA file: {args.fa_file}")
     print(f"Masked NetCDF file: {args.masked_nc_file} (var={overlay_var})")
+
+
+def __getattr__(name):
+    """Compatibility for moved functions; new callers use the owning module."""
+    from alaro_analysis.common.legacy_exports import resolve_export
+
+    return resolve_export(__name__, name)
 
 
 if __name__ == "__main__":

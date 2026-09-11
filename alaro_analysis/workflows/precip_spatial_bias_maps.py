@@ -15,15 +15,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 
+from alaro_analysis.common.cli_config import parse_configured_args
+from alaro_analysis.common.constants import RUNS_ROOT
 from alaro_analysis.common.figio import DatasetConfig, add_io_args
 
-
-from alaro_analysis.common.constants import RUNS_ROOT
-DEFAULT_DATA_DIR = (
-    RUNS_ROOT
-    / "rainfall-conservative-rebuild"
-    / "common-valid-time-production"
-)
+DEFAULT_DATA_DIR = RUNS_ROOT / "rainfall-conservative-rebuild" / "common-valid-time-production"
 DEFAULT_OUTPUT_DIR = RUNS_ROOT / "figures" / "rainfall_spatial_bias_maps"
 DEFAULT_MIN_REFERENCE = 0.01
 MANAUS_LON = -60.0217
@@ -200,9 +196,13 @@ def write_bias_txt(
         fh.write(f"Figure: {figure_path}\n")
         fh.write(f"Source data directory: {data_dir}\n")
         fh.write(f"Reference dataset: {reference.config.label}\n")
-        fh.write("Method: time mean at each radar-masked common-valid grid cell, then relative bias.\n")
+        fh.write(
+            "Method: time mean at each radar-masked common-valid grid cell, then relative bias.\n"
+        )
         fh.write("Formula: 100 * (candidate_mean - reference_mean) / reference_mean.\n")
-        fh.write(f"Reference threshold: cells with reference_mean <= {min_reference:g} mm h^-1 are masked.\n")
+        fh.write(
+            f"Reference threshold: cells with reference_mean <= {min_reference:g} mm h^-1 are masked.\n"
+        )
         fh.write(f"Plot colour limits: {vmin:g}, {vmax:g} percent.\n\n")
 
         fh.write("Source files\n")
@@ -333,7 +333,15 @@ def _add_map_context(ax, ccrs, cfeature) -> None:
 
 def _add_manaus(ax, ccrs) -> None:
     transform = ccrs.PlateCarree()
-    ax.plot(MANAUS_LON, MANAUS_LAT, marker="*", markersize=10, color="black", transform=transform, zorder=10)
+    ax.plot(
+        MANAUS_LON,
+        MANAUS_LAT,
+        marker="*",
+        markersize=10,
+        color="black",
+        transform=transform,
+        zorder=10,
+    )
     ax.text(
         MANAUS_LON + 0.1,
         MANAUS_LAT + 0.1,
@@ -375,23 +383,28 @@ def plot_bias_maps(
     if n_panels < rows * cols:
         # An empty panel slot exists: drop the dedicated colorbar column and put a
         # narrow vertical colorbar into that slot, so both side margins trim away.
-        grid = fig.add_gridspec(rows, cols, wspace=0.12,
-                                hspace=0.20 if rows > 1 else 0.08)
+        grid = fig.add_gridspec(rows, cols, wspace=0.12, hspace=0.20 if rows > 1 else 0.08)
         slots = [(r, c) for r in range(rows) for c in range(cols)]
-        axes_flat = [fig.add_subplot(grid[r, c], projection=projection)
-                     for (r, c) in slots[:n_panels]]
+        axes_flat = [
+            fig.add_subplot(grid[r, c], projection=projection) for (r, c) in slots[:n_panels]
+        ]
         er, ec = slots[n_panels]
         holder = fig.add_subplot(grid[er, ec])
         holder.axis("off")
         cbar_ax = holder.inset_axes([0.46, 0.08, 0.07, 0.84])
     else:
         grid = fig.add_gridspec(
-            rows, cols + 1,
+            rows,
+            cols + 1,
             width_ratios=[1.0] * cols + [0.05],
-            wspace=0.15, hspace=0.20 if rows > 1 else 0.08,
+            wspace=0.15,
+            hspace=0.20 if rows > 1 else 0.08,
         )
-        axes_flat = [fig.add_subplot(grid[row, col], projection=projection)
-                     for row in range(rows) for col in range(cols)]
+        axes_flat = [
+            fig.add_subplot(grid[row, col], projection=projection)
+            for row in range(rows)
+            for col in range(cols)
+        ]
         cbar_ax = fig.add_subplot(grid[:, -1])
     image = None
 
@@ -417,7 +430,7 @@ def plot_bias_maps(
         _panel_label(ax, index)
         _mean_label(ax, data)
 
-    for ax in axes_flat[len(bias_maps):]:
+    for ax in axes_flat[len(bias_maps) :]:
         fig.delaxes(ax)
 
     if image is None:
@@ -460,7 +473,9 @@ def write_spatial_mean_txt(
 
         fh.write("\nPanel summary\n")
         fh.write("-------------\n")
-        fh.write("panel,dataset,n_grid_cells,n_valid_cells,domain_mean_mm_h,median_mm_h,min_mm_h,max_mm_h\n")
+        fh.write(
+            "panel,dataset,n_grid_cells,n_valid_cells,domain_mean_mm_h,median_mm_h,min_mm_h,max_mm_h\n"
+        )
         for index, field in enumerate(fields.values()):
             values = field.values
             finite = values[np.isfinite(values)]
@@ -564,7 +579,7 @@ def plot_spatial_mean_maps(
         _panel_label(ax, index)
         _mean_rain_label(ax, field.values)
 
-    for ax in axes[len(datasets_for_map):]:
+    for ax in axes[len(datasets_for_map) :]:
         fig.delaxes(ax)
 
     if image is None:
@@ -674,7 +689,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--min-reference", type=float, default=DEFAULT_MIN_REFERENCE)
     parser.add_argument("--vmin", type=float, default=-30.0)
     parser.add_argument("--vmax", type=float, default=30.0)
-    return parser.parse_args(argv)
+    return parse_configured_args(parser, "precip_spatial_bias_maps", argv=argv)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -687,6 +702,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         vmax=args.vmax,
         dpi=args.dpi,
     )
+
+
+def __getattr__(name):
+    """Compatibility for moved functions; new callers use the owning module."""
+    from alaro_analysis.common.legacy_exports import resolve_export
+
+    return resolve_export(__name__, name)
 
 
 if __name__ == "__main__":

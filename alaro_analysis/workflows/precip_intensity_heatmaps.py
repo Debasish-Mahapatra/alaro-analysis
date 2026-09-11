@@ -16,10 +16,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 
+from alaro_analysis.common.cli_config import parse_configured_args
+from alaro_analysis.common.constants import RUNS_ROOT
 from alaro_analysis.common.figio import DatasetConfig, add_io_args, save_figure
 
-
-from alaro_analysis.common.constants import RUNS_ROOT
 DEFAULT_DATA_DIR = (
     RUNS_ROOT
     / "rainfall-regridded-to-imerge"
@@ -85,7 +85,9 @@ def compute_intensity_hour_histogram(
     return histogram
 
 
-def _read_variable(data_dir: Path, filename: str, variable: str) -> tuple[np.ndarray, np.ndarray, Path]:
+def _read_variable(
+    data_dir: Path, filename: str, variable: str
+) -> tuple[np.ndarray, np.ndarray, Path]:
     path = data_dir / filename
     if not path.exists():
         raise FileNotFoundError(f"Missing file: {path}")
@@ -220,7 +222,9 @@ def plot_intensity_evolution(
     y_centers = np.sqrt(intensity_bins[:-1] * intensity_bins[1:])
     radar = heatmaps["radar"]
     global_max = max(1.0, max(float(np.nanmax(h)) for h in heatmaps.values()))
-    max_diff = max(float(np.nanmax(np.abs(h - radar))) for key, h in heatmaps.items() if key != "radar")
+    max_diff = max(
+        float(np.nanmax(np.abs(h - radar))) for key, h in heatmaps.items() if key != "radar"
+    )
     max_diff = max(max_diff, 1.0)
 
     fig, axes = plt.subplots(2, 3, figsize=(18, 10), dpi=dpi)
@@ -258,7 +262,9 @@ def plot_intensity_evolution(
             ax.set_title(f"{cfg.label} - Radar", fontsize=16, fontweight="bold", color="black")
 
             positive = np.maximum(diff, 0)
-            levels_pos = [level for level in contour_levels_pos if level < float(np.nanmax(positive))]
+            levels_pos = [
+                level for level in contour_levels_pos if level < float(np.nanmax(positive))
+            ]
             if levels_pos:
                 contours = ax.contour(
                     x_centers,
@@ -464,7 +470,9 @@ def write_convective_stratiform_txt(
         fh.write(f"{'=' * len(title)}\n")
         fh.write(f"Figure: {figure_path}\n")
         fh.write(f"Source data directory: {data_dir}\n")
-        fh.write("Method: wet-pixel counts by local hour and intensity bin for model rain components.\n")
+        fh.write(
+            "Method: wet-pixel counts by local hour and intensity bin for model rain components.\n"
+        )
         fh.write(f"Wet threshold: {wet_threshold:g} mm h^-1.\n")
         fh.write(f"Local time offset: UTC{utc_offset_hours:+d}.\n")
         fh.write(f"Plot colour range: 0 to {vmax:g} counts.\n\n")
@@ -610,7 +618,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=2000.0,
         help="Shared count colourbar maximum for the convective/stratiform heatmap; use 0 for auto.",
     )
-    return parser.parse_args(argv)
+    return parse_configured_args(parser, "precip_intensity_heatmaps", argv=argv)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -627,6 +635,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         convective_vmax=convective_vmax,
         dpi=args.dpi,
     )
+
+
+def __getattr__(name):
+    """Compatibility for moved functions; new callers use the owning module."""
+    from alaro_analysis.common.legacy_exports import resolve_export
+
+    return resolve_export(__name__, name)
 
 
 if __name__ == "__main__":

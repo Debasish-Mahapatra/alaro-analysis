@@ -3,24 +3,22 @@ One-off comparison plot: UD_OMEGA, UD_MESH_FRAC, their product (effective
 grid-scale updraft omega contribution), and VERT_VELOCIT, all at a mid-
 tropospheric level from a single 2mom FA file.
 """
-from pathlib import Path
-import numpy as np
+
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
-import faxarray as fx
+import numpy as np
 
-FA_FILE = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/ALARO/2mom/untar-output"
-    "/pf20140101/pfABOFABOF+0015"
-)
-OUT_DIR = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/figures/convection_omega_comparison"
-)
-OUT_DIR.mkdir(parents=True, exist_ok=True)
+from alaro_analysis.common.paths import runs_path
+
+FA_FILE = runs_path("ALARO/2mom/untar-output/pf20140101/pfABOFABOF+0015")
+OUT_DIR = runs_path("figures/convection_omega_comparison")
 
 LEVEL_IDX = 51  # ~500 hPa
 
+
 def _load_level(var: str, level: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+    import faxarray as fx
+
     ds = fx.open_dataset(str(FA_FILE), variables=[var], stack_levels=True)
     try:
         da = ds[var].isel(time=0, level=level)
@@ -46,6 +44,7 @@ def _strip_zeros(cbar) -> None:
 
 
 def main() -> None:
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
     ud_omega, lon, lat, _ = _load_level("UD_OMEGA", LEVEL_IDX)
     ud_frac, _, _, _ = _load_level("UD_MESH_FRAC", LEVEL_IDX)
     vert_w, _, _, _ = _load_level("VERT_VELOCIT", LEVEL_IDX)
@@ -61,16 +60,47 @@ def main() -> None:
     lim_w = _sym_limit(vert_w)
 
     fig, axes = plt.subplots(
-        2, 2, figsize=(13, 10),
-        sharex=True, sharey=True,
+        2,
+        2,
+        figsize=(13, 10),
+        sharex=True,
+        sharey=True,
         constrained_layout=True,
     )
 
     panels = [
-        ("UD_OMEGA (within-updraft)", ud_omega, "RdBu_r", -lim_om, lim_om, "Pa s$^{-1}$ (negative = upward)"),
-        ("UD_MESH_FRAC (updraft area fraction)", ud_frac, "viridis", 0.0, max(1e-6, float(np.nanmax(ud_frac))), "fraction"),
-        ("UD_OMEGA × UD_MESH_FRAC (effective updraft)", effective, "RdBu_r", -lim_eff, lim_eff, "Pa s$^{-1}$ (negative = upward)"),
-        ("VERT_VELOCIT (resolved grid-scale)", vert_w, "RdBu_r", -lim_w, lim_w, "m s$^{-1}$ (positive = upward)"),
+        (
+            "UD_OMEGA (within-updraft)",
+            ud_omega,
+            "RdBu_r",
+            -lim_om,
+            lim_om,
+            "Pa s$^{-1}$ (negative = upward)",
+        ),
+        (
+            "UD_MESH_FRAC (updraft area fraction)",
+            ud_frac,
+            "viridis",
+            0.0,
+            max(1e-6, float(np.nanmax(ud_frac))),
+            "fraction",
+        ),
+        (
+            "UD_OMEGA × UD_MESH_FRAC (effective updraft)",
+            effective,
+            "RdBu_r",
+            -lim_eff,
+            lim_eff,
+            "Pa s$^{-1}$ (negative = upward)",
+        ),
+        (
+            "VERT_VELOCIT (resolved grid-scale)",
+            vert_w,
+            "RdBu_r",
+            -lim_w,
+            lim_w,
+            "m s$^{-1}$ (positive = upward)",
+        ),
     ]
 
     for ax, (title, data, cmap, vmin, vmax, cbar_label) in zip(axes.flat, panels):
@@ -92,6 +122,13 @@ def main() -> None:
     fig.savefig(out_file, dpi=450, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved: {out_file}")
+
+
+def __getattr__(name):
+    """Compatibility for moved functions; new callers use the owning module."""
+    from alaro_analysis.common.legacy_exports import resolve_export
+
+    return resolve_export(__name__, name)
 
 
 if __name__ == "__main__":

@@ -12,18 +12,16 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
 import numpy as np
 import xarray as xr
+from matplotlib.patches import Patch
 
+from alaro_analysis.common.cli_config import parse_configured_args
+from alaro_analysis.common.constants import RUNS_ROOT
 from alaro_analysis.common.figio import DatasetConfig, add_io_args, save_figure
 
-
-from alaro_analysis.common.constants import RUNS_ROOT
 DEFAULT_DATA_DIR = (
-    RUNS_ROOT
-    / "rainfall-conservative-rebuild"
-    / "common-valid-time-production-bilinearmask"
+    RUNS_ROOT / "rainfall-conservative-rebuild" / "common-valid-time-production-bilinearmask"
 )
 DEFAULT_OUTPUT_DIR = RUNS_ROOT / "figures" / "rainfall_diurnal_cycle"
 DEFAULT_OUTPUT_NAME = "diurnal_cycle_common_valid.png"
@@ -218,7 +216,9 @@ def write_diurnal_txt(
         fh.write("=====================================\n")
         fh.write(f"Source plot: {output_path}\n")
         fh.write(f"Source data directory: {data_dir}\n")
-        fh.write("Method: spatial mean over the common-valid radar mask, then mean by local hour.\n")
+        fh.write(
+            "Method: spatial mean over the common-valid radar mask, then mean by local hour.\n"
+        )
         fh.write(f"Local time offset: UTC{utc_offset_hours:+d}\n")
         fh.write(f"Shading mode: {shade_mode}\n")
         fh.write(f"Standard deviation multiplier: {std_multiplier:g}\n")
@@ -226,7 +226,9 @@ def write_diurnal_txt(
         fh.write("Shaded datasets: Radar, IMERG(GPM)\n\n")
 
         fh.write("Dataset summary\n")
-        fh.write("dataset,total_hourly_samples,min_count_per_hour,max_count_per_hour,daily_sum_mm_day\n")
+        fh.write(
+            "dataset,total_hourly_samples,min_count_per_hour,max_count_per_hour,daily_sum_mm_day\n"
+        )
         for cfg in DATASETS:
             stats = stats_by_key[cfg.key]
             fh.write(
@@ -328,7 +330,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    args = parse_configured_args(build_parser(), "precip_diurnal_cycle", argv=argv)
     outputs = make_diurnal_cycle(
         data_dir=args.data_dir,
         output_dir=args.output_dir,
@@ -342,6 +344,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     for key, path in outputs.items():
         print(f"{key}: {path}")
     return 0
+
+
+def __getattr__(name):
+    """Compatibility for moved functions; new callers use the owning module."""
+    from alaro_analysis.common.legacy_exports import resolve_export
+
+    return resolve_export(__name__, name)
 
 
 if __name__ == "__main__":

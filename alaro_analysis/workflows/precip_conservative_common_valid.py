@@ -28,13 +28,11 @@ examples/run_precip_conservative_common_valid.sh.
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Sequence
 
 import numpy as np
 import xarray as xr
@@ -46,19 +44,20 @@ from netCDF4 import Dataset, date2num
 
 CDO = "/home/eb/.local/easybuild/software/CDO/1.9.9-gompi-2019b/bin/cdo"
 
+from alaro_analysis.common.cli_config import parse_configured_args
 from alaro_analysis.common.constants import RUNS_ROOT
+from alaro_analysis.common.paths import data_path
+
 RAINFALL_ROOT = RUNS_ROOT / "rainfall-regridded-to-imerge"
 DEFAULT_WORK_ROOT = RUNS_ROOT / "rainfall-conservative-rebuild"
-DEFAULT_RAW_IMERG = Path("/gpfs/me01/me/CLIMATE/CLIMATE/deba/IMERG_AMAZON")
+DEFAULT_RAW_IMERG = data_path("IMERG_AMAZON")
 DEFAULT_FA_ROOT = RUNS_ROOT / "ALARO"
 # Trusted gap-filled hourly radar (start-labelled, native 500x500, valid_time_mask).
-DEFAULT_RADAR_HOURLY = (
-    RAINFALL_ROOT / "sipam" / "Manaus_Radar_Rainfall_2014-15-hourly-masked.nc"
-)
+DEFAULT_RADAR_HOURLY = RAINFALL_ROOT / "sipam" / "Manaus_Radar_Rainfall_2014-15-hourly-masked.nc"
 
 # Target box (== historical cdo-grid.sh) and a wider source crop (margin for the
 # conservative stencil) for the model native grid.
-TARGET_BBOX = (-61.5, -58.5, -5.0, -1.5)        # lon_min, lon_max, lat_min, lat_max
+TARGET_BBOX = (-61.5, -58.5, -5.0, -1.5)  # lon_min, lon_max, lat_min, lat_max
 SOURCE_CROP_BBOX = (-62.0, -58.0, -5.5, -1.0)
 
 DEFAULT_START = "2014-01-01T00:00:00"
@@ -130,7 +129,12 @@ def write_curvilinear_nc(
         tv = nc.createVariable("time", "f8", ("time",))
         tv.units = "hours since 2014-01-01 00:00:00"
         tv.calendar = "standard"
-        pyt = [datetime.utcfromtimestamp((t - np.datetime64("1970-01-01T00:00:00")) / np.timedelta64(1, "s")) for t in times]
+        pyt = [
+            datetime.utcfromtimestamp(
+                (t - np.datetime64("1970-01-01T00:00:00")) / np.timedelta64(1, "s")
+            )
+            for t in times
+        ]
         tv[:] = date2num(pyt, units=tv.units, calendar=tv.calendar)
         vlon = nc.createVariable("lon", "f8", ("y", "x"))
         vlon.units = "degrees_east"
@@ -142,8 +146,9 @@ def write_curvilinear_nc(
         vlat.bounds = "lat_bnds"
         nc.createVariable("lon_bnds", "f8", ("y", "x", "nv4"))[:] = lon_b
         nc.createVariable("lat_bnds", "f8", ("y", "x", "nv4"))[:] = lat_b
-        vr = nc.createVariable(varname, "f4", ("time", "y", "x"), zlib=True, complevel=4,
-                               fill_value=np.float32(np.nan))
+        vr = nc.createVariable(
+            varname, "f4", ("time", "y", "x"), zlib=True, complevel=4, fill_value=np.float32(np.nan)
+        )
         vr.coordinates = "lat lon"
         vr.units = units
         vlon[:] = lon
@@ -206,7 +211,7 @@ def _imerg_hour(args):
             da = ds["precipitation"].isel(time=0)
             da = da.sel(lon=slice(lo, hi), lat=slice(la, ha))
             v = np.asarray(da.values, dtype=np.float64)
-            if da.dims[0] == "lon":   # IMERG is (lon, lat); want (lat, lon)
+            if da.dims[0] == "lon":  # IMERG is (lon, lat); want (lat, lon)
                 v = v.T
         vals.append(np.where(v < 0, np.nan, v))
     return hour, np.nanmean(np.stack(vals), axis=0)
@@ -239,7 +244,12 @@ def build_imerg_hourly(work: Path, raw_imerg: Path, times: np.ndarray, workers: 
         coords={"time": times, "lat": lat1d, "lon": lon1d},
     )
     ds["precipitation"].attrs["units"] = "mm/hr"
-    ds.to_netcdf(out, encoding={"precipitation": {"zlib": True, "complevel": 4, "_FillValue": np.float32(np.nan)}})
+    ds.to_netcdf(
+        out,
+        encoding={
+            "precipitation": {"zlib": True, "complevel": 4, "_FillValue": np.float32(np.nan)}
+        },
+    )
     print(f"[imerg] wrote {out}", flush=True)
     return out
 
@@ -259,7 +269,9 @@ def regrid_radar(work: Path, radar_hourly: Path, grid_txt: Path) -> Path:
     with xr.open_dataset(rain) as dr, xr.open_dataset(local) as ds:
         merged = dr[["rainfall_rate"]]
         if "valid_time_mask" in ds:
-            merged = merged.assign(valid_time_mask=("time", np.asarray(ds["valid_time_mask"].values)))
+            merged = merged.assign(
+                valid_time_mask=("time", np.asarray(ds["valid_time_mask"].values))
+            )
         merged.to_netcdf(out)
     rain.unlink(missing_ok=True)
     print(f"[radar] wrote {out}", flush=True)
@@ -294,7 +306,9 @@ def _model_day(args):
     acc = []
     try:
         for lead in range(25):
-            with fx.open_dataset(str(day_dir / FA_FILE.format(lead=lead)), variables=list(SURFPREC_VARS)) as ds:
+            with fx.open_dataset(
+                str(day_dir / FA_FILE.format(lead=lead)), variables=list(SURFPREC_VARS)
+            ) as ds:
                 cn = [k for k in ds.data_vars if "CON" in k.upper()][0]
                 gn = [k for k in ds.data_vars if "GEC" in k.upper()][0]
                 tot = (
@@ -304,13 +318,15 @@ def _model_day(args):
             acc.append(tot)
     except Exception as exc:  # noqa: BLE001
         return day_dir.name, None, str(exc)
-    acc = np.stack(acc)                       # (25, ny, nx) accumulated
-    hourly = np.diff(acc, axis=0)             # (24, ny, nx) -> rain in [H,H+1), label H
+    acc = np.stack(acc)  # (25, ny, nx) accumulated
+    hourly = np.diff(acc, axis=0)  # (24, ny, nx) -> rain in [H,H+1), label H
     hourly = np.where(hourly < 0, 0.0, hourly)
     return DAY_RE.match(day_dir.name).group(1), hourly.astype(np.float32), None
 
 
-def build_model_hourly(work, fa_root, exp_key, label, fa_sub, times, grid_txt, max_days, workers) -> Path:
+def build_model_hourly(
+    work, fa_root, exp_key, label, fa_sub, times, grid_txt, max_days, workers
+) -> Path:
     out = work / f"{label}_to_imerg.nc"
     exp_root = fa_root / fa_sub / "untar-output"
     days = list_day_dirs(exp_root, max_days)
@@ -344,8 +360,9 @@ def build_model_hourly(work, fa_root, exp_key, label, fa_sub, times, grid_txt, m
         (work / f"{label}_warnings.txt").write_text("\n".join(warns) + "\n")
 
     native_nc = work / f"{label}_native_hourly.nc"
-    write_curvilinear_nc(native_nc, lon=lon, lat=lat, times=times, data=native,
-                         varname="total_rain", units="mm")
+    write_curvilinear_nc(
+        native_nc, lon=lon, lat=lat, times=times, data=native, varname="total_rain", units="mm"
+    )
     run_cdo(f"-remapcon,{grid_txt}", str(native_nc), str(out))
     print(f"[{label}] wrote {out}", flush=True)
     return out
@@ -374,8 +391,12 @@ def radar_spatial_mask(work: Path, grid_txt: Path, method: str) -> np.ndarray:
     if method == "bilinear":
         bfile = work / "Radar_bilinear_mask.nc"
         if not bfile.exists():
-            run_cdo(f"-remapbil,{grid_txt}", "-selname,rainfall_rate",
-                    str(work / "radar_hourly_source.nc"), str(bfile))
+            run_cdo(
+                f"-remapbil,{grid_txt}",
+                "-selname,rainfall_rate",
+                str(work / "radar_hourly_source.nc"),
+                str(bfile),
+            )
         src = bfile
     else:
         src = work / "Radar_to_imerg.nc"
@@ -383,18 +404,30 @@ def radar_spatial_mask(work: Path, grid_txt: Path, method: str) -> np.ndarray:
         return np.isfinite(ds["rainfall_rate"].values).any(axis=0)
 
 
-def build_common_valid(work: Path, times: np.ndarray, grid_txt: Path,
-                       *, mask_method: str = "conservative",
-                       out_subdir: str = "common-valid-time-production") -> dict[str, int]:
+def build_common_valid(
+    work: Path,
+    times: np.ndarray,
+    grid_txt: Path,
+    *,
+    mask_method: str = "conservative",
+    out_subdir: str = "common-valid-time-production",
+) -> dict[str, int]:
     common_dir = work / out_subdir
     common_dir.mkdir(parents=True, exist_ok=True)
 
     radar = _load_on_axis(work / "Radar_to_imerg.nc", "rainfall_rate", times)
     with xr.open_dataset(work / "Radar_to_imerg.nc") as ds:
-        vtm = ds["valid_time_mask"].reindex(time=times).fillna(0).values if "valid_time_mask" in ds else None
+        vtm = (
+            ds["valid_time_mask"].reindex(time=times).fillna(0).values
+            if "valid_time_mask" in ds
+            else None
+        )
     imerg = _load_on_axis(work / "IMERG_hourly.nc", "precipitation", times)
-    models = {label: _load_on_axis(work / f"{label}_to_imerg.nc", "total_rain", times)
-              for _, label, _ in MODEL_EXPERIMENTS if (work / f"{label}_to_imerg.nc").exists()}
+    models = {
+        label: _load_on_axis(work / f"{label}_to_imerg.nc", "total_rain", times)
+        for _, label, _ in MODEL_EXPERIMENTS
+        if (work / f"{label}_to_imerg.nc").exists()
+    }
 
     # radar spatial mask = native 60% mask projected onto the target grid
     spatial = radar_spatial_mask(work, grid_txt, mask_method)
@@ -443,17 +476,28 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--experiments", nargs="+", default=[k for k, _, _ in MODEL_EXPERIMENTS])
     p.add_argument("--max-days", type=int, default=None)
     p.add_argument("--workers", type=int, default=32)
-    p.add_argument("--stages", nargs="+",
-                   default=["grid", "imerg", "radar", "model", "common"],
-                   choices=["grid", "imerg", "radar", "model", "common"])
-    p.add_argument("--recompute", action="store_true",
-                   help="Rebuild stage outputs even if they already exist.")
-    p.add_argument("--mask-method", choices=["conservative", "bilinear"], default="conservative",
-                   help="How to project the native radar mask onto the target grid "
-                        "(rainfall data is always conservative).")
-    p.add_argument("--common-subdir", default="common-valid-time-production",
-                   help="Subdir under --work-dir for the common-valid output files.")
-    return p.parse_args(argv)
+    p.add_argument(
+        "--stages",
+        nargs="+",
+        default=["grid", "imerg", "radar", "model", "common"],
+        choices=["grid", "imerg", "radar", "model", "common"],
+    )
+    p.add_argument(
+        "--recompute", action="store_true", help="Rebuild stage outputs even if they already exist."
+    )
+    p.add_argument(
+        "--mask-method",
+        choices=["conservative", "bilinear"],
+        default="conservative",
+        help="How to project the native radar mask onto the target grid "
+        "(rainfall data is always conservative).",
+    )
+    p.add_argument(
+        "--common-subdir",
+        default="common-valid-time-production",
+        help="Subdir under --work-dir for the common-valid output files.",
+    )
+    return parse_configured_args(p, "precip_conservative_common_valid", argv=argv)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -485,19 +529,28 @@ def main(argv: list[str] | None = None) -> int:
             if not args.recompute and (work / f"{label}_to_imerg.nc").exists():
                 print(f"[{label}] {label}_to_imerg.nc exists, skip", flush=True)
                 continue
-            build_model_hourly(work, args.fa_root, key, label, fa_sub, times,
-                               grid_txt, args.max_days, args.workers)
+            build_model_hourly(
+                work, args.fa_root, key, label, fa_sub, times, grid_txt, args.max_days, args.workers
+            )
     if "common" in args.stages:
-        counts = build_common_valid(work, times, grid_txt,
-                                    mask_method=args.mask_method,
-                                    out_subdir=args.common_subdir)
+        counts = build_common_valid(
+            work, times, grid_txt, mask_method=args.mask_method, out_subdir=args.common_subdir
+        )
         print("\n================ TIMESTEP COUNTS ================", flush=True)
         for k, v in counts.items():
             print(f"  {k:28s}: {v}", flush=True)
         (work / "timestep_counts.txt").write_text(
-            "\n".join(f"{k},{v}" for k, v in counts.items()) + "\n")
+            "\n".join(f"{k},{v}" for k, v in counts.items()) + "\n"
+        )
     print("[done]", flush=True)
     return 0
+
+
+def __getattr__(name):
+    """Compatibility for moved functions; new callers use the owning module."""
+    from alaro_analysis.common.legacy_exports import resolve_export
+
+    return resolve_export(__name__, name)
 
 
 if __name__ == "__main__":

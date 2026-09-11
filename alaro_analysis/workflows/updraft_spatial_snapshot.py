@@ -13,15 +13,13 @@ matplotlib.use("Agg")
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
-
-from alaro_analysis.common.figio import strip_cbar_zeros
 import numpy as np
 import xarray as xr
 
-from alaro_analysis.common.constants import G
+from alaro_analysis.common.cli_config import parse_configured_args
+from alaro_analysis.common.constants import RUNS_ROOT, G
+from alaro_analysis.common.figio import strip_cbar_zeros
 
-
-from alaro_analysis.common.constants import RUNS_ROOT
 DEFAULT_ALARO_ROOT = RUNS_ROOT / "ALARO"
 DEFAULT_OUTPUT_DIR = RUNS_ROOT / "figures" / "updraft_spatial_snapshot_fig612_like"
 EXPERIMENT_LABELS = {"control": "C1M", "graupel": "G1M", "2mom": "G2M"}
@@ -58,7 +56,9 @@ class SnapshotFields:
     level_value: int | None
 
 
-def variable_path(alaro_root: Path, experiment: str, variable: str, day: str, filename: str) -> Path:
+def variable_path(
+    alaro_root: Path, experiment: str, variable: str, day: str, filename: str
+) -> Path:
     return alaro_root / experiment / "masked-netcdf" / variable / day / filename
 
 
@@ -68,7 +68,9 @@ def first_data_var(ds: xr.Dataset) -> str:
     return next(iter(ds.data_vars))
 
 
-def read_var(path: Path, variable: str, *, level_index: int | None = None) -> tuple[np.ndarray, xr.Dataset]:
+def read_var(
+    path: Path, variable: str, *, level_index: int | None = None
+) -> tuple[np.ndarray, xr.Dataset]:
     with xr.open_dataset(path, decode_times=False) as ds:
         var_name = variable if variable in ds.data_vars else first_data_var(ds)
         da = ds[var_name]
@@ -79,7 +81,9 @@ def read_var(path: Path, variable: str, *, level_index: int | None = None) -> tu
         return arr, ds.load()
 
 
-def read_2d(path: Path, variable: str, level_index: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, int | None]:
+def read_2d(
+    path: Path, variable: str, level_index: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int | None]:
     arr, ds = read_var(path, variable, level_index=level_index)
     lon = np.asarray(ds["lon"].values, dtype=np.float64)
     lat = np.asarray(ds["lat"].values, dtype=np.float64)
@@ -122,11 +126,15 @@ def available_step_files(alaro_root: Path, experiment: str, max_days: int) -> li
     return files
 
 
-def draft_activity_score(updraft_level_max: np.ndarray, downdraft_level_max: np.ndarray) -> np.ndarray:
+def draft_activity_score(
+    updraft_level_max: np.ndarray, downdraft_level_max: np.ndarray
+) -> np.ndarray:
     """Score levels for a Figure-6.12-like snapshot where both drafts are visible."""
     updraft_visible = np.minimum(updraft_level_max / 0.5, 1.0)
     downdraft_visible = np.minimum(downdraft_level_max / 0.05, 1.0)
-    return updraft_visible + downdraft_visible + 0.05 * updraft_level_max + 2.0 * downdraft_level_max
+    return (
+        updraft_visible + downdraft_visible + 0.05 * updraft_level_max + 2.0 * downdraft_level_max
+    )
 
 
 def select_active_snapshot(
@@ -291,7 +299,9 @@ def make_updraft_norm() -> tuple[mcolors.BoundaryNorm, mcolors.Colormap]:
 
 def make_downdraft_norm() -> tuple[mcolors.BoundaryNorm, mcolors.Colormap]:
     bounds = np.asarray([0, 0.01, 0.05, 0.2, 0.5, 1.0, 2.0], dtype=float)
-    cmap = mcolors.ListedColormap(["#e8ffff", "#bdeef0", "#77bfd1", "#3f8fc5", "#2859a5", "#07133d"])
+    cmap = mcolors.ListedColormap(
+        ["#e8ffff", "#bdeef0", "#77bfd1", "#3f8fc5", "#2859a5", "#07133d"]
+    )
     return mcolors.BoundaryNorm(bounds, cmap.N, clip=True), cmap
 
 
@@ -400,16 +410,28 @@ def write_txt(
         fh.write(f"Level index: {selection.level_index}\n")
         fh.write(f"Model level value: {selection.level_value}\n")
         fh.write(f"Mean selected height: {float(np.nanmean(height)):.10g} m\n")
-        fh.write(f"Auto-selection score: {selection.score:.10g} dimensionless combined draft-activity score\n")
-        fh.write(f"Selected max updraft flux magnitude: {selection.updraft_max:.10g} kg m^-2 s^-1\n")
-        fh.write(f"Selected max downdraft flux magnitude: {selection.downdraft_max:.10g} kg m^-2 s^-1\n")
+        fh.write(
+            f"Auto-selection score: {selection.score:.10g} dimensionless combined draft-activity score\n"
+        )
+        fh.write(
+            f"Selected max updraft flux magnitude: {selection.updraft_max:.10g} kg m^-2 s^-1\n"
+        )
+        fh.write(
+            f"Selected max downdraft flux magnitude: {selection.downdraft_max:.10g} kg m^-2 s^-1\n"
+        )
         fh.write(f"Panel a: {transport_title}\n")
-        fh.write("Panel a method: (liquid_water + solid_water) * (updraft_flux + downdraft_flux) * 1e6.\n")
+        fh.write(
+            "Panel a method: (liquid_water + solid_water) * (updraft_flux + downdraft_flux) * 1e6.\n"
+        )
         fh.write("If a reference experiment is supplied, panel a is candidate minus reference.\n")
-        fh.write("Updraft/downdraft flux convention here follows the reference-style signed plot: negative is upward, positive is downward.\n")
+        fh.write(
+            "Updraft/downdraft flux convention here follows the reference-style signed plot: negative is upward, positive is downward.\n"
+        )
         fh.write("Updraft flux: UD_OMEGA * UD_MESH_FRAC / g.\n")
         fh.write("Downdraft flux: DD_OMEGA * DD_MESH_FRAC / g.\n")
-        fh.write(f"Crop y slice: {y_slice.start}:{y_slice.stop}; x slice: {x_slice.start}:{x_slice.stop}\n\n")
+        fh.write(
+            f"Crop y slice: {y_slice.start}:{y_slice.stop}; x slice: {x_slice.start}:{x_slice.stop}\n\n"
+        )
 
         fh.write("Summary\n")
         fh.write("-------\n")
@@ -428,7 +450,9 @@ def write_txt(
 
         fh.write("\nGridpoint data\n")
         fh.write("--------------\n")
-        fh.write("y_index,x_index,lat,lon,height_m,panel_a_mg_m2_s,updraft_signed_kg_m2_s,downdraft_signed_kg_m2_s\n")
+        fh.write(
+            "y_index,x_index,lat,lon,height_m,panel_a_mg_m2_s,updraft_signed_kg_m2_s,downdraft_signed_kg_m2_s\n"
+        )
         y0 = 0 if y_slice.start is None else int(y_slice.start)
         x0 = 0 if x_slice.start is None else int(x_slice.start)
         for yi in range(transport.shape[0]):
@@ -496,7 +520,11 @@ def make_snapshot_plot(
         selection,
     )
     exp_label = EXPERIMENT_LABELS.get(experiment, experiment)
-    ref_label = EXPERIMENT_LABELS.get(reference_experiment, reference_experiment) if reference_experiment else None
+    ref_label = (
+        EXPERIMENT_LABELS.get(reference_experiment, reference_experiment)
+        if reference_experiment
+        else None
+    )
     stem = f"fig612_like_{exp_label}"
     if ref_label:
         stem += f"_minus_{ref_label}"
@@ -535,11 +563,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--alaro-root", type=Path, default=DEFAULT_ALARO_ROOT)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--experiment", choices=tuple(EXPERIMENT_LABELS), default="2mom")
-    parser.add_argument("--reference-experiment", choices=tuple(EXPERIMENT_LABELS), default="control")
+    parser.add_argument(
+        "--reference-experiment", choices=tuple(EXPERIMENT_LABELS), default="control"
+    )
     parser.add_argument("--no-reference", action="store_true")
-    parser.add_argument("--day", default=None, help="Day folder, e.g. pf20140101. Default: auto-select.")
-    parser.add_argument("--filename", default=None, help="Step file, e.g. pfABOFABOF+0012.nc. Default: auto-select.")
-    parser.add_argument("--level-index", type=int, default=None, help="0-based model level index. Default: auto-select.")
+    parser.add_argument(
+        "--day", default=None, help="Day folder, e.g. pf20140101. Default: auto-select."
+    )
+    parser.add_argument(
+        "--filename", default=None, help="Step file, e.g. pfABOFABOF+0012.nc. Default: auto-select."
+    )
+    parser.add_argument(
+        "--level-index",
+        type=int,
+        default=None,
+        help="0-based model level index. Default: auto-select.",
+    )
     parser.add_argument("--auto-max-days", type=int, default=31)
     parser.add_argument("--crop-pad", type=int, default=8)
     parser.add_argument("--dpi", type=int, default=450)
@@ -547,7 +586,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    args = parse_configured_args(build_parser(), "updraft_spatial_snapshot", argv=argv)
     reference = None if args.no_reference else args.reference_experiment
     outputs = make_snapshot_plot(
         alaro_root=args.alaro_root,
@@ -564,6 +603,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     for key, path in outputs.items():
         print(f"{key}: {path}")
     return 0
+
+
+def __getattr__(name):
+    """Compatibility for moved functions; new callers use the owning module."""
+    from alaro_analysis.common.legacy_exports import resolve_export
+
+    return resolve_export(__name__, name)
 
 
 if __name__ == "__main__":

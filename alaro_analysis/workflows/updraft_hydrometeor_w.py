@@ -15,31 +15,36 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.gridspec as gridspec
+import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
+
+from alaro_analysis.common.paths import runs_path
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-DATA_ROOT = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/ALARO")
-OUTPUT_DIR = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/figures")
+DATA_ROOT = runs_path("ALARO")
+OUTPUT_DIR = runs_path("figures")
 
 HYDROMETEORS = ["RAIN", "SNOW", "GRAUPEL", "LIQUID_WATER", "SOLID_WATER"]
 HYDRO_SHORT = {
-    "RAIN": "Rain", "SNOW": "Snow", "GRAUPEL": "Graupel",
-    "LIQUID_WATER": "Liquid water", "SOLID_WATER": "Ice",
+    "RAIN": "Rain",
+    "SNOW": "Snow",
+    "GRAUPEL": "Graupel",
+    "LIQUID_WATER": "Liquid water",
+    "SOLID_WATER": "Ice",
 }
 
 # Physical constants
-G  = 9.80665      # m/s²
-RD = 287.05       # J/(kg·K), gas constant for dry air
+G = 9.80665  # m/s²
+RD = 287.05  # J/(kg·K), gas constant for dry air
 
 # Binning: w in m/s (positive = upward)
-W_BINS = np.linspace(-0.5, 10.0, 106)   # ~0.1 m/s bins
-H_BINS = np.linspace(0.0, 20.0, 101)    # 0.2 km bins
+W_BINS = np.linspace(-0.5, 10.0, 106)  # ~0.1 m/s bins
+H_BINS = np.linspace(0.0, 20.0, 101)  # 0.2 km bins
 
 MIN_LEAD_HOUR = 3
 N_DAYS = 3
@@ -55,12 +60,13 @@ FS_LEG = 13
 EXP_LINE_COLORS = {
     "control": "#d62728",
     "graupel": "#1f77b4",
-    "2mom":    "#2ca02c",
+    "2mom": "#2ca02c",
 }
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def read_field(filepath: Path) -> np.ndarray:
     with xr.open_dataset(filepath, decode_times=False) as ds:
@@ -86,6 +92,7 @@ def list_steps(day_dir: Path) -> list[Path]:
 # Accumulate
 # ---------------------------------------------------------------------------
 
+
 def accumulate(experiment: str = "control") -> dict:
     exp_dir = DATA_ROOT / experiment
     nc_dir = exp_dir / "masked-netcdf"
@@ -98,9 +105,9 @@ def accumulate(experiment: str = "control") -> dict:
     nw = len(W_BINS) - 1
     nh = len(H_BINS) - 1
 
-    sums   = {h: np.zeros((nw, nh), dtype=np.float64) for h in HYDROMETEORS}
+    sums = {h: np.zeros((nw, nh), dtype=np.float64) for h in HYDROMETEORS}
     counts = {h: np.zeros((nw, nh), dtype=np.float64) for h in HYDROMETEORS}
-    freq   = np.zeros((nw, nh), dtype=np.float64)
+    freq = np.zeros((nw, nh), dtype=np.float64)
     n_files = 0
 
     for di, day in enumerate(days):
@@ -109,8 +116,8 @@ def accumulate(experiment: str = "control") -> dict:
         for step_file in steps:
             step_name = step_file.name
             try:
-                omega  = read_field(nc_dir / "UD_OMEGA" / day_name / step_name)
-                mesh   = read_field(nc_dir / "UD_MESH_FRAC" / day_name / step_name)
+                omega = read_field(nc_dir / "UD_OMEGA" / day_name / step_name)
+                mesh = read_field(nc_dir / "UD_MESH_FRAC" / day_name / step_name)
                 height = read_field(nc_dir / "GEOPOTENTIEL" / day_name / step_name)
                 pressure = read_field(nc_dir / "PRESSURE" / day_name / step_name)
                 temperature = read_field(nc_dir / "TEMPERATURE" / day_name / step_name)
@@ -155,17 +162,22 @@ def accumulate(experiment: str = "control") -> dict:
 
             n_files += 1
 
-        print(f"  day {di+1}/{len(days)} done, {n_files} files total", flush=True)
+        print(f"  day {di + 1}/{len(days)} done, {n_files} files total", flush=True)
 
     return {
-        "sums": sums, "counts": counts, "freq": freq,
-        "n_files": n_files, "w_bins": W_BINS, "h_bins": H_BINS,
+        "sums": sums,
+        "counts": counts,
+        "freq": freq,
+        "n_files": n_files,
+        "w_bins": W_BINS,
+        "h_bins": H_BINS,
     }
 
 
 # ---------------------------------------------------------------------------
 # Plot
 # ---------------------------------------------------------------------------
+
 
 def _compute_mean(s, c):
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -181,7 +193,7 @@ def _marginal_profile(s, c, axis):
 
 
 def plot(result: dict, output_path: Path):
-    from matplotlib.ticker import MaxNLocator, LogFormatterSciNotation
+    from matplotlib.ticker import LogFormatterSciNotation, MaxNLocator
 
     w_bins = result["w_bins"]
     h_bins = result["h_bins"]
@@ -192,18 +204,26 @@ def plot(result: dict, output_path: Path):
     hydros = [h for h in HYDROMETEORS if result["sums"].get(h) is not None]
     nrows = len(hydros)
 
-    plt.rcParams.update({
-        "font.size": FS,
-        "axes.labelsize": FS,
-        "axes.titlesize": FS_TITLE,
-        "xtick.labelsize": FS_TICK,
-        "ytick.labelsize": FS_TICK,
-    })
+    plt.rcParams.update(
+        {
+            "font.size": FS,
+            "axes.labelsize": FS,
+            "axes.titlesize": FS_TITLE,
+            "xtick.labelsize": FS_TICK,
+            "ytick.labelsize": FS_TICK,
+        }
+    )
 
     fig = plt.figure(figsize=(10, 6.5 * nrows))
     outer = gridspec.GridSpec(
-        nrows, 1, figure=fig,
-        hspace=0.45, left=0.10, right=0.88, top=0.97, bottom=0.05,
+        nrows,
+        1,
+        figure=fig,
+        hspace=0.45,
+        left=0.10,
+        right=0.88,
+        top=0.97,
+        bottom=0.05,
     )
 
     for row, hvar in enumerate(hydros):
@@ -219,20 +239,26 @@ def plot(result: dict, output_path: Path):
         cf_levels = np.geomspace(vmin, vmax, 20)
 
         # Marginals
-        prof = _marginal_profile(s, c, axis=0)   # vs height
+        prof = _marginal_profile(s, c, axis=0)  # vs height
         wdist = _marginal_profile(s, c, axis=1)  # vs w
 
         inner = gridspec.GridSpecFromSubplotSpec(
-            2, 2, subplot_spec=outer[row],
-            width_ratios=[5, 1.2], height_ratios=[5, 1.2],
-            wspace=0.05, hspace=0.05,
+            2,
+            2,
+            subplot_spec=outer[row],
+            width_ratios=[5, 1.2],
+            height_ratios=[5, 1.2],
+            wspace=0.05,
+            hspace=0.05,
         )
 
         # --- Main panel ---
         ax = fig.add_subplot(inner[0, 0])
         plot_data = np.where(np.isfinite(mean_h), mean_h, 0.0)
         cf = ax.contourf(
-            w_centers, h_centers, plot_data.T,
+            w_centers,
+            h_centers,
+            plot_data.T,
             levels=cf_levels,
             norm=mcolors.LogNorm(vmin=vmin, vmax=vmax),
             cmap="viridis",
@@ -244,8 +270,13 @@ def plot(result: dict, output_path: Path):
             clevels = clevels[clevels <= fmax]
             if len(clevels):
                 ax.contour(
-                    w_centers, h_centers, freq.T,
-                    levels=clevels, colors="k", linewidths=0.8, alpha=0.45,
+                    w_centers,
+                    h_centers,
+                    freq.T,
+                    levels=clevels,
+                    colors="k",
+                    linewidths=0.8,
+                    alpha=0.45,
                 )
 
         ax.set_xlim(w_bins[0], w_bins[-1])
@@ -293,9 +324,7 @@ def plot(result: dict, output_path: Path):
         cb = fig.colorbar(cf, cax=cax, orientation="vertical")
         cb.set_label(f"{label} (kg kg$^{{-1}}$)", fontsize=FS_CBAR)
         cb.ax.tick_params(labelsize=FS_CBAR)
-        cb.ax.yaxis.set_major_formatter(
-            LogFormatterSciNotation(base=10, labelOnlyBase=True)
-        )
+        cb.ax.yaxis.set_major_formatter(LogFormatterSciNotation(base=10, labelOnlyBase=True))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=450, bbox_inches="tight")
@@ -306,6 +335,14 @@ def plot(result: dict, output_path: Path):
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
+
+def __getattr__(name):
+    """Compatibility for moved functions; new callers use the owning module."""
+    from alaro_analysis.common.legacy_exports import resolve_export
+
+    return resolve_export(__name__, name)
+
 
 if __name__ == "__main__":
     print("Accumulating 3 days of control (w in m/s)...", flush=True)

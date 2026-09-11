@@ -14,14 +14,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 
+from alaro_analysis.common.cli_config import parse_configured_args
+from alaro_analysis.common.constants import RUNS_ROOT
 from alaro_analysis.common.figio import DatasetConfig, add_io_args, save_figure
 
-
-from alaro_analysis.common.constants import RUNS_ROOT
 DEFAULT_DATA_DIR = (
-    RUNS_ROOT
-    / "rainfall-conservative-rebuild"
-    / "common-valid-time-production-bilinearmask"
+    RUNS_ROOT / "rainfall-conservative-rebuild" / "common-valid-time-production-bilinearmask"
 )
 DEFAULT_OUTPUT_DIR = RUNS_ROOT / "figures" / "precip_distribution_corrected"
 
@@ -90,7 +88,9 @@ def common_log_bins(
     return np.logspace(np.log10(lower), np.log10(upper), n_bins + 1)
 
 
-def compute_unconditional_pdf(values: np.ndarray, edges: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def compute_unconditional_pdf(
+    values: np.ndarray, edges: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
     """Return bin counts and PDF density normalized by all finite samples."""
     counts, _ = np.histogram(values, bins=edges)
     widths = np.diff(edges)
@@ -183,7 +183,9 @@ def write_pdf_txt(
         if tail_break is not None and tail_marker is not None and tail_counts is not None:
             fh.write("\nCompressed tail bin\n")
             fh.write("-------------------\n")
-            fh.write("dataset,tail_left_mm_h,tail_bookkeeping_x_mm_h,tail_count,tail_density_bookkeeping\n")
+            fh.write(
+                "dataset,tail_left_mm_h,tail_bookkeeping_x_mm_h,tail_count,tail_density_bookkeeping\n"
+            )
             for sample in samples:
                 key = sample.config.key
                 density = float("nan") if tail_densities is None else tail_densities[key]
@@ -286,7 +288,9 @@ def make_plots(
             raise ValueError("pdf_tail_marker is required when pdf_tail_break is set.")
         tail_width = pdf_tail_marker - pdf_tail_break
         if tail_width <= 0.0:
-            raise ValueError("pdf_tail_marker must be greater than pdf_tail_break for PDF tail accounting.")
+            raise ValueError(
+                "pdf_tail_marker must be greater than pdf_tail_break for PDF tail accounting."
+            )
         tail_counts = {}
         tail_densities = {}
     for sample in samples:
@@ -387,7 +391,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    args = parse_configured_args(build_parser(), "precip_distribution", argv=argv)
     outputs = make_plots(
         data_dir=args.data_dir,
         output_dir=args.output_dir,
@@ -400,6 +404,13 @@ def main(argv: list[str] | None = None) -> int:
     for name, path in outputs.items():
         print(f"{name}: {path}")
     return 0
+
+
+def __getattr__(name):
+    """Compatibility for moved functions; new callers use the owning module."""
+    from alaro_analysis.common.legacy_exports import resolve_export
+
+    return resolve_export(__name__, name)
 
 
 if __name__ == "__main__":

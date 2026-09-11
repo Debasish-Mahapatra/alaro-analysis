@@ -19,17 +19,19 @@ import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 
+from alaro_analysis.analysis.updrafts import (
+    updraft_mass_flux as masked_updraft_mass_flux,
+)
+from alaro_analysis.common.cli_config import parse_configured_args
 from alaro_analysis.common.constants import (
     EXPERIMENT_COLORS,
     EXPERIMENT_LABELS,
     EXPERIMENTS,
-    G,
+    RUNS_ROOT,
 )
+from alaro_analysis.common.parallel import resolve_workers
 from alaro_analysis.common.timeparse import parse_utc_hour_from_name
-from alaro_analysis.plotting.style import resolve_workers
 
-
-from alaro_analysis.common.constants import RUNS_ROOT
 DEFAULT_DATA_ROOT = RUNS_ROOT / "ALARO"
 DEFAULT_OUTPUT_DIR = RUNS_ROOT / "figures" / "updraft_mass_flux_timeseries"
 FIGURE_NAME = "updraft_mass_flux_p90_domain_mean_timeseries.png"
@@ -38,9 +40,15 @@ CSV_NAME = "updraft_mass_flux_p90_domain_mean_timeseries.csv"
 TOP_DAYS_FIGURE_TEMPLATE = "{slug}_top_{top_days}_updraft_days_p90_points.png"
 TOP_DAYS_TEXT_TEMPLATE = "{slug}_top_{top_days}_updraft_days_p90_points.txt"
 TOP_DAYS_CSV_TEMPLATE = "{slug}_top_{top_days}_updraft_days_p90_points.csv"
-TOP_PERCENTILE_DAYS_FIGURE_TEMPLATE = "{slug}_top_p{day_percentile:g}_daily_updraft_days_p90_points.png"
-TOP_PERCENTILE_DAYS_TEXT_TEMPLATE = "{slug}_top_p{day_percentile:g}_daily_updraft_days_p90_points.txt"
-TOP_PERCENTILE_DAYS_CSV_TEMPLATE = "{slug}_top_p{day_percentile:g}_daily_updraft_days_p90_points.csv"
+TOP_PERCENTILE_DAYS_FIGURE_TEMPLATE = (
+    "{slug}_top_p{day_percentile:g}_daily_updraft_days_p90_points.png"
+)
+TOP_PERCENTILE_DAYS_TEXT_TEMPLATE = (
+    "{slug}_top_p{day_percentile:g}_daily_updraft_days_p90_points.txt"
+)
+TOP_PERCENTILE_DAYS_CSV_TEMPLATE = (
+    "{slug}_top_p{day_percentile:g}_daily_updraft_days_p90_points.csv"
+)
 DAILY_TOP_DAYS_FIGURE_TEMPLATE = "{slug}_top_{top_days}_daily_updraft_days_p90_points.png"
 DAILY_TOP_DAYS_TEXT_TEMPLATE = "{slug}_top_{top_days}_daily_updraft_days_p90_points.txt"
 DAILY_TOP_DAYS_CSV_TEMPLATE = "{slug}_top_{top_days}_daily_updraft_days_p90_points.csv"
@@ -108,8 +116,8 @@ def read_nc_array(path: Path, variable: str) -> np.ndarray:
 
 
 def updraft_mass_flux(omega: np.ndarray, mesh: np.ndarray) -> np.ndarray:
-    """Parameterized updraft mass flux, positive upward, kg m-2 s-1."""
-    return np.where(np.isfinite(omega) & np.isfinite(mesh) & (mesh > 0), (-omega * mesh) / G, 0.0)
+    """Legacy zero-filled flux; summarize_flux reapplies the finite-domain mask."""
+    return np.nan_to_num(masked_updraft_mass_flux(omega, mesh), nan=0.0)
 
 
 def summarize_flux(
@@ -288,7 +296,14 @@ def write_csv(path: Path, records: Sequence[UpdraftFluxRecord]) -> None:
             )
 
 
-def write_txt(path: Path, records: Sequence[UpdraftFluxRecord], *, figure_path: Path, csv_path: Path, percentile: float) -> None:
+def write_txt(
+    path: Path,
+    records: Sequence[UpdraftFluxRecord],
+    *,
+    figure_path: Path,
+    csv_path: Path,
+    percentile: float,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     title = "Updraft mass-flux high-percentile time series"
     with path.open("w", encoding="utf-8") as fh:
@@ -299,13 +314,19 @@ def write_txt(path: Path, records: Sequence[UpdraftFluxRecord], *, figure_path: 
         fh.write("Formula: UPDRAFT_FLUX = (-UD_OMEGA * UD_MESH_FRAC) / g, positive upward.\n")
         fh.write("Inactive/invalid mesh cells are included as zero for domain-mean quantities.\n")
         fh.write(f"Percentile: active-cell spatial p{percentile:g} at each timestamp.\n")
-        fh.write("Plotted metric: top10_domain_mean_kg_m2_s, i.e. domain mean of cells at/above the active-cell p90 threshold.\n")
+        fh.write(
+            "Plotted metric: top10_domain_mean_kg_m2_s, i.e. domain mean of cells at/above the active-cell p90 threshold.\n"
+        )
         fh.write("Times are UTC. +0024 files are ignored to avoid duplicate valid times.\n\n")
 
         fh.write("Summary by experiment\n")
         fh.write("---------------------\n")
-        fh.write("experiment,label,n_times,mean_domain_flux,mean_active_p90,mean_top10_domain_flux,mean_active_fraction\n")
-        present_experiments = [exp for exp in EXPERIMENTS if any(row.experiment == exp for row in records)]
+        fh.write(
+            "experiment,label,n_times,mean_domain_flux,mean_active_p90,mean_top10_domain_flux,mean_active_fraction\n"
+        )
+        present_experiments = [
+            exp for exp in EXPERIMENTS if any(row.experiment == exp for row in records)
+        ]
         for experiment in present_experiments:
             rows = [row for row in records if row.experiment == experiment]
             if not rows:
@@ -367,11 +388,21 @@ def aggregate_daily_records(records: Sequence[UpdraftFluxRecord]) -> list[DailyU
                 date=date,
                 day=day,
                 n_hours=len(rows),
-                daily_mean_domain_mean_kg_m2_s=float(np.nanmean([row.domain_mean_kg_m2_s for row in rows])),
-                daily_mean_active_p90_kg_m2_s=float(np.nanmean([row.active_p90_kg_m2_s for row in rows])),
-                daily_mean_top10_domain_mean_kg_m2_s=float(np.nanmean([row.top10_domain_mean_kg_m2_s for row in rows])),
-                daily_mean_top10_active_mean_kg_m2_s=float(np.nanmean([row.top10_active_mean_kg_m2_s for row in rows])),
-                daily_mean_active_mean_kg_m2_s=float(np.nanmean([row.active_mean_kg_m2_s for row in rows])),
+                daily_mean_domain_mean_kg_m2_s=float(
+                    np.nanmean([row.domain_mean_kg_m2_s for row in rows])
+                ),
+                daily_mean_active_p90_kg_m2_s=float(
+                    np.nanmean([row.active_p90_kg_m2_s for row in rows])
+                ),
+                daily_mean_top10_domain_mean_kg_m2_s=float(
+                    np.nanmean([row.top10_domain_mean_kg_m2_s for row in rows])
+                ),
+                daily_mean_top10_active_mean_kg_m2_s=float(
+                    np.nanmean([row.top10_active_mean_kg_m2_s for row in rows])
+                ),
+                daily_mean_active_mean_kg_m2_s=float(
+                    np.nanmean([row.active_mean_kg_m2_s for row in rows])
+                ),
                 daily_mean_active_fraction=float(np.nanmean([row.active_fraction for row in rows])),
             )
         )
@@ -384,7 +415,9 @@ def select_top_percentile_days(
     metric: str,
     day_percentile: float,
 ) -> tuple[list[DailyUpdraftFluxRecord], float]:
-    values = np.asarray([daily_metric_value(row, metric) for row in daily_records], dtype=np.float64)
+    values = np.asarray(
+        [daily_metric_value(row, metric) for row in daily_records], dtype=np.float64
+    )
     values = values[np.isfinite(values)]
     if values.size == 0:
         raise RuntimeError("No finite daily values available for percentile selection.")
@@ -502,8 +535,12 @@ def write_top_days_txt(
         fh.write("Inactive/invalid mesh cells are included as zero for domain-mean quantities.\n")
         fh.write(f"Percentile: active-cell spatial p{percentile:g} at each timestamp.\n")
         fh.write(f"Ranking metric: daily maximum of {metric}.\n")
-        fh.write("Each plotted point is the strongest hourly value within one ranked day. Times are UTC.\n\n")
-        fh.write("rank,day,peak_valid_time_utc,ranking_metric_value_kg_m2_s,active_p90_kg_m2_s,active_fraction\n")
+        fh.write(
+            "Each plotted point is the strongest hourly value within one ranked day. Times are UTC.\n\n"
+        )
+        fh.write(
+            "rank,day,peak_valid_time_utc,ranking_metric_value_kg_m2_s,active_p90_kg_m2_s,active_fraction\n"
+        )
         for rank, row in enumerate(records, start=1):
             fh.write(
                 f"{rank},{row.day},{row.valid_time.isoformat()},"
@@ -543,8 +580,12 @@ def write_top_percentile_days_csv(
         key=lambda row: daily_metric_value(row, metric),
         reverse=True,
     )
-    selected_rank = {(row.experiment, row.day): rank for rank, row in enumerate(selected_sorted, start=1)}
-    all_sorted = sorted(daily_records, key=lambda row: (not row.selected, -daily_metric_value(row, metric)))
+    selected_rank = {
+        (row.experiment, row.day): rank for rank, row in enumerate(selected_sorted, start=1)
+    }
+    all_sorted = sorted(
+        daily_records, key=lambda row: (not row.selected, -daily_metric_value(row, metric))
+    )
     with path.open("w", encoding="utf-8", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=columns)
         writer.writeheader()
@@ -698,7 +739,9 @@ def write_daily_top_days_txt(
 def plot_timeseries(path: Path, records: Sequence[UpdraftFluxRecord], *, dpi: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(13.5, 5.2))
-    present_experiments = [exp for exp in EXPERIMENTS if any(row.experiment == exp for row in records)]
+    present_experiments = [
+        exp for exp in EXPERIMENTS if any(row.experiment == exp for row in records)
+    ]
     for experiment in present_experiments:
         rows = [row for row in records if row.experiment == experiment]
         if not rows:
@@ -726,7 +769,9 @@ def plot_timeseries(path: Path, records: Sequence[UpdraftFluxRecord], *, dpi: in
     plt.close(fig)
 
 
-def plot_top_days(path: Path, records: Sequence[UpdraftFluxRecord], *, metric: str, dpi: int) -> None:
+def plot_top_days(
+    path: Path, records: Sequence[UpdraftFluxRecord], *, metric: str, dpi: int
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(10.5, 5.2))
     values = np.asarray([metric_value(row, metric) for row in records], dtype=np.float64)
@@ -779,7 +824,9 @@ def plot_top_percentile_days(
             label="below p95",
         )
     if selected:
-        sizes = 55.0 + 350.0 * np.asarray([row.daily_mean_active_fraction for row in selected], dtype=np.float64)
+        sizes = 55.0 + 350.0 * np.asarray(
+            [row.daily_mean_active_fraction for row in selected], dtype=np.float64
+        )
         scatter = ax.scatter(
             [row.date for row in selected],
             [daily_metric_value(row, metric) for row in selected],
@@ -816,9 +863,15 @@ def plot_daily_top_days(
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(8.8, 4.9))
-    values = np.asarray([daily_metric_value(row, metric) for row in daily_records], dtype=np.float64)
-    colors = np.asarray([row.daily_mean_active_p90_kg_m2_s for row in daily_records], dtype=np.float64)
-    sizes = 70.0 + 420.0 * np.asarray([row.daily_mean_active_fraction for row in daily_records], dtype=np.float64)
+    values = np.asarray(
+        [daily_metric_value(row, metric) for row in daily_records], dtype=np.float64
+    )
+    colors = np.asarray(
+        [row.daily_mean_active_p90_kg_m2_s for row in daily_records], dtype=np.float64
+    )
+    sizes = 70.0 + 420.0 * np.asarray(
+        [row.daily_mean_active_fraction for row in daily_records], dtype=np.float64
+    )
     scatter = ax.scatter(
         [row.date for row in daily_records],
         values,
@@ -880,8 +933,12 @@ def make_outputs(
         metric = "top10_domain_mean_kg_m2_s"
         top_records = rank_top_days(records, metric=metric, top_days=top_days)
         figure_path = output_dir / TOP_DAYS_FIGURE_TEMPLATE.format(slug=slug, top_days=top_days)
-        csv_path = output_dir / "data_txt" / TOP_DAYS_CSV_TEMPLATE.format(slug=slug, top_days=top_days)
-        txt_path = output_dir / "data_txt" / TOP_DAYS_TEXT_TEMPLATE.format(slug=slug, top_days=top_days)
+        csv_path = (
+            output_dir / "data_txt" / TOP_DAYS_CSV_TEMPLATE.format(slug=slug, top_days=top_days)
+        )
+        txt_path = (
+            output_dir / "data_txt" / TOP_DAYS_TEXT_TEMPLATE.format(slug=slug, top_days=top_days)
+        )
         write_top_days_csv(csv_path, top_records, metric=metric)
         write_top_days_txt(
             txt_path,
@@ -905,13 +962,21 @@ def make_outputs(
             slug=slug,
             day_percentile=day_percentile,
         )
-        csv_path = output_dir / "data_txt" / TOP_PERCENTILE_DAYS_CSV_TEMPLATE.format(
-            slug=slug,
-            day_percentile=day_percentile,
+        csv_path = (
+            output_dir
+            / "data_txt"
+            / TOP_PERCENTILE_DAYS_CSV_TEMPLATE.format(
+                slug=slug,
+                day_percentile=day_percentile,
+            )
         )
-        txt_path = output_dir / "data_txt" / TOP_PERCENTILE_DAYS_TEXT_TEMPLATE.format(
-            slug=slug,
-            day_percentile=day_percentile,
+        txt_path = (
+            output_dir
+            / "data_txt"
+            / TOP_PERCENTILE_DAYS_TEXT_TEMPLATE.format(
+                slug=slug,
+                day_percentile=day_percentile,
+            )
         )
         write_top_percentile_days_csv(csv_path, daily_records, metric=metric, threshold=threshold)
         write_top_percentile_days_txt(
@@ -924,15 +989,27 @@ def make_outputs(
             metric=metric,
             threshold=threshold,
         )
-        plot_top_percentile_days(figure_path, daily_records, metric=metric, threshold=threshold, dpi=dpi)
+        plot_top_percentile_days(
+            figure_path, daily_records, metric=metric, threshold=threshold, dpi=dpi
+        )
     elif plot_kind == "daily-top-days":
         slug = experiment_slug(experiments)
         metric = "daily_mean_top10_domain_mean_kg_m2_s"
         daily_records = aggregate_daily_records(records)
         top_daily_records = rank_daily_top_days(daily_records, metric=metric, top_days=top_days)
-        figure_path = output_dir / DAILY_TOP_DAYS_FIGURE_TEMPLATE.format(slug=slug, top_days=top_days)
-        csv_path = output_dir / "data_txt" / DAILY_TOP_DAYS_CSV_TEMPLATE.format(slug=slug, top_days=top_days)
-        txt_path = output_dir / "data_txt" / DAILY_TOP_DAYS_TEXT_TEMPLATE.format(slug=slug, top_days=top_days)
+        figure_path = output_dir / DAILY_TOP_DAYS_FIGURE_TEMPLATE.format(
+            slug=slug, top_days=top_days
+        )
+        csv_path = (
+            output_dir
+            / "data_txt"
+            / DAILY_TOP_DAYS_CSV_TEMPLATE.format(slug=slug, top_days=top_days)
+        )
+        txt_path = (
+            output_dir
+            / "data_txt"
+            / DAILY_TOP_DAYS_TEXT_TEMPLATE.format(slug=slug, top_days=top_days)
+        )
         write_daily_top_days_csv(csv_path, top_daily_records, metric=metric)
         write_daily_top_days_txt(
             txt_path,
@@ -948,7 +1025,9 @@ def make_outputs(
         csv_path = output_dir / "data_txt" / CSV_NAME
         txt_path = output_dir / "data_txt" / TEXT_NAME
         write_csv(csv_path, records)
-        write_txt(txt_path, records, figure_path=figure_path, csv_path=csv_path, percentile=percentile)
+        write_txt(
+            txt_path, records, figure_path=figure_path, csv_path=csv_path, percentile=percentile
+        )
         plot_timeseries(figure_path, records, dpi=dpi)
     return {"plot": figure_path, "txt": txt_path, "csv": csv_path}
 
@@ -975,7 +1054,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    args = parse_configured_args(build_parser(), "updraft_mass_flux_timeseries", argv=argv)
     outputs = make_outputs(
         data_root=args.data_root,
         output_dir=args.output_dir,
@@ -991,6 +1070,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     for key, value in outputs.items():
         print(f"{key}: {value}")
     return 0
+
+
+def __getattr__(name):
+    """Compatibility for pre-refactor imports; new callers use the owning module."""
+    from alaro_analysis.common.legacy_exports import resolve_export
+
+    return resolve_export(__name__, name)
 
 
 if __name__ == "__main__":

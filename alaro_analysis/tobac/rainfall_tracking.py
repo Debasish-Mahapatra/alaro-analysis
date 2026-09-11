@@ -16,29 +16,29 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+from typing import TYPE_CHECKING
+
 import matplotlib.pyplot as plt
 import netCDF4
 import numpy as np
-import pandas as pd
-import tobac
 import xarray as xr
 
+from alaro_analysis.common.cli_config import parse_configured_args
+from alaro_analysis.common.paths import data_path, runs_path
 
-DEFAULT_MODEL_ROOT = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/ALARO/NO3M/deaccumulated-rainfall"
-)
-DEFAULT_IMERG_ROOT = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/IMERG_AMAZON/IMERG-cropped-to-model-rainfall-boundaries"
-)
-DEFAULT_PROCESSED_DIR = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/Tracking/processed-data")
-DEFAULT_PLOTS_DIR = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/Tracking/plots")
-DEFAULT_JSON_LOG_DIR = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/Tracking/logs/json")
-DEFAULT_TEXT_LOG_DIR = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/Tracking/logs")
+if TYPE_CHECKING:
+    import pandas as pd
+
+
+DEFAULT_MODEL_ROOT = runs_path("ALARO/NO3M/deaccumulated-rainfall")
+DEFAULT_IMERG_ROOT = data_path("IMERG_AMAZON/IMERG-cropped-to-model-rainfall-boundaries")
+DEFAULT_PROCESSED_DIR = data_path("Tracking/processed-data")
+DEFAULT_PLOTS_DIR = data_path("Tracking/plots")
+DEFAULT_JSON_LOG_DIR = data_path("Tracking/logs/json")
+DEFAULT_TEXT_LOG_DIR = data_path("Tracking/logs")
 
 MODEL_VARS = ("SURFPREC.EAU.GEC", "SURFPREC.EAU.CON")
-IMERG_RE = re.compile(
-    r"3B-HHR\.MS\.MRG\.3IMERG\.(?P<ymd>\d{8})-S(?P<hms>\d{6})-"
-)
+IMERG_RE = re.compile(r"3B-HHR\.MS\.MRG\.3IMERG\.(?P<ymd>\d{8})-S(?P<hms>\d{6})-")
 
 
 @dataclass(frozen=True)
@@ -103,12 +103,7 @@ def imerg_paths_for_hour(root: Path, time: datetime) -> tuple[Path, Path]:
 
 
 def model_path(root: Path, var_name: str, time: datetime) -> Path:
-    return (
-        root
-        / var_name
-        / f"pf{time:%Y%m%d}"
-        / f"pfABOFABOF+{time.hour:04d}.nc"
-    )
+    return root / var_name / f"pf{time:%Y%m%d}" / f"pfABOFABOF+{time.hour:04d}.nc"
 
 
 def missing_paths(paths: Iterable[Path]) -> list[str]:
@@ -138,9 +133,7 @@ def haversine_m(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
     dlat = math.radians(lat2 - lat1)
     a = (
         math.sin(dlat / 2.0) ** 2
-        + math.cos(math.radians(lat1))
-        * math.cos(math.radians(lat2))
-        * math.sin(dlon / 2.0) ** 2
+        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2.0) ** 2
     )
     return 2.0 * radius * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
 
@@ -154,8 +147,12 @@ def model_grid_info(sample_path: Path) -> tuple[GridInfo, np.ndarray, np.ndarray
     x = nx // 2
     dxy = np.mean(
         [
-            haversine_m(float(lon[y, x]), float(lat[y, x]), float(lon[y, x + 1]), float(lat[y, x + 1])),
-            haversine_m(float(lon[y, x]), float(lat[y, x]), float(lon[y + 1, x]), float(lat[y + 1, x])),
+            haversine_m(
+                float(lon[y, x]), float(lat[y, x]), float(lon[y, x + 1]), float(lat[y, x + 1])
+            ),
+            haversine_m(
+                float(lon[y, x]), float(lat[y, x]), float(lon[y + 1, x]), float(lat[y + 1, x])
+            ),
         ]
     )
     info = GridInfo(
@@ -304,6 +301,8 @@ def plot_track_summary(
     out_path: Path,
     period_label: str,
 ) -> None:
+    import pandas as pd
+
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     fig.suptitle(f"tobac rainfall tracking: {label} ({period_label})")
 
@@ -341,7 +340,12 @@ def run_tobac_for_dataset(
     plot_dir: Path,
     period_label: str,
 ) -> DatasetSummary:
-    print(f"[{datetime.now().isoformat(timespec='seconds')}] {label}: feature detection", flush=True)
+    import pandas as pd
+    import tobac
+
+    print(
+        f"[{datetime.now().isoformat(timespec='seconds')}] {label}: feature detection", flush=True
+    )
     features = tobac.feature_detection_multithreshold(
         field,
         dxy=grid.dxy_m,
@@ -418,6 +422,7 @@ def parse_thresholds(value: str) -> list[float]:
 
 
 def main(argv: list[str] | None = None) -> int:
+
     parser = argparse.ArgumentParser(
         description="Run tobac rainfall feature tracking for IMERG and NO3M model data."
     )
@@ -429,10 +434,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--plots-dir", type=Path, default=DEFAULT_PLOTS_DIR)
     parser.add_argument("--json-log-dir", type=Path, default=DEFAULT_JSON_LOG_DIR)
     parser.add_argument("--text-log-dir", type=Path, default=DEFAULT_TEXT_LOG_DIR)
-    parser.add_argument("--thresholds", type=parse_thresholds, default=parse_thresholds("5,10,20,40"))
+    parser.add_argument(
+        "--thresholds", type=parse_thresholds, default=parse_thresholds("5,10,20,40")
+    )
     parser.add_argument("--min-threshold-pixels", type=int, default=4)
     parser.add_argument("--v-max", type=float, default=30.0, help="Maximum linking speed in m s-1.")
-    parser.add_argument("--memory", type=int, default=1, help="Allow this many missing frames during linking.")
+    parser.add_argument(
+        "--memory", type=int, default=1, help="Allow this many missing frames during linking."
+    )
     parser.add_argument("--min-track-hours", type=int, default=3)
     parser.add_argument(
         "--model-coarsen",
@@ -451,7 +460,10 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Only check that all inputs exist for the requested period.",
     )
-    args = parser.parse_args(argv)
+    args = parse_configured_args(parser, "rainfall_tracking", argv=argv)
+
+    if not args.check_only:
+        import tobac
 
     times = iter_hours(args.start, args.end)
     period_label = f"{args.start:%Y%m%d}_{args.end:%Y%m%d}"
@@ -482,7 +494,10 @@ def main(argv: list[str] | None = None) -> int:
 
     summaries: list[DatasetSummary] = []
     if args.dataset in ("both", "obs"):
-        print(f"[{datetime.now().isoformat(timespec='seconds')}] obs: reading hourly IMERG", flush=True)
+        print(
+            f"[{datetime.now().isoformat(timespec='seconds')}] obs: reading hourly IMERG",
+            flush=True,
+        )
         obs, obs_grid = build_imerg_hourly(times, args.imerg_root, args.thresholds)
         summaries.append(
             run_tobac_for_dataset(
@@ -502,7 +517,10 @@ def main(argv: list[str] | None = None) -> int:
         del obs
 
     if args.dataset in ("both", "model"):
-        print(f"[{datetime.now().isoformat(timespec='seconds')}] model: reading hourly NO3M rainfall", flush=True)
+        print(
+            f"[{datetime.now().isoformat(timespec='seconds')}] model: reading hourly NO3M rainfall",
+            flush=True,
+        )
         model, model_grid = build_model_hourly(
             times,
             args.model_root,

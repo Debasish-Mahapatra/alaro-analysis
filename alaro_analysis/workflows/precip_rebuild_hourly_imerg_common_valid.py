@@ -3,20 +3,22 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
-from datetime import datetime, timedelta
-from pathlib import Path
 import re
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 from typing import Sequence
 
 import numpy as np
 import xarray as xr
 
-
+from alaro_analysis.common.cli_config import parse_configured_args
 from alaro_analysis.common.constants import RUNS_ROOT
+from alaro_analysis.common.paths import data_path
+
 RAINFALL_ROOT = RUNS_ROOT / "rainfall-regridded-to-imerge"
 DEFAULT_REGRIDDED_DIR = RAINFALL_ROOT / "cropped-regrided-imerg"
-DEFAULT_RAW_IMERG_DIR = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/IMERG_AMAZON")
+DEFAULT_RAW_IMERG_DIR = data_path("IMERG_AMAZON")
 DEFAULT_OUTPUT_ROOT = RAINFALL_ROOT / "masked-production-final-hourly-imerg"
 DEFAULT_START = "2014-01-01T00:00:00"
 DEFAULT_END = "2015-12-31T23:00:00"
@@ -140,10 +142,14 @@ def read_imerg_halfhour(
     with xr.open_dataset(path, decode_times=False) as ds:
         if "precipitation" not in ds:
             raise KeyError(f"'precipitation' not found in {path}")
-        da = ds["precipitation"].isel(time=0).sel(
-            lat=target_lats,
-            lon=target_lons,
-            method="nearest",
+        da = (
+            ds["precipitation"]
+            .isel(time=0)
+            .sel(
+                lat=target_lats,
+                lon=target_lons,
+                method="nearest",
+            )
         )
         lat_diff = float(np.max(np.abs(np.asarray(da["lat"].values) - target_lats)))
         lon_diff = float(np.max(np.abs(np.asarray(da["lon"].values) - target_lons)))
@@ -351,8 +357,12 @@ def write_summary(
         fh.write("1. Crop complete half-hour IMERG files to the existing 10 km IMERG grid.\n")
         fh.write("2. Average each :00 and :30 IMERG pair to one hourly mm/hr field.\n")
         fh.write("3. Regenerate the radar spatial mask from finite radar coverage.\n")
-        fh.write("4. Select the common hourly timestamps across radar, hourly IMERG, and all models.\n")
-        fh.write("5. Select common-valid timestamps where each domain mean is finite and radar valid_time_mask is true.\n\n")
+        fh.write(
+            "4. Select the common hourly timestamps across radar, hourly IMERG, and all models.\n"
+        )
+        fh.write(
+            "5. Select common-valid timestamps where each domain mean is finite and radar valid_time_mask is true.\n\n"
+        )
         fh.write("Counts\n")
         fh.write("------\n")
         fh.write(f"Hourly timestamps requested: {hourly_times_count}\n")
@@ -465,7 +475,9 @@ def rebuild_common_valid(
         valid_counts[cfg.key] = int(len(valid_times))
 
     common_valid_times = intersect_time_values(valid_time_values)
-    print(f"common-valid timestamps after full archive rebuild: {len(common_valid_times)}", flush=True)
+    print(
+        f"common-valid timestamps after full archive rebuild: {len(common_valid_times)}", flush=True
+    )
 
     common_paths: dict[str, Path] = {}
     for cfg in DATASETS:
@@ -520,7 +532,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    args = parse_configured_args(
+        build_parser(), "precip_rebuild_hourly_imerg_common_valid", argv=argv
+    )
     outputs = rebuild_common_valid(
         raw_imerg_dir=args.raw_imerg_dir,
         regridded_dir=args.regridded_dir,
@@ -533,6 +547,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     for key, path in outputs.items():
         print(f"{key}: {path}")
     return 0
+
+
+def __getattr__(name):
+    """Compatibility for moved functions; new callers use the owning module."""
+    from alaro_analysis.common.legacy_exports import resolve_export
+
+    return resolve_export(__name__, name)
 
 
 if __name__ == "__main__":

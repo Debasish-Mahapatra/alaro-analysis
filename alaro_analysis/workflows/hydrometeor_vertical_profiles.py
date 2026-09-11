@@ -17,27 +17,22 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.ticker import ScalarFormatter
 import numpy as np
+from matplotlib.ticker import ScalarFormatter
 
 from alaro_analysis.common.cli_config import add_config_argument, parse_configured_args
 from alaro_analysis.common.constants import EXPERIMENT_LABELS, EXPERIMENTS
 from alaro_analysis.common.naming import safe_name
+from alaro_analysis.common.paths import runs_path
+from alaro_analysis.data.cache import save_npz_compressed
 from alaro_analysis.data.dataset_io import read_vertical_profile
 from alaro_analysis.data.discovery import collect_file_records
 
-
-DATA_ROOT = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/ALARO")
-OUTPUT_DIR = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/figures/hydrometeor_vertical_profiles"
-)
+DATA_ROOT = runs_path("ALARO")
+OUTPUT_DIR = runs_path("figures/hydrometeor_vertical_profiles")
 DATA_TXT_DIR = OUTPUT_DIR / "data_txt"
-CACHE_DIR = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/hydrometeor_vertical_profiles"
-)
-LEGACY_CACHE_DIR = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/data.old.2"
-)
+CACHE_DIR = runs_path("processed-data/hydrometeor_vertical_profiles")
+LEGACY_CACHE_DIR = runs_path("processed-data/data.old.2")
 
 FIGURE_NAME = "Hydrometeor_Vertical_Profiles_C1M_G1M_G2M.png"
 TEXT_NAME = "Hydrometeor_Vertical_Profiles_C1M_G1M_G2M.txt"
@@ -108,12 +103,7 @@ def profile_cache_path(
     experiment: str,
     spatial_tag: str,
 ) -> Path:
-    return (
-        cache_dir
-        / safe_name(variable)
-        / "2years"
-        / f"{experiment}_{spatial_tag}_profile.npz"
-    )
+    return cache_dir / safe_name(variable) / "2years" / f"{experiment}_{spatial_tag}_profile.npz"
 
 
 def legacy_profile_cache_path(
@@ -172,7 +162,7 @@ def load_cached_profile(path: Path) -> ProfileData:
 
 def save_profile_cache(path: Path, profile_data: ProfileData) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
+    save_npz_compressed(
         path,
         profile=profile_data.profile,
         counts=profile_data.counts,
@@ -330,7 +320,7 @@ def get_height_km(
         utc_offset_hours=utc_offset_hours,
     )
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(cache_path, height_km=height_km)
+    save_npz_compressed(cache_path, height_km=height_km)
     return height_km, str(cache_path)
 
 
@@ -373,8 +363,7 @@ def write_data_txt(
                 fh.write(f"{label} {variable} source: {source} (n_files={n_files})\n")
         fh.write("\n")
         fh.write(
-            "experiment,experiment_label,level_index,height_km,"
-            f"{species_columns},{count_columns}\n"
+            f"experiment,experiment_label,level_index,height_km,{species_columns},{count_columns}\n"
         )
         for experiment in EXPERIMENTS:
             label = EXPERIMENT_LABELS[experiment]
@@ -386,8 +375,7 @@ def write_data_txt(
                 value_text = ",".join(f"{val:.10e}" for val in values)
                 count_text = ",".join(str(int(count)) for count in counts)
                 fh.write(
-                    f"{experiment},{label},{lev},{height[lev]:.10e},"
-                    f"{value_text},{count_text}\n"
+                    f"{experiment},{label},{lev},{height[lev]:.10e},{value_text},{count_text}\n"
                 )
 
 
@@ -453,7 +441,9 @@ def plot_profiles(
     plt.close(fig)
 
 
-def build_profiles(args: argparse.Namespace) -> tuple[
+def build_profiles(
+    args: argparse.Namespace,
+) -> tuple[
     dict[str, dict[str, ProfileData]],
     dict[str, np.ndarray],
     dict[str, str],
@@ -513,6 +503,13 @@ def main(argv: list[str] | None = None) -> None:
     write_data_txt(text_path, profiles, heights_km, height_sources)
     print(f"Saved figure: {output_path}", flush=True)
     print(f"Saved data:   {text_path}", flush=True)
+
+
+def __getattr__(name):
+    """Compatibility for moved functions; new callers use the owning module."""
+    from alaro_analysis.common.legacy_exports import resolve_export
+
+    return resolve_export(__name__, name)
 
 
 if __name__ == "__main__":

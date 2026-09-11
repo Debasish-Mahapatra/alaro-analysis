@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import argparse
+import json
+import re
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import json
 from pathlib import Path
-import re
 from typing import Sequence
 
 import numpy as np
 import xarray as xr
 
+from alaro_analysis.common.cli_config import parse_configured_args
 from alaro_analysis.data.dataset_io import resolve_data_var_name
 
 DAY_DIR_RE = re.compile(r"^(?:pf|sfx)(\d{8})$")
@@ -127,9 +128,7 @@ def _validate_hours(hourly_files: Sequence[tuple[int, Path]]) -> None:
 
     first = hours[0]
     if first > 1:
-        raise ValueError(
-            f"first lead hour is +{first:04d}; cannot make an hourly first increment"
-        )
+        raise ValueError(f"first lead hour is +{first:04d}; cannot make an hourly first increment")
 
     gaps = [
         (prev_hour, next_hour)
@@ -137,9 +136,7 @@ def _validate_hours(hourly_files: Sequence[tuple[int, Path]]) -> None:
         if next_hour != prev_hour + 1
     ]
     if gaps:
-        labels = ", ".join(
-            f"+{prev_hour:04d}->+{next_hour:04d}" for prev_hour, next_hour in gaps
-        )
+        labels = ", ".join(f"+{prev_hour:04d}->+{next_hour:04d}" for prev_hour, next_hour in gaps)
         raise ValueError(f"non-consecutive lead hours found: {labels}")
 
 
@@ -195,7 +192,9 @@ def _output_attrs(
     if long_name:
         attrs["long_name"] = f"Deaccumulated hourly {long_name}"
     attrs["accumulation"] = "deaccumulated"
-    attrs["deaccumulation_method"] = "current accumulated value minus previous lead accumulated value"
+    attrs["deaccumulation_method"] = (
+        "current accumulated value minus previous lead accumulated value"
+    )
     attrs["deaccumulation_interval_hours"] = int(interval_hours)
     attrs["source_accumulated_file"] = str(source_file)
     attrs["previous_accumulated_file"] = str(previous_file) if previous_file else ""
@@ -350,7 +349,9 @@ def run_deaccumulation(cfg: DeaccumConfig) -> dict[str, object]:
     if not cfg.input_root.is_dir():
         raise FileNotFoundError(f"Input root not found or not a directory: {cfg.input_root}")
     if cfg.input_root.resolve() == cfg.output_root.resolve():
-        raise ValueError("output_root must differ from input_root to avoid replacing accumulated data")
+        raise ValueError(
+            "output_root must differ from input_root to avoid replacing accumulated data"
+        )
     if cfg.compress not in {"zlib", "none"}:
         raise ValueError("compress must be one of: zlib, none")
     if not (0 <= cfg.compress_level <= 9):
@@ -533,8 +534,7 @@ def _accumulate_result(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Convert accumulated precipitation NetCDF outputs to hourly "
-            "deaccumulated increments."
+            "Convert accumulated precipitation NetCDF outputs to hourly deaccumulated increments."
         )
     )
     parser.add_argument(
@@ -592,7 +592,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parse_configured_args(parser, "deaccumulate_precipitation", argv=argv)
     cfg = DeaccumConfig(
         input_root=Path(args.input_root),
         output_root=Path(args.output_root),
@@ -610,6 +610,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     run_deaccumulation(cfg)
     return 0
+
+
+def __getattr__(name):
+    """Compatibility for moved functions; new callers use the owning module."""
+    from alaro_analysis.common.legacy_exports import resolve_export
+
+    return resolve_export(__name__, name)
 
 
 if __name__ == "__main__":

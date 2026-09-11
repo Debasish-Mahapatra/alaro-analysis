@@ -60,9 +60,15 @@ def test_summarize_flux_domain_mean_and_top_percentile_contribution():
 
 def test_rank_top_days_keeps_one_strongest_hour_per_day():
     rows = [
-        UpdraftFluxRecord("graupel", datetime(2014, 1, 1, 1), "pf20140101", "a.nc", 1, 1, 1, 1, 1, 0.1, 10, 1, 1),
-        UpdraftFluxRecord("graupel", datetime(2014, 1, 1, 2), "pf20140101", "b.nc", 1, 1, 5, 1, 1, 0.1, 10, 1, 1),
-        UpdraftFluxRecord("graupel", datetime(2014, 1, 2, 1), "pf20140102", "c.nc", 1, 1, 3, 1, 1, 0.1, 10, 1, 1),
+        UpdraftFluxRecord(
+            "graupel", datetime(2014, 1, 1, 1), "pf20140101", "a.nc", 1, 1, 1, 1, 1, 0.1, 10, 1, 1
+        ),
+        UpdraftFluxRecord(
+            "graupel", datetime(2014, 1, 1, 2), "pf20140101", "b.nc", 1, 1, 5, 1, 1, 0.1, 10, 1, 1
+        ),
+        UpdraftFluxRecord(
+            "graupel", datetime(2014, 1, 2, 1), "pf20140102", "c.nc", 1, 1, 3, 1, 1, 0.1, 10, 1, 1
+        ),
     ]
 
     ranked = rank_top_days(rows, metric="top10_domain_mean_kg_m2_s", top_days=2)
@@ -73,12 +79,24 @@ def test_rank_top_days_keeps_one_strongest_hour_per_day():
 
 def test_select_top_percentile_days_uses_daily_means_not_hourly_peaks():
     rows = [
-        UpdraftFluxRecord("graupel", datetime(2014, 1, 1, 0), "pf20140101", "a.nc", 0, 0, 1, 0, 0, 0.1, 10, 1, 1),
-        UpdraftFluxRecord("graupel", datetime(2014, 1, 1, 1), "pf20140101", "b.nc", 0, 0, 3, 0, 0, 0.1, 10, 1, 1),
-        UpdraftFluxRecord("graupel", datetime(2014, 1, 2, 0), "pf20140102", "c.nc", 0, 0, 10, 0, 0, 0.1, 10, 1, 1),
-        UpdraftFluxRecord("graupel", datetime(2014, 1, 2, 1), "pf20140102", "d.nc", 0, 0, 0, 0, 0, 0.1, 10, 1, 1),
-        UpdraftFluxRecord("graupel", datetime(2014, 1, 3, 0), "pf20140103", "e.nc", 0, 0, 4, 0, 0, 0.1, 10, 1, 1),
-        UpdraftFluxRecord("graupel", datetime(2014, 1, 3, 1), "pf20140103", "f.nc", 0, 0, 4, 0, 0, 0.1, 10, 1, 1),
+        UpdraftFluxRecord(
+            "graupel", datetime(2014, 1, 1, 0), "pf20140101", "a.nc", 0, 0, 1, 0, 0, 0.1, 10, 1, 1
+        ),
+        UpdraftFluxRecord(
+            "graupel", datetime(2014, 1, 1, 1), "pf20140101", "b.nc", 0, 0, 3, 0, 0, 0.1, 10, 1, 1
+        ),
+        UpdraftFluxRecord(
+            "graupel", datetime(2014, 1, 2, 0), "pf20140102", "c.nc", 0, 0, 10, 0, 0, 0.1, 10, 1, 1
+        ),
+        UpdraftFluxRecord(
+            "graupel", datetime(2014, 1, 2, 1), "pf20140102", "d.nc", 0, 0, 0, 0, 0, 0.1, 10, 1, 1
+        ),
+        UpdraftFluxRecord(
+            "graupel", datetime(2014, 1, 3, 0), "pf20140103", "e.nc", 0, 0, 4, 0, 0, 0.1, 10, 1, 1
+        ),
+        UpdraftFluxRecord(
+            "graupel", datetime(2014, 1, 3, 1), "pf20140103", "f.nc", 0, 0, 4, 0, 0, 0.1, 10, 1, 1
+        ),
     ]
 
     daily = aggregate_daily_records(rows)
@@ -95,10 +113,18 @@ def test_select_top_percentile_days_uses_daily_means_not_hourly_peaks():
 
 def test_rank_daily_top_days_uses_daily_mean_metric():
     rows = [
-        UpdraftFluxRecord("graupel", datetime(2014, 1, 1, 0), "pf20140101", "a.nc", 0, 0, 100, 0, 0, 0.1, 10, 1, 1),
-        UpdraftFluxRecord("graupel", datetime(2014, 1, 1, 1), "pf20140101", "b.nc", 0, 0, 0, 0, 0, 0.1, 10, 1, 1),
-        UpdraftFluxRecord("graupel", datetime(2014, 1, 2, 0), "pf20140102", "c.nc", 0, 0, 60, 0, 0, 0.1, 10, 1, 1),
-        UpdraftFluxRecord("graupel", datetime(2014, 1, 2, 1), "pf20140102", "d.nc", 0, 0, 60, 0, 0, 0.1, 10, 1, 1),
+        UpdraftFluxRecord(
+            "graupel", datetime(2014, 1, 1, 0), "pf20140101", "a.nc", 0, 0, 100, 0, 0, 0.1, 10, 1, 1
+        ),
+        UpdraftFluxRecord(
+            "graupel", datetime(2014, 1, 1, 1), "pf20140101", "b.nc", 0, 0, 0, 0, 0, 0.1, 10, 1, 1
+        ),
+        UpdraftFluxRecord(
+            "graupel", datetime(2014, 1, 2, 0), "pf20140102", "c.nc", 0, 0, 60, 0, 0, 0.1, 10, 1, 1
+        ),
+        UpdraftFluxRecord(
+            "graupel", datetime(2014, 1, 2, 1), "pf20140102", "d.nc", 0, 0, 60, 0, 0, 0.1, 10, 1, 1
+        ),
     ]
 
     daily = aggregate_daily_records(rows)

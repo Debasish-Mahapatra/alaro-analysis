@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Surface-only diurnal diagnostics for masked NetCDF outputs.
 
@@ -11,45 +10,39 @@ Typical use case:
 from __future__ import annotations
 
 import argparse
-import re
 from pathlib import Path
-from typing import Sequence
 
-import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
 import numpy as np
 
-from alaro_analysis.common.constants import CP_D, EXPERIMENTS, EXPERIMENT_LABELS, G, SEASONS
+from alaro_analysis.analysis.surface import (
+    compute_lcl_lines_for_periods,
+    compute_surface_line,
+    infer_lcl_start_height_m,
+    is_pblh_variable,
+    lcl_cache_analysis_name,
+)
 from alaro_analysis.common.cli_config import add_config_argument, parse_configured_args
-from alaro_analysis.common.naming import normalize_var_token, safe_name
+from alaro_analysis.common.constants import EXPERIMENTS, SEASONS
+from alaro_analysis.common.naming import safe_name
+from alaro_analysis.common.paths import runs_path
 from alaro_analysis.common.seasons import build_period_specs, resolve_seasons
 from alaro_analysis.common.spatial import build_spatial_window, spatial_window_tag
-from alaro_analysis.common.timeparse import parse_month_from_day_name
-from alaro_analysis.data.cache import build_cache_file, load_cache, save_cache
-from alaro_analysis.data.dataset_io import read_time_level_yx
+from alaro_analysis.data.cache import build_cache_file
+from alaro_analysis.data.cache_context import CacheContext
 from alaro_analysis.data.discovery import (
     collect_file_records,
     discover_variable_maps,
     resolve_var_name,
 )
+from alaro_analysis.plotting.surface import plot_surface_diurnal
 
-DEFAULT_CONTROL_DIR = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/SURFEX/control/masked-netcdf"
-)
-DEFAULT_GRAUPEL_DIR = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/SURFEX/graupel/masked-netcdf"
-)
-DEFAULT_2MOM_DIR = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/SURFEX/2mom/masked-netcdf"
-)
+DEFAULT_CONTROL_DIR = runs_path("SURFEX/control/masked-netcdf")
+DEFAULT_GRAUPEL_DIR = runs_path("SURFEX/graupel/masked-netcdf")
+DEFAULT_2MOM_DIR = runs_path("SURFEX/2mom/masked-netcdf")
 
-DEFAULT_OUTPUT_DIR = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/figures/surface")
-DEFAULT_INTERMEDIATE_DIR = Path(
-    "/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS/processed-data/surface"
-)
+DEFAULT_OUTPUT_DIR = runs_path("figures/surface")
+DEFAULT_INTERMEDIATE_DIR = runs_path("processed-data/surface")
 
-HEIGHT_LEVEL_RE = re.compile(r"^H(\d{5})")
-PBLH_VAR_TOKEN = "CLPMHAUTMODXFU"
 DEFAULT_LCL_TEMPERATURE_VARS = (
     "H00100TEMPERATUR",
     "SURFTEMPERATURE",
@@ -169,354 +162,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parse_configured_args(parser, "surface", argv=argv)
 
 
-def safe_scalar_mean(arr: np.ndarray) -> float:
-    finite = arr[np.isfinite(arr)]
-    if finite.size == 0:
-        return float("nan")
-    return float(np.mean(finite))
-
-
-def is_pblh_variable(name: str) -> bool:
-    return normalize_var_token(name) == PBLH_VAR_TOKEN
-
-
-def infer_lcl_start_height_m(variable_names: Sequence[str], override: float | None) -> float:
-    if override is not None:
-        return float(override)
-    for name in variable_names:
-        match = HEIGHT_LEVEL_RE.match(normalize_var_token(name))
-        if match:
-            return float(int(match.group(1)))
-    return 0.0
-
-
-def coerce_pressure_to_pa(values: np.ndarray) -> np.ndarray:
-    pressure = np.asarray(values, dtype=np.float64)
-    finite = pressure[np.isfinite(pressure)]
-    if finite.size == 0:
-        return pressure
-
-    p01 = float(np.nanpercentile(finite, 1))
-    p99 = float(np.nanpercentile(finite, 99))
-    if 5.0 <= p01 <= 15.0 and 5.0 <= p99 <= 20.0:
-        pressure = np.exp(pressure)  # SURFPRESSION is log(surface pressure in Pa).
-    elif 100.0 <= p01 <= 1200.0 and 100.0 <= p99 <= 2000.0:
-        pressure = pressure * 100.0
-
-    return np.where(pressure > 0.0, pressure, np.nan)
-
-
-def coerce_specific_humidity(values: np.ndarray) -> np.ndarray:
-    q = np.asarray(values, dtype=np.float64)
-    finite = q[np.isfinite(q)]
-    if finite.size > 0:
-        q99 = float(np.nanpercentile(finite, 99))
-        if 1.0 < q99 <= 80.0:
-            q = q / 1000.0
-    return np.where((q > 0.0) & (q < 0.08), q, np.nan)
-
-
-def calculate_lcl_height_m(
-    *,
-    temperature_k: np.ndarray,
-    specific_humidity: np.ndarray,
-    pressure_pa: np.ndarray,
-    start_height_m: float,
-) -> np.ndarray:
-    try:
-        import metpy.calc as mpcalc
-        from metpy.units import units
-    except ModuleNotFoundError as exc:
-        raise RuntimeError(
-            "MetPy is required for --lcl-overlay. Install the HPC/full extras "
-            "or add metpy to the active environment."
-        ) from exc
-
-    t = np.asarray(temperature_k, dtype=np.float64)
-    q = coerce_specific_humidity(specific_humidity)
-    p = coerce_pressure_to_pa(pressure_pa)
-    valid = np.isfinite(t) & np.isfinite(q) & np.isfinite(p)
-
-    t_units = np.where(valid, t, np.nan) * units.kelvin
-    q_units = np.where(valid, q, np.nan) * units.dimensionless
-    p_units = np.where(valid, p, np.nan) * units.pascal
-
-    try:
-        dewpoint = mpcalc.dewpoint_from_specific_humidity(p_units, q_units)
-    except TypeError:
-        dewpoint = mpcalc.dewpoint_from_specific_humidity(p_units, t_units, q_units)
-
-    _lcl_pressure, lcl_temperature = mpcalc.lcl(p_units, t_units, dewpoint)
-    delta_t = (t_units.to("kelvin") - lcl_temperature.to("kelvin")).to("kelvin").magnitude
-    dry_lapse_rate = G / CP_D
-    lift_height = np.maximum(delta_t / dry_lapse_rate, 0.0)
-    lcl_height = lift_height + float(start_height_m)
-    return np.where(valid & np.isfinite(lcl_height), lcl_height, np.nan)
-
-
-def compute_surface_line(
-    records: list[tuple[int, Path]],
-    variable_name: str,
-    spatial_window,
-) -> tuple[np.ndarray, np.ndarray, int]:
-    sums = np.zeros((24,), dtype=np.float64)
-    counts = np.zeros((24,), dtype=np.int64)
-    used = 0
-
-    for idx, (hour, file_path) in enumerate(records, start=1):
-        arr = read_time_level_yx(
-            file_path,
-            variable_name,
-            spatial_window=spatial_window,
-            token_normalizer=normalize_var_token,
-        )
-        value = safe_scalar_mean(arr)
-        used += 1
-        if np.isfinite(value):
-            sums[hour] += value
-            counts[hour] += 1
-
-        if idx % 2000 == 0 or idx == len(records):
-            print(f"[{variable_name}] {idx}/{len(records)} files", flush=True)
-
-    mean = np.full((24,), np.nan, dtype=np.float64)
-    valid = counts > 0
-    mean[valid] = sums[valid] / counts[valid]
-    return mean, counts, used
-
-
-def compute_lcl_line(
-    records: list[tuple[int, Path]],
-    experiment_dir: Path,
-    *,
-    temperature_name: str,
-    specific_humidity_name: str,
-    pressure_name: str,
-    spatial_window,
-    start_height_m: float,
-) -> tuple[np.ndarray, np.ndarray, int]:
-    sums = np.zeros((24,), dtype=np.float64)
-    counts = np.zeros((24,), dtype=np.int64)
-    used = 0
-
-    for idx, (hour, base_file) in enumerate(records, start=1):
-        day_name = base_file.parent.name
-        file_name = base_file.name
-        t_file = experiment_dir / temperature_name / day_name / file_name
-        q_file = experiment_dir / specific_humidity_name / day_name / file_name
-        p_file = experiment_dir / pressure_name / day_name / file_name
-        if not (t_file.exists() and q_file.exists() and p_file.exists()):
-            continue
-
-        temperature = read_time_level_yx(
-            t_file,
-            temperature_name,
-            spatial_window=spatial_window,
-            token_normalizer=normalize_var_token,
-        )
-        specific_humidity = read_time_level_yx(
-            q_file,
-            specific_humidity_name,
-            spatial_window=spatial_window,
-            token_normalizer=normalize_var_token,
-        )
-        pressure = read_time_level_yx(
-            p_file,
-            pressure_name,
-            spatial_window=spatial_window,
-            token_normalizer=normalize_var_token,
-        )
-        lcl_height = calculate_lcl_height_m(
-            temperature_k=temperature,
-            specific_humidity=specific_humidity,
-            pressure_pa=pressure,
-            start_height_m=start_height_m,
-        )
-        value = safe_scalar_mean(lcl_height)
-        used += 1
-        if np.isfinite(value):
-            sums[hour] += value
-            counts[hour] += 1
-
-        if idx % 2000 == 0 or idx == len(records):
-            print(f"[LCL] {idx}/{len(records)} files", flush=True)
-
-    mean = np.full((24,), np.nan, dtype=np.float64)
-    valid = counts > 0
-    mean[valid] = sums[valid] / counts[valid]
-    return mean, counts, used
-
-
-def compute_lcl_lines_for_periods(
-    records: list[tuple[int, Path]],
-    period_specs,
-    experiment_dir: Path,
-    *,
-    temperature_name: str,
-    specific_humidity_name: str,
-    pressure_name: str,
-    spatial_window,
-    start_height_m: float,
-) -> dict[str, tuple[np.ndarray, np.ndarray, int]]:
-    sums = {period.key: np.zeros((24,), dtype=np.float64) for period in period_specs}
-    counts = {period.key: np.zeros((24,), dtype=np.int64) for period in period_specs}
-    used = {period.key: 0 for period in period_specs}
-    allowed_months = {
-        period.key: set(period.allowed_months) if period.allowed_months is not None else None
-        for period in period_specs
-    }
-
-    for idx, (hour, base_file) in enumerate(records, start=1):
-        month = parse_month_from_day_name(base_file.parent.name)
-        matched_keys = [
-            period.key
-            for period in period_specs
-            if allowed_months[period.key] is None
-            or (month is not None and month in allowed_months[period.key])
-        ]
-        if not matched_keys:
-            continue
-
-        day_name = base_file.parent.name
-        file_name = base_file.name
-        t_file = experiment_dir / temperature_name / day_name / file_name
-        q_file = experiment_dir / specific_humidity_name / day_name / file_name
-        p_file = experiment_dir / pressure_name / day_name / file_name
-        if not (t_file.exists() and q_file.exists() and p_file.exists()):
-            continue
-
-        temperature = read_time_level_yx(
-            t_file,
-            temperature_name,
-            spatial_window=spatial_window,
-            token_normalizer=normalize_var_token,
-        )
-        specific_humidity = read_time_level_yx(
-            q_file,
-            specific_humidity_name,
-            spatial_window=spatial_window,
-            token_normalizer=normalize_var_token,
-        )
-        pressure = read_time_level_yx(
-            p_file,
-            pressure_name,
-            spatial_window=spatial_window,
-            token_normalizer=normalize_var_token,
-        )
-        lcl_height = calculate_lcl_height_m(
-            temperature_k=temperature,
-            specific_humidity=specific_humidity,
-            pressure_pa=pressure,
-            start_height_m=start_height_m,
-        )
-        value = safe_scalar_mean(lcl_height)
-        for key in matched_keys:
-            used[key] += 1
-            if np.isfinite(value):
-                sums[key][hour] += value
-                counts[key][hour] += 1
-
-        if idx % 2000 == 0 or idx == len(records):
-            print(f"[LCL] {idx}/{len(records)} files", flush=True)
-
-    out: dict[str, tuple[np.ndarray, np.ndarray, int]] = {}
-    for period in period_specs:
-        mean = np.full((24,), np.nan, dtype=np.float64)
-        valid = counts[period.key] > 0
-        mean[valid] = sums[period.key][valid] / counts[period.key][valid]
-        out[period.key] = (mean, counts[period.key], used[period.key])
-    return out
-
-
-def lcl_cache_analysis_name(
-    variable: str,
-    temperature_name: str,
-    specific_humidity_name: str,
-    pressure_name: str,
-    start_height_m: float,
-) -> str:
-    return (
-        f"{variable}_lcl_{temperature_name}_"
-        f"{specific_humidity_name}_{pressure_name}_z{start_height_m:g}"
-    )
-
-
-def plot_surface_diurnal(
-    *,
-    variable_label: str,
-    variable_unit: str,
-    period_label: str,
-    line_data: dict[str, np.ndarray],
-    lcl_data: dict[str, np.ndarray] | None,
-    output_file: Path,
-    utc_offset_hours: int,
-) -> None:
-    colors = {
-        "control": "#d62728",
-        "graupel": "#1f77b4",
-        "2mom": "#2ca02c",
-    }
-    hours = np.arange(24, dtype=np.float64)
-    ylabel = variable_label
-    if variable_unit:
-        ylabel = f"{ylabel} [{variable_unit}]"
-    has_lcl = lcl_data is not None and any(
-        lcl_data.get(exp) is not None and np.isfinite(lcl_data[exp]).any()
-        for exp in EXPERIMENTS
-    )
-    if has_lcl and variable_unit:
-        ylabel = f"{variable_label} and LCL [{variable_unit}]"
-
-    def draw_lines(ax: plt.Axes, *, configure_main_axis: bool) -> None:
-        for exp in EXPERIMENTS:
-            arr = line_data.get(exp)
-            if arr is None:
-                continue
-            ax.plot(
-                hours,
-                arr,
-                linewidth=2.4,
-                marker="o",
-                markersize=3.5,
-                color=colors[exp],
-                label=f"{EXPERIMENT_LABELS[exp]} PBLH" if has_lcl else EXPERIMENT_LABELS[exp],
-            )
-            if has_lcl and lcl_data is not None:
-                lcl_arr = lcl_data.get(exp)
-                if lcl_arr is not None:
-                    ax.plot(
-                        hours,
-                        lcl_arr,
-                        linewidth=2.0,
-                        linestyle="--",
-                        marker="s",
-                        markersize=3.0,
-                        color=colors[exp],
-                        alpha=0.85,
-                        label=f"{EXPERIMENT_LABELS[exp]} LCL",
-                    )
-        ax.grid(alpha=0.25, linestyle="--")
-        ax.yaxis.set_minor_locator(mticker.AutoMinorLocator(2))
-        if configure_main_axis:
-            ax.set_xticks(np.arange(0, 24, 3))
-            ax.set_xlim(0.0, 23.0)
-
-    fig, ax = plt.subplots(figsize=(10.5, 5.5), constrained_layout=True)
-    draw_lines(ax, configure_main_axis=True)
-    ax.set_ylabel(ylabel, fontsize=12)
-    ax.set_xlabel(f"Hour (local UTC{utc_offset_hours:+d})", fontsize=12)
-    ax.legend(loc="upper right", fontsize=11, framealpha=0.9)
-    title_label = f"{variable_label} and LCL" if has_lcl else variable_label
-    ax.set_title(f"{period_label} - {title_label} diurnal cycle", fontsize=14, fontweight="bold")
-
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_file, dpi=450, bbox_inches="tight", facecolor="white")
-    plt.close(fig)
-    print(f"[saved] {output_file}", flush=True)
-
-
-def main() -> None:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
     spatial_window = build_spatial_window(args.y_slice, args.x_slice)
     spatial_tag = spatial_window_tag(spatial_window)
 
@@ -542,10 +189,7 @@ def main() -> None:
     if not periods:
         raise RuntimeError("No analysis periods selected.")
 
-    resolved = {
-        exp: resolve_var_name(variable_maps, exp, (args.variable,))
-        for exp in EXPERIMENTS
-    }
+    resolved = {exp: resolve_var_name(variable_maps, exp, (args.variable,)) for exp in EXPERIMENTS}
     lcl_enabled = args.lcl_overlay == "on" or (
         args.lcl_overlay == "auto" and is_pblh_variable(args.variable)
     )
@@ -563,6 +207,14 @@ def main() -> None:
     print("\nInput data directories:", flush=True)
     for exp in EXPERIMENTS:
         print(f"- {exp}: {experiment_dirs[exp]}", flush=True)
+    source_roots = [
+        experiment_dirs[exp] / name
+        for exp in EXPERIMENTS
+        for name in (resolved[exp], *lcl_resolved[exp].values())
+        if name
+    ]
+    cache = CacheContext.from_netcdf("surface", vars(args), source_roots)
+
     print("\nResolved variable names:", flush=True)
     for exp in EXPERIMENTS:
         print(f"- {exp}: {resolved[exp]}", flush=True)
@@ -633,8 +285,8 @@ def main() -> None:
                     spatial_tag=spatial_tag,
                 )
                 cache_files[period.key] = cache_file
-                if cache_file.exists() and not args.overwrite_intermediate:
-                    payload = load_cache(cache_file)
+                if cache.valid(cache_file) and not args.overwrite_intermediate:
+                    payload = cache.load(cache_file)
                     lcl_lines_by_period_exp[(period.key, exp)] = np.asarray(
                         payload["mean"], dtype=np.float64
                     )
@@ -673,7 +325,7 @@ def main() -> None:
             for period in missing_periods:
                 lcl_mean, lcl_counts, lcl_used = computed[period.key]
                 if args.max_days is None:
-                    save_cache(
+                    cache.save(
                         cache_files[period.key],
                         {
                             "mean": lcl_mean,
@@ -688,7 +340,9 @@ def main() -> None:
                     print(f"[warn] {period.key}/{exp}: no finite LCL values.", flush=True)
 
     for period in periods:
-        print(f"\n===== Computing {args.variable} for {period.label} ({period.key}) =====", flush=True)
+        print(
+            f"\n===== Computing {args.variable} for {period.label} ({period.key}) =====", flush=True
+        )
         lines_by_exp: dict[str, np.ndarray] = {}
         lcl_by_exp: dict[str, np.ndarray] = {}
 
@@ -719,8 +373,8 @@ def main() -> None:
                 experiment=exp,
                 spatial_tag=spatial_tag,
             )
-            if cache_file.exists() and not args.overwrite_intermediate:
-                payload = load_cache(cache_file)
+            if cache.valid(cache_file) and not args.overwrite_intermediate:
+                payload = cache.load(cache_file)
                 mean = np.asarray(payload["mean"], dtype=np.float64)
             else:
                 mean, counts, used = compute_surface_line(
@@ -729,7 +383,7 @@ def main() -> None:
                     spatial_window=spatial_window,
                 )
                 if args.max_days is None:
-                    save_cache(
+                    cache.save(
                         cache_file,
                         {
                             "mean": mean,
@@ -769,6 +423,13 @@ def main() -> None:
         )
 
     print("\nCompleted surface diurnal diagnostics.", flush=True)
+
+
+def __getattr__(name):
+    """Compatibility for moved functions; new callers use the owning module."""
+    from alaro_analysis.common.legacy_exports import resolve_export
+
+    return resolve_export(__name__, name)
 
 
 if __name__ == "__main__":
