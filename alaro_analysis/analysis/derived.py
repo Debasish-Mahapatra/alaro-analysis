@@ -10,8 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from alaro_analysis.common.constants import CP_D, EARTH_RADIUS_M, EPS, G, LV, P0
-
+from alaro_analysis.common.constants import CP_D, EARTH_RADIUS_M, EPS, LV, P0, G
 
 # ---------------------------------------------------------------------------
 # Pressure helpers
@@ -28,6 +27,16 @@ def maybe_convert_pressure_to_pa(p: np.ndarray) -> np.ndarray:
     if 100.0 <= p01 <= 1200.0 and 100.0 <= p99 <= 2000.0:
         return p * 100.0
     return p
+
+
+def choose_bottom_level_index(pressure_tlyx: np.ndarray) -> int:
+    """Select the level with greatest finite mean pressure."""
+    valid = np.isfinite(pressure_tlyx)
+    counts = valid.sum(axis=(0, 2, 3))
+    sums = np.where(valid, pressure_tlyx, 0.0).sum(axis=(0, 2, 3))
+    mean = np.full(sums.shape, np.nan)
+    np.divide(sums, counts, out=mean, where=counts > 0)
+    return int(np.nanargmax(mean)) if np.isfinite(mean).any() else pressure_tlyx.shape[1] - 1
 
 
 def compute_dp_pa(pressure_tlyx: np.ndarray) -> np.ndarray:

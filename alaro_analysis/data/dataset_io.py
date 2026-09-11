@@ -20,6 +20,7 @@ def resolve_data_var_name(
     *,
     token_normalizer: Callable[[str], str] | None = None,
     compact_match: bool = False,
+    allow_single_variable: bool = False,
 ) -> str:
     if requested in ds.data_vars:
         return requested
@@ -31,9 +32,7 @@ def resolve_data_var_name(
 
     if token_normalizer is not None:
         req_token = token_normalizer(requested)
-        token_hits = [
-            name for name in ds.data_vars if token_normalizer(name) == req_token
-        ]
+        token_hits = [name for name in ds.data_vars if token_normalizer(name) == req_token]
         if len(token_hits) == 1:
             return token_hits[0]
 
@@ -43,12 +42,10 @@ def resolve_data_var_name(
         if len(compact_hits) == 1:
             return compact_hits[0]
 
-    if len(ds.data_vars) == 1:
+    if allow_single_variable and len(ds.data_vars) == 1:
         return next(iter(ds.data_vars.keys()))
 
-    raise KeyError(
-        f"Variable '{requested}' not found. Available: {list(ds.data_vars.keys())}"
-    )
+    raise KeyError(f"Variable '{requested}' not found. Available: {list(ds.data_vars.keys())}")
 
 
 def select_data_var_name(
@@ -83,7 +80,7 @@ def nanmean_with_count(
 ) -> tuple[np.ndarray, np.ndarray]:
     valid = np.isfinite(data)
     count = np.sum(valid, axis=axis)
-    total = np.nansum(data, axis=axis)
+    total = np.sum(np.where(valid, data, 0.0), axis=axis)
     mean = np.full(total.shape, np.nan, dtype=np.float64)
     nonzero = count > 0
     mean[nonzero] = total[nonzero] / count[nonzero]
@@ -95,18 +92,59 @@ def to_time_level_yx(
     dims: Sequence[str],
     file_path: Path,
     var_name: str,
+    *,
+    allow_legacy_dimensions: bool = False,
 ) -> np.ndarray:
-    if arr.ndim == 4:
-        return arr
-    if arr.ndim == 3:
-        first = dims[0].lower() if dims else ""
-        if first == "time":
-            return arr[:, np.newaxis, :, :]
-        return arr[np.newaxis, :, :, :]
-    if arr.ndim == 2:
-        return arr[np.newaxis, np.newaxis, :, :]
+    """Transpose named axes to (time, level, y, x), adding singleton axes.
+
+    Rank alone cannot identify axes. Ambiguous legacy arrays can explicitly
+    opt into the historical positional convention.
+    """
+    aliases = {
+        "time": "time",
+        "valid_time": "time",
+        "level": "level",
+        "levels": "level",
+        "model_level": "level",
+        "lev": "level",
+        "hybrid": "level",
+        "pressure": "level",
+        "height": "level",
+        "z": "level",
+        "y": "y",
+        "lat": "y",
+        "latitude": "y",
+        "x": "x",
+        "lon": "x",
+        "longitude": "x",
+    }
+    axes = [aliases.get(dim.lower()) for dim in dims]
+    if (
+        len(axes) == arr.ndim
+        and None not in axes
+        and len(set(axes)) == len(axes)
+        and {"y", "x"} <= set(axes)
+    ):
+        order = [axes.index(name) for name in ("time", "level", "y", "x") if name in axes]
+        result = np.transpose(arr, order)
+        if "time" not in axes:
+            result = result[np.newaxis, ...]
+        if "level" not in axes:
+            result = result[:, np.newaxis, ...]
+        return result
+    if allow_legacy_dimensions:
+        if arr.ndim == 4:
+            return arr
+        if arr.ndim == 3:
+            return (
+                arr[:, np.newaxis, :, :]
+                if dims and dims[0].lower() == "time"
+                else arr[np.newaxis, :, :, :]
+            )
+        if arr.ndim == 2:
+            return arr[np.newaxis, np.newaxis, :, :]
     raise ValueError(
-        f"Unsupported shape for {var_name} in {file_path}: {arr.shape} (dims={tuple(dims)})"
+        f"Ambiguous dimensions for {var_name} in {file_path}: shape={arr.shape}, dims={tuple(dims)}"
     )
 
 
@@ -128,8 +166,8 @@ def read_time_level_yx(
         )
         da = ds[var_name]
         arr = np.asarray(da.values, dtype=np.float64)
-        arr = apply_spatial_window_to_array(arr, spatial_window, file_path)
         arr = to_time_level_yx(arr, da.dims, file_path, requested_variable)
+        arr = apply_spatial_window_to_array(arr, spatial_window, file_path)
     return arr
 
 
@@ -163,25 +201,33 @@ def read_vertical_profile(
             token_normalizer=token_normalizer,
             compact_match=compact_match,
         )
-        arr = np.asarray(ds[var_name].values, dtype=np.float64)
-        if spatial_window is not None:
-            arr = apply_spatial_window_to_array(arr, spatial_window, file_path)
-        dims = tuple(ds[var_name].dims)
-
-        if arr.ndim == 4:
+        da = ds[var_name]
+        arr = np.asarray(da.values, dtype=np.float64)
+        dims = tuple(da.dims)
+        vertical_names = {
+            "level",
+            "levels",
+            "model_level",
+            "lev",
+            "hybrid",
+            "pressure",
+            "height",
+            "z",
+        }
+        vertical_dims = [dim for dim in dims if dim.lower() in vertical_names]
+        if len(vertical_dims) > 1:
+            raise ValueError(f"Multiple vertical dimensions in {file_path}: {dims}")
+        vertical_dim = vertical_dims[0] if vertical_dims else None
+        if arr.ndim >= 3 or {"x", "y"}.issubset(dim.lower() for dim in dims):
+            arr = to_time_level_yx(arr, dims, file_path, requested_variable)
+            if spatial_window is not None:
+                arr = apply_spatial_window_to_array(arr, spatial_window, file_path)
             profile, _ = nanmean_with_count(arr, axis=(0, 2, 3))
-            vertical_dim = dims[1]
-        elif arr.ndim == 3:
-            profile, _ = nanmean_with_count(arr, axis=(1, 2))
-            vertical_dim = dims[0]
-        elif arr.ndim == 2:
-            profile, _ = nanmean_with_count(arr, axis=(1,))
-            vertical_dim = dims[0]
-        elif arr.ndim == 1:
-            profile = arr
-            vertical_dim = dims[0]
+        elif vertical_dim is not None:
+            axes = tuple(i for i, dim in enumerate(dims) if dim != vertical_dim)
+            profile, _ = nanmean_with_count(arr, axis=axes)
         else:
-            raise ValueError(f"Unsupported shape {arr.shape} in {file_path}")
+            raise ValueError(f"No identifiable vertical dimension in {file_path}: {dims}")
 
         vertical_coord = None
         if vertical_dim in ds.coords:

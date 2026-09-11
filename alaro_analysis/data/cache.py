@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -14,22 +16,90 @@ from alaro_analysis.common.naming import safe_name
 def array_fingerprint(arr: np.ndarray) -> str:
     """Stable short fingerprint of an array's shape + contents."""
     a = np.ascontiguousarray(arr)
-    return f"{a.shape}:{hashlib.sha1(a.tobytes()).hexdigest()[:12]}"
+    return f"{a.dtype.str}:{a.shape}:{hashlib.sha1(a.tobytes()).hexdigest()[:12]}"
+
+
+def source_fingerprint(paths) -> str:
+    """Identify a source inventory by path, size and nanosecond modification time.
+
+    Accepts paths or discovery records containing paths. Reading the data is
+    unnecessary; adding, removing or replacing a file invalidates the result.
+    Archives preserving both size and timestamp require an explicit recompute.
+    """
+    inventory = {}
+
+    def visit(value):
+        if isinstance(value, Path):
+            path = value.resolve()
+            try:
+                stat = path.stat()
+                inventory[str(path)] = (stat.st_size, stat.st_mtime_ns)
+            except FileNotFoundError:
+                inventory[str(path)] = None
+        elif isinstance(value, dict):
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, (tuple, list)):
+            for child in value:
+                visit(child)
+
+    visit(paths)
+    return signature(inventory)
+
+
+def _atomic_npz(file, args, payload, *, compressed):
+    """Replace a complete cache atomically; readers never see a partial ZIP."""
+    writer = np.savez_compressed if compressed else np.savez
+    if hasattr(file, "write"):
+        writer(file, *args, **payload)
+        return
+    path = Path(file)
+    if path.suffix != ".npz":
+        path = Path(str(path) + ".npz")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
+        ) as fh:
+            temporary = Path(fh.name)
+            writer(fh, *args, **payload)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def save_npz(file, *args, **payload) -> None:
+    """Atomic equivalent of numpy.savez, preserving its array-key convention."""
+    _atomic_npz(file, args, payload, compressed=False)
+
+
+def save_npz_compressed(file, *args, **payload) -> None:
+    """Atomic equivalent of numpy.savez_compressed."""
+    _atomic_npz(file, args, payload, compressed=True)
 
 
 def signature(payload: dict[str, Any]) -> str:
-    """Hash output-affecting parameters into a short cache signature.
+    """Hash scientific settings recursively, including complete nested arrays."""
 
-    numpy arrays are fingerprinted by shape+contents; everything else by its
-    JSON/repr form. Store the result alongside cached data and validate it on
-    load so a parameter change forces a recompute instead of silently returning
-    a stale cache.
-    """
-    norm: dict[str, Any] = {}
-    for key, value in payload.items():
-        norm[key] = array_fingerprint(value) if isinstance(value, np.ndarray) else value
-    blob = json.dumps(norm, sort_keys=True, default=str)
-    return hashlib.sha1(blob.encode()).hexdigest()[:16]
+    def normalize(value):
+        if isinstance(value, np.ndarray):
+            return {"array": array_fingerprint(value)}
+        if isinstance(value, dict):
+            return {str(key): normalize(child) for key, child in value.items()}
+        if isinstance(value, (tuple, list)):
+            return [normalize(child) for child in value]
+        if isinstance(value, (set, frozenset)):
+            return sorted((normalize(child) for child in value), key=repr)
+        if isinstance(value, np.generic):
+            return value.item()
+        return value
+
+    blob = json.dumps(normalize(payload), sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode()).hexdigest()[:24]
 
 
 def read_cache_signature(path: Path) -> str | None:
@@ -86,7 +156,7 @@ def build_height_cache_file(
 
 def save_cache(cache_file: Path, payload: dict[str, Any]) -> None:
     cache_file.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(cache_file, **payload)
+    save_npz_compressed(cache_file, **payload)
 
 
 def load_cache(cache_file: Path, *, allow_pickle: bool = False) -> dict[str, np.ndarray]:
@@ -119,6 +189,7 @@ def save_diurnal_profile_cache(
     n_files: int,
     sample_file: Path,
     sig: str = "",
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     save_cache(
         cache_file,
@@ -128,6 +199,19 @@ def save_diurnal_profile_cache(
             "n_files": np.array([n_files], dtype=np.int64),
             "sample_file": np.array([str(sample_file)]),
             "__signature__": np.array([sig]),
+            "__metadata__": np.array(
+                json.dumps(
+                    {
+                        "schema_version": 2,
+                        "dimensions": ["level", "local_hour"],
+                        "averaging": "equal weight per finite spatial-mean profile",
+                        "count_unit": "profiles",
+                        **(metadata or {}),
+                    },
+                    sort_keys=True,
+                    default=str,
+                )
+            ),
         },
     )
 

@@ -11,19 +11,17 @@ These functions handle the core patterns of:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
 
 from alaro_analysis.common.models import SpatialWindow, VerticalAxis
 from alaro_analysis.data.dataset_io import (
-    nanmean_with_count,
     read_time_level_yx,
     read_vertical_profile,
 )
 from alaro_analysis.data.discovery import collect_file_records
-
 
 # ---------------------------------------------------------------------------
 # Generic accumulation helpers
@@ -144,61 +142,49 @@ def compute_diurnal_profile(
     utc_offset_hours: int = -4,
     spatial_window: SpatialWindow | None = None,
     compact_match: bool = True,
+    records: list[tuple[int, Path]] | None = None,
+    profile_reader: Callable[[Path], np.ndarray] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, int, Path]:
-    """Compute the mean diurnal vertical profile for *variable*.
+    """Average finite spatial-mean profiles with equal weight per input file.
 
-    Returns ``(mean, counts, n_files, sample_file)`` where *mean* and
-    *counts* have shape ``(n_levels, 24)``.
+    Counts measure contributing profiles, not grid cells. A derived diagnostic
+    can supply a reader while using exactly the same reduction and validation.
     """
-    if spatial_window is None:
-        spatial_window = SpatialWindow(y_start=None, y_end=None, x_start=None, x_end=None)
-
-    records = collect_file_records(
-        variable_dir=variable_dir,
-        max_days=max_days,
-        allowed_months=allowed_months,
-        utc_offset_hours=utc_offset_hours,
-    )
+    if records is None:
+        records = collect_file_records(variable_dir, max_days, allowed_months, utc_offset_hours)
     if not records:
         raise RuntimeError(f"No valid +0000..+0023 files found in {variable_dir}")
 
-    first_profile, _ = read_vertical_profile(
-        records[0][1],
-        variable,
-        spatial_window=spatial_window,
-        compact_match=compact_match,
-    )
+    def read(path: Path) -> np.ndarray:
+        if profile_reader is not None:
+            return np.asarray(profile_reader(path), dtype=np.float64)
+        return read_vertical_profile(
+            path, variable, spatial_window=spatial_window, compact_match=compact_match
+        )[0]
 
-    n_levels = first_profile.size
-    sums = np.zeros((n_levels, 24), dtype=np.float64)
-    counts = np.zeros((n_levels, 24), dtype=np.int64)
-
-    for idx, (local_hour, file_path) in enumerate(records, start=1):
-        profile, _ = read_vertical_profile(
-            file_path,
-            variable,
-            spatial_window=spatial_window,
-            compact_match=compact_match,
-        )
-
-        if profile.size != n_levels:
+    first = read(records[0][1])
+    if first.ndim != 1:
+        raise ValueError(f"Expected one-dimensional vertical profile, got {first.shape}")
+    sums = np.zeros((first.size, 24), dtype=np.float64)
+    counts = np.zeros(sums.shape, dtype=np.int64)
+    for index, (hour, path) in enumerate(records):
+        profile = first if index == 0 else read(path)
+        if profile.shape != first.shape:
             raise ValueError(
-                f"Inconsistent vertical levels in {file_path}: "
-                f"{profile.size} vs expected {n_levels}"
+                f"Inconsistent vertical levels in {path}: {profile.shape} vs {first.shape}"
             )
+        if not 0 <= hour < 24:
+            raise ValueError(f"Invalid local hour {hour} in {path}")
         valid = np.isfinite(profile)
-        sums[valid, local_hour] += profile[valid]
-        counts[valid, local_hour] += 1
-
-        if idx % 2000 == 0 or idx == len(records):
+        sums[valid, hour] += profile[valid]
+        counts[valid, hour] += 1
+        if (index + 1) % 2000 == 0 or index + 1 == len(records):
             print(
-                f"[{variable_dir.parent.name}/{variable}] {idx}/{len(records)} files",
+                f"[{variable_dir.parent.name}/{variable}] {index + 1}/{len(records)} files",
                 flush=True,
             )
-
-    mean = np.full_like(sums, np.nan)
-    nonzero = counts > 0
-    mean[nonzero] = sums[nonzero] / counts[nonzero]
+    mean = np.full(sums.shape, np.nan)
+    np.divide(sums, counts, out=mean, where=counts > 0)
     return mean, counts, len(records), records[0][1]
 
 
@@ -263,8 +249,7 @@ def compute_geopotential_height_profile(
 
         if idx % 4000 == 0 or idx == len(records):
             print(
-                f"[{geopotential_dir.parent.name}/GEOPOTENTIEL] "
-                f"{idx}/{len(records)} files",
+                f"[{geopotential_dir.parent.name}/GEOPOTENTIEL] {idx}/{len(records)} files",
                 flush=True,
             )
 

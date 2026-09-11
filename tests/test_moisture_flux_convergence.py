@@ -1,4 +1,5 @@
 """Analytic checks for the moisture-flux-convergence primitives."""
+
 from __future__ import annotations
 
 import numpy as np
