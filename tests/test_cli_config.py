@@ -106,3 +106,33 @@ overwrite_intermediate = true
     assert args.n_workers == 8
     assert args.seasons == ["dry"]
     assert args.overwrite_intermediate is True
+
+
+def test_abbreviated_cli_option_overrides_config(tmp_path):
+    config = tmp_path / "settings.toml"
+    config.write_text("[defaults]\nn_workers = 8\n")
+    args = parse_configured_args(_parser(), "surface", ["--config", str(config), "--n-w", "2"])
+    assert args.n_workers == 2
+
+
+def test_unknown_workflow_key_is_an_error(tmp_path):
+    import pytest
+
+    config = tmp_path / "settings.toml"
+    config.write_text("[workflows.surface]\nn_workres = 8\n")
+    with pytest.raises(SystemExit) as exc:
+        parse_configured_args(_parser(), "surface", ["--config", str(config)])
+    assert exc.value.code == 2
+
+
+def test_show_config_exits_before_work(tmp_path, capsys):
+    import json
+
+    import pytest
+
+    config = tmp_path / "settings.toml"
+    config.write_text("[defaults]\nn_workers = 8\n")
+    with pytest.raises(SystemExit) as exc:
+        parse_configured_args(_parser(), "surface", ["--config", str(config), "--show-config"])
+    assert exc.value.code == 0
+    assert json.loads(capsys.readouterr().out)["n_workers"] == 8

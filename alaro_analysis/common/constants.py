@@ -1,24 +1,20 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
+
+from .experiments import EXPERIMENT_CATALOG
+from .paths import RUNS_ROOT as RUNS_ROOT
 
 # Root of all ALARO model runs, regridded data, and figure outputs.
 # (/gpfs/... and /mnt/HDS_CLIMATE/... are two mount paths to the same storage.)
-RUNS_ROOT = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ALARO-RUNS")
 
 EXPERIMENTS = ("control", "graupel", "2mom")
-EXPERIMENT_LABELS = {"control": "C1M", "graupel": "G1M", "2mom": "G2M", "2mom-xcu": "G2M-XCU"}
+EXPERIMENT_LABELS = {key: exp.label for key, exp in EXPERIMENT_CATALOG.items()}
 
 # Line/marker colour per base experiment.  Kept here so every workflow
 # (main plots, convective_feedback, microphysics_budget, kt273_diurnal,
 # updraft_hydrometeor, ddh) renders the three models in the same palette.
-EXPERIMENT_COLORS = {
-    "control": "#d62728",
-    "graupel": "#1f77b4",
-    "2mom":    "#2ca02c",
-    "2mom-xcu": "#ff7f0e",
-}
+EXPERIMENT_COLORS = {key: exp.color for key, exp in EXPERIMENT_CATALOG.items()}
 
 SEASONS = {
     "wet": {"label": "Wet (Dec-Apr)", "months": (12, 1, 2, 3, 4)},

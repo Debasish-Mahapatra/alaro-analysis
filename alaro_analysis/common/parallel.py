@@ -39,8 +39,49 @@ def imap_unordered_progress(
     if n == 0:
         return
     nworkers = max(1, min(resolve_workers(workers), n))
+    if nworkers == 1:
+        for i, task in enumerate(tasks, 1):
+            yield worker(task)
+            if i % every == 0 or i == n:
+                print(f"  {i}/{n} {desc}", flush=True)
+        return
     with get_context(context).Pool(nworkers) as pool:
         for i, result in enumerate(pool.imap_unordered(worker, tasks), 1):
             yield result
             if i % every == 0 or i == n:
                 print(f"  {i}/{n} {desc}", flush=True)
+
+
+def execute_jobs(worker: Callable, jobs: Iterable, *, workers: int = 32) -> Iterator:
+    """Yield (key, value, error) for keyed positional-argument jobs.
+
+    Serial and process execution have the same result/error contract. A failed
+    job does not hide the failures of other jobs; orchestration decides whether
+    partial products are useful and must report errors to its caller.
+    """
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    jobs = list(jobs)
+    count = len(jobs)
+    if count == 0:
+        return
+    nworkers = min(resolve_workers(workers), count)
+    if nworkers == 1:
+        for key, arguments in jobs:
+            try:
+                value = worker(*arguments)
+            except Exception as exc:
+                yield key, None, str(exc)
+            else:
+                yield key, value, None
+        return
+    with ProcessPoolExecutor(max_workers=nworkers) as pool:
+        futures = {pool.submit(worker, *arguments): key for key, arguments in jobs}
+        for future in as_completed(futures):
+            key = futures[future]
+            try:
+                value = future.result()
+            except Exception as exc:
+                yield key, None, str(exc)
+            else:
+                yield key, value, None

@@ -19,9 +19,7 @@ def parse_slice_arg(spec: str | None, axis_name: str) -> tuple[int | None, int |
     start = int(left) if left.strip() else None
     end = int(right) if right.strip() else None
     if start is not None and end is not None and end <= start:
-        raise ValueError(
-            f"Invalid --{axis_name}-slice '{spec}': end must be greater than start."
-        )
+        raise ValueError(f"Invalid --{axis_name}-slice '{spec}': end must be greater than start.")
     return start, end
 
 

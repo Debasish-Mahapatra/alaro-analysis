@@ -15,9 +15,7 @@ def test_resolve_workers_caps_at_32():
 
 
 def test_imap_unordered_progress_runs_all_tasks():
-    results = list(
-        imap_unordered_progress(_square, [1, 2, 3, 4, 5], workers=2, desc="n", every=2)
-    )
+    results = list(imap_unordered_progress(_square, [1, 2, 3, 4, 5], workers=2, desc="n", every=2))
     assert sorted(results) == [1, 4, 9, 16, 25]
 
 

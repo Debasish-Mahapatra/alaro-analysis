@@ -60,9 +60,7 @@ def _mean_temperature_profile(
     if isinstance(temperature_profiles, np.ndarray):
         profile = np.asarray(temperature_profiles, dtype=np.float64)
         if profile.ndim != 2:
-            raise ValueError(
-                f"Expected 2D temperature profile, got shape {profile.shape}"
-            )
+            raise ValueError(f"Expected 2D temperature profile, got shape {profile.shape}")
         return profile
 
     profiles = list(temperature_profiles)

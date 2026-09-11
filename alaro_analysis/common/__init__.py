@@ -9,11 +9,11 @@ from .constants import (
     EXPERIMENTS,
     FILE_HOUR_RE,
     FREEZING_K,
-    G,
     LV,
     P0,
     SANITIZE_RE,
     SEASONS,
+    G,
 )
 from .models import PeriodSpec, SpatialWindow, VerticalAxis
 from .naming import safe_name
@@ -24,7 +24,11 @@ from .spatial import (
     parse_slice_arg,
     spatial_window_tag,
 )
-from .timeparse import has_pf_subdirs, parse_month_from_day_name, parse_utc_hour_from_name
+from .timeparse import (
+    has_pf_subdirs,
+    parse_month_from_day_name,
+    parse_utc_hour_from_name,
+)
 from .vertical import (
     centers_to_edges,
     compute_freezing_line_km,

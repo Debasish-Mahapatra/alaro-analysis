@@ -3,7 +3,11 @@ from pathlib import Path
 import numpy as np
 
 from alaro_analysis.common.naming import safe_name
-from alaro_analysis.common.spatial import build_spatial_window, parse_slice_arg, spatial_window_tag
+from alaro_analysis.common.spatial import (
+    build_spatial_window,
+    parse_slice_arg,
+    spatial_window_tag,
+)
 from alaro_analysis.common.timeparse import (
     has_pf_subdirs,
     parse_month_from_day_name,

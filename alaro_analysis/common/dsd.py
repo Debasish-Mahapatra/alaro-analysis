@@ -21,24 +21,23 @@ QC follows ``disdro.tex`` Section 1: diameter range 0.312 mm <= D <= 8 mm
 temporal continuity filter that drops contiguous rainy runs of fewer
 than ``N_min`` minutes.
 """
+
 from __future__ import annotations
 
 import math
 
 import numpy as np
-from scipy.special import gammaln
-
 
 WATER_DENSITY_KG_M3 = 1000.0
 NW_PREFACTOR = 256.0e3 / math.pi  # log Nw = log10(NW_PREFACTOR * LWC[g/m^3] / Dm[mm]^4)
-MP_FIXED_N0_PER_M4 = 8.0e6        # Marshall & Palmer 1948 N0 (m^-4)
+MP_FIXED_N0_PER_M4 = 8.0e6  # Marshall & Palmer 1948 N0 (m^-4)
 MP_FIXED_N0_PER_M3_MM = MP_FIXED_N0_PER_M4 * 1.0e-3  # 1/(m^3 mm)
 ATLAS_WILLIAMS_A = 9.65
 ATLAS_WILLIAMS_B = 10.30
 ATLAS_WILLIAMS_C = 0.6
 DEFAULT_QC_DIAMETER_MIN_MM = 0.312
 DEFAULT_QC_DIAMETER_MAX_MM = 8.0
-DEFAULT_QC_RAIN_RATE_MIN = 0.1     # mm/h
+DEFAULT_QC_RAIN_RATE_MIN = 0.1  # mm/h
 DEFAULT_QC_REFLECTIVITY_MAX_DBZ = 55.0
 DEFAULT_QC_MIN_RUN_MINUTES = 5
 
@@ -116,9 +115,18 @@ def mp_diagnostics_from_n0_lambda(
     lam = np.asarray(lambda_per_mm, dtype=float)
     shape = np.broadcast(n0, lam).shape
     nan = np.full(shape, np.nan, dtype=float)
-    out = {key: nan.copy() for key in (
-        "dm_mm", "d0_mm", "sigma_m_mm", "nt_m3", "lwc_g_m3", "nw_m3_mm", "log_nw",
-    )}
+    out = {
+        key: nan.copy()
+        for key in (
+            "dm_mm",
+            "d0_mm",
+            "sigma_m_mm",
+            "nt_m3",
+            "lwc_g_m3",
+            "nw_m3_mm",
+            "log_nw",
+        )
+    }
     mask = np.isfinite(n0) & np.isfinite(lam) & (n0 > 0.0) & (lam > 0.0)
     if not mask.any():
         return out
@@ -130,7 +138,7 @@ def mp_diagnostics_from_n0_lambda(
     out["nt_m3"][mask] = n0_v / lam_v
     # LWC[g/m^3] = pi * N0 / lambda^4 / 1000 (because LWC[mm^3/m^3] = pi N0/lambda^4
     # and LWC[g/m^3] = LWC[mm^3/m^3] / 1000 for water)
-    out["lwc_g_m3"][mask] = math.pi * n0_v / (lam_v ** 4) / 1000.0
+    out["lwc_g_m3"][mask] = math.pi * n0_v / (lam_v**4) / 1000.0
     out["nw_m3_mm"][mask] = n0_v
     out["log_nw"][mask] = np.log10(n0_v)
     return out
@@ -150,21 +158,30 @@ def mp_from_q_n_per_kg(
     rho = np.asarray(rho_air_kg_m3, dtype=float)
     shape = np.broadcast(qr, nk, rho).shape
     nan = np.full(shape, np.nan, dtype=float)
-    out = {key: nan.copy() for key in (
-        "lwc_g_m3", "nt_m3", "lambda_per_mm", "n0_per_m3_mm",
-        "dm_mm", "d0_mm", "sigma_m_mm", "nw_m3_mm", "log_nw",
-    )}
+    out = {
+        key: nan.copy()
+        for key in (
+            "lwc_g_m3",
+            "nt_m3",
+            "lambda_per_mm",
+            "n0_per_m3_mm",
+            "dm_mm",
+            "d0_mm",
+            "sigma_m_mm",
+            "nw_m3_mm",
+            "log_nw",
+        )
+    }
     mask = (
-        np.isfinite(qr) & np.isfinite(nk) & np.isfinite(rho)
-        & (qr > 0.0) & (nk > 0.0) & (rho > 0.0)
+        np.isfinite(qr) & np.isfinite(nk) & np.isfinite(rho) & (qr > 0.0) & (nk > 0.0) & (rho > 0.0)
     )
     if not mask.any():
         return out
     qr_v = qr[mask] if qr.ndim else np.full(mask.sum(), float(qr))
     nk_v = nk[mask] if nk.ndim else np.full(mask.sum(), float(nk))
     rho_v = rho[mask] if rho.ndim else np.full(mask.sum(), float(rho))
-    lwc = 1000.0 * rho_v * qr_v   # g/m^3
-    nt = rho_v * nk_v             # 1/m^3
+    lwc = 1000.0 * rho_v * qr_v  # g/m^3
+    nt = rho_v * nk_v  # 1/m^3
     lam = mp_lambda_from_lwc_nt(lwc, nt)
     n0 = nt * lam
     diag = mp_diagnostics_from_n0_lambda(n0, lam)
@@ -211,6 +228,8 @@ def gamma_dsd_from_q_n_per_kg(
     interchangeable.  ``log_nw`` is the universal Bringi/Testud value, not the
     underlying gamma intercept ``N0``.
     """
+    from scipy.special import gammaln
+
     qr = np.asarray(q_r_kgkg, dtype=float)
     nk = np.asarray(n_r_per_kg, dtype=float)
     rho = np.asarray(rho_air_kg_m3, dtype=float)
@@ -221,13 +240,30 @@ def gamma_dsd_from_q_n_per_kg(
     rho_b = np.broadcast_to(rho, shape)
     mu_b = np.broadcast_to(mu_arr, shape)
     nan = np.full(shape, np.nan, dtype=float)
-    out = {key: nan.copy() for key in (
-        "lwc_g_m3", "nt_m3", "lambda_per_mm", "n0_per_m3_mm",
-        "dm_mm", "d0_mm", "sigma_m_mm", "nw_m3_mm", "log_nw", "mu",
-    )}
+    out = {
+        key: nan.copy()
+        for key in (
+            "lwc_g_m3",
+            "nt_m3",
+            "lambda_per_mm",
+            "n0_per_m3_mm",
+            "dm_mm",
+            "d0_mm",
+            "sigma_m_mm",
+            "nw_m3_mm",
+            "log_nw",
+            "mu",
+        )
+    }
     mask = (
-        np.isfinite(qr_b) & np.isfinite(nk_b) & np.isfinite(rho_b) & np.isfinite(mu_b)
-        & (qr_b > 0.0) & (nk_b > 0.0) & (rho_b > 0.0) & (mu_b > -1.0)
+        np.isfinite(qr_b)
+        & np.isfinite(nk_b)
+        & np.isfinite(rho_b)
+        & np.isfinite(mu_b)
+        & (qr_b > 0.0)
+        & (nk_b > 0.0)
+        & (rho_b > 0.0)
+        & (mu_b > -1.0)
     )
     if not mask.any():
         return out
@@ -245,7 +281,7 @@ def gamma_dsd_from_q_n_per_kg(
     sigma_m_mm = dm_mm / np.sqrt(mu_v + 4.0)
     lwc_g_m3 = 1000.0 * qr_v * rho_v
     nt_m3 = nk_v * rho_v
-    nw_m3_mm = NW_PREFACTOR * lwc_g_m3 / dm_mm ** 4
+    nw_m3_mm = NW_PREFACTOR * lwc_g_m3 / dm_mm**4
     log_nw = np.log10(np.where(nw_m3_mm > 0.0, nw_m3_mm, np.nan))
     # underlying gamma N0: integral N(D) dD = N0 Gamma(mu+1) / lambda^(mu+1) = Nt
     n0_per_m3_mm = nt_m3 * lam_per_mm ** (mu_v + 1.0) / np.exp(gammaln(mu_v + 1.0))
@@ -290,9 +326,8 @@ def gamma_dsd_from_q_n_variable_mu_per_kg(
     nk_b = np.broadcast_to(nk, shape)
     dmean_mm = np.full(shape, np.nan, dtype=float)
     mask = np.isfinite(qr_b) & np.isfinite(nk_b) & (qr_b > 0.0) & (nk_b > 0.0)
-    dmean_mm[mask] = (
-        1000.0
-        * (6.0 * qr_b[mask] / (math.pi * WATER_DENSITY_KG_M3 * nk_b[mask])) ** (1.0 / 3.0)
+    dmean_mm[mask] = 1000.0 * (6.0 * qr_b[mask] / (math.pi * WATER_DENSITY_KG_M3 * nk_b[mask])) ** (
+        1.0 / 3.0
     )
     mu = alaro_variable_mu_from_dmean_mm(dmean_mm)
     return gamma_dsd_from_q_n_per_kg(qr, nk, rho_air_kg_m3, mu=mu)
@@ -314,6 +349,8 @@ def normalized_gamma_diagnostics_from_lwc_dm_mu(
     this module, which is exact enough for the standard exponential case and
     keeps model and observation reductions consistent.
     """
+    from scipy.special import gammaln
+
     lwc = np.asarray(lwc_g_m3, dtype=float)
     dm = np.asarray(dm_mm, dtype=float)
     shape_mu = np.asarray(mu, dtype=float)
@@ -322,13 +359,28 @@ def normalized_gamma_diagnostics_from_lwc_dm_mu(
     dm_b = np.broadcast_to(dm, shape)
     mu_b = np.broadcast_to(shape_mu, shape)
     nan = np.full(shape, np.nan, dtype=float)
-    out = {key: nan.copy() for key in (
-        "dm_mm", "d0_mm", "sigma_m_mm", "lwc_g_m3", "nt_m3",
-        "lambda_per_mm", "n0_per_m3_mm", "nw_m3_mm", "log_nw", "mu",
-    )}
+    out = {
+        key: nan.copy()
+        for key in (
+            "dm_mm",
+            "d0_mm",
+            "sigma_m_mm",
+            "lwc_g_m3",
+            "nt_m3",
+            "lambda_per_mm",
+            "n0_per_m3_mm",
+            "nw_m3_mm",
+            "log_nw",
+            "mu",
+        )
+    }
     mask = (
-        np.isfinite(lwc_b) & np.isfinite(dm_b) & np.isfinite(mu_b)
-        & (lwc_b > 0.0) & (dm_b > 0.0) & (mu_b > -1.0)
+        np.isfinite(lwc_b)
+        & np.isfinite(dm_b)
+        & np.isfinite(mu_b)
+        & (lwc_b > 0.0)
+        & (dm_b > 0.0)
+        & (mu_b > -1.0)
     )
     if not mask.any():
         return out
@@ -336,7 +388,7 @@ def normalized_gamma_diagnostics_from_lwc_dm_mu(
     lwc_v = lwc_b[mask]
     dm_v = dm_b[mask]
     mu_v = mu_b[mask]
-    nw = NW_PREFACTOR * lwc_v / dm_v ** 4
+    nw = NW_PREFACTOR * lwc_v / dm_v**4
     valid = np.isfinite(nw) & (nw > 0.0)
     if not valid.all():
         lwc_v = lwc_v[valid]
@@ -348,11 +400,7 @@ def normalized_gamma_diagnostics_from_lwc_dm_mu(
         idx = np.flatnonzero(mask)
 
     lam = (mu_v + 4.0) / dm_v
-    coeff_log = (
-        math.log(6.0 / 256.0)
-        + (mu_v + 4.0) * np.log(mu_v + 4.0)
-        - gammaln(mu_v + 4.0)
-    )
+    coeff_log = math.log(6.0 / 256.0) + (mu_v + 4.0) * np.log(mu_v + 4.0) - gammaln(mu_v + 4.0)
     nt_log = (
         np.log(nw)
         + coeff_log
@@ -384,6 +432,8 @@ def normalized_gamma_diagnostics_from_lwc_nt_mu(
     mu: np.ndarray | float,
 ) -> dict[str, np.ndarray]:
     """Diagnostics for a normalized gamma DSD fitted from LWC, Nt, and mu."""
+    from scipy.special import gammaln
+
     lwc = np.asarray(lwc_g_m3, dtype=float)
     nt = np.asarray(nt_m3, dtype=float)
     shape_mu = np.asarray(mu, dtype=float)
@@ -392,13 +442,28 @@ def normalized_gamma_diagnostics_from_lwc_nt_mu(
     nt_b = np.broadcast_to(nt, shape)
     mu_b = np.broadcast_to(shape_mu, shape)
     nan = np.full(shape, np.nan, dtype=float)
-    out = {key: nan.copy() for key in (
-        "dm_mm", "d0_mm", "sigma_m_mm", "lwc_g_m3", "nt_m3",
-        "lambda_per_mm", "n0_per_m3_mm", "nw_m3_mm", "log_nw", "mu",
-    )}
+    out = {
+        key: nan.copy()
+        for key in (
+            "dm_mm",
+            "d0_mm",
+            "sigma_m_mm",
+            "lwc_g_m3",
+            "nt_m3",
+            "lambda_per_mm",
+            "n0_per_m3_mm",
+            "nw_m3_mm",
+            "log_nw",
+            "mu",
+        )
+    }
     mask = (
-        np.isfinite(lwc_b) & np.isfinite(nt_b) & np.isfinite(mu_b)
-        & (lwc_b > 0.0) & (nt_b > 0.0) & (mu_b > -1.0)
+        np.isfinite(lwc_b)
+        & np.isfinite(nt_b)
+        & np.isfinite(mu_b)
+        & (lwc_b > 0.0)
+        & (nt_b > 0.0)
+        & (mu_b > -1.0)
     )
     if not mask.any():
         return out
@@ -409,8 +474,10 @@ def normalized_gamma_diagnostics_from_lwc_nt_mu(
     ratio_log = gammaln(mu_v + 4.0) - gammaln(mu_v + 1.0)
     lam = np.exp((math.log(math.pi / 6000.0) + np.log(nt_v) - np.log(lwc_v) + ratio_log) / 3.0)
     dm = (mu_v + 4.0) / lam
-    nw = NW_PREFACTOR * lwc_v / dm ** 4
-    valid = np.isfinite(lam) & (lam > 0.0) & np.isfinite(dm) & (dm > 0.0) & np.isfinite(nw) & (nw > 0.0)
+    nw = NW_PREFACTOR * lwc_v / dm**4
+    valid = (
+        np.isfinite(lam) & (lam > 0.0) & np.isfinite(dm) & (dm > 0.0) & np.isfinite(nw) & (nw > 0.0)
+    )
     if not valid.any():
         return out
 
@@ -454,12 +521,17 @@ def normalized_gamma_from_empirical_samples(
     mu = np.clip(mu, mu_min, mu_max)
     diag = normalized_gamma_diagnostics_from_lwc_dm_mu(lwc, dm, mu)
     keep = (
-        np.isfinite(diag["dm_mm"]) & (diag["dm_mm"] > 0.0)
-        & np.isfinite(diag["d0_mm"]) & (diag["d0_mm"] > 0.0)
-        & np.isfinite(diag["sigma_m_mm"]) & (diag["sigma_m_mm"] > 0.0)
+        np.isfinite(diag["dm_mm"])
+        & (diag["dm_mm"] > 0.0)
+        & np.isfinite(diag["d0_mm"])
+        & (diag["d0_mm"] > 0.0)
+        & np.isfinite(diag["sigma_m_mm"])
+        & (diag["sigma_m_mm"] > 0.0)
         & np.isfinite(diag["log_nw"])
-        & np.isfinite(diag["lwc_g_m3"]) & (diag["lwc_g_m3"] > 0.0)
-        & np.isfinite(diag["nt_m3"]) & (diag["nt_m3"] > 0.0)
+        & np.isfinite(diag["lwc_g_m3"])
+        & (diag["lwc_g_m3"] > 0.0)
+        & np.isfinite(diag["nt_m3"])
+        & (diag["nt_m3"] > 0.0)
     )
     keys = ("dm_mm", "d0_mm", "sigma_m_mm", "log_nw", "lwc_g_m3", "nt_m3", "mu")
     return {key: diag[key][keep].astype(np.float32) for key in keys}
@@ -487,19 +559,29 @@ def mp_from_q_abel_boutle(
     rho = np.asarray(rho_air_kg_m3, dtype=float)
     shape = np.broadcast(qr, rho).shape
     nan = np.full(shape, np.nan, dtype=float)
-    out = {key: nan.copy() for key in (
-        "lwc_g_m3", "nt_m3", "lambda_per_mm", "n0_per_m3_mm",
-        "dm_mm", "d0_mm", "sigma_m_mm", "nw_m3_mm", "log_nw",
-    )}
+    out = {
+        key: nan.copy()
+        for key in (
+            "lwc_g_m3",
+            "nt_m3",
+            "lambda_per_mm",
+            "n0_per_m3_mm",
+            "dm_mm",
+            "d0_mm",
+            "sigma_m_mm",
+            "nw_m3_mm",
+            "log_nw",
+        )
+    }
     mask = np.isfinite(qr) & np.isfinite(rho) & (qr > 0.0) & (rho > 0.0)
     if not mask.any():
         return out
     qr_v = qr[mask] if qr.ndim else np.full(mask.sum(), float(qr))
     rho_v = rho[mask] if rho.ndim else np.full(mask.sum(), float(rho))
-    rho_qr = rho_v * qr_v                          # kg/m^3
+    rho_qr = rho_v * qr_v  # kg/m^3
     lam_per_m = (AB12_PREFACTOR / rho_qr) ** AB12_LAMBDA_EXPONENT
     lam_per_mm = lam_per_m / 1000.0
-    n0_per_m4 = AB12_X1_PER_M_1POINT8 * lam_per_m ** AB12_X2
+    n0_per_m4 = AB12_X1_PER_M_1POINT8 * lam_per_m**AB12_X2
     n0_per_m3_mm = n0_per_m4 * 1.0e-3
     diag = mp_diagnostics_from_n0_lambda(n0_per_m3_mm, lam_per_mm)
     out["lwc_g_m3"][mask] = 1000.0 * rho_qr
@@ -521,10 +603,20 @@ def mp_from_q_fixed_n0(
     rho = np.asarray(rho_air_kg_m3, dtype=float)
     shape = np.broadcast(qr, rho).shape
     nan = np.full(shape, np.nan, dtype=float)
-    out = {key: nan.copy() for key in (
-        "lwc_g_m3", "nt_m3", "lambda_per_mm", "n0_per_m3_mm",
-        "dm_mm", "d0_mm", "sigma_m_mm", "nw_m3_mm", "log_nw",
-    )}
+    out = {
+        key: nan.copy()
+        for key in (
+            "lwc_g_m3",
+            "nt_m3",
+            "lambda_per_mm",
+            "n0_per_m3_mm",
+            "dm_mm",
+            "d0_mm",
+            "sigma_m_mm",
+            "nw_m3_mm",
+            "log_nw",
+        )
+    }
     mask = np.isfinite(qr) & np.isfinite(rho) & (qr > 0.0) & (rho > 0.0)
     if not mask.any():
         return out
@@ -574,7 +666,7 @@ def empirical_d0_from_psd(
     nd_clean = np.where(np.isfinite(nd) & (nd >= 0.0), nd, 0.0)
     centers_c = np.where(np.isfinite(centers) & (centers > 0.0), centers, 0.0)
     widths_c = np.where(np.isfinite(widths) & (widths > 0.0), widths, 0.0)
-    mass = nd_clean * centers_c ** 3 * widths_c
+    mass = nd_clean * centers_c**3 * widths_c
     cum = np.cumsum(mass, axis=1)
     total = cum[:, -1]
     out = np.full(nd.shape[0], np.nan, dtype=float)
@@ -616,7 +708,7 @@ def empirical_dsd_parameters(
     m5 = np.asarray(moment5, dtype=float)
     safe_m3 = np.where(np.isfinite(m3) & (m3 > 0.0), m3, np.nan)
     dm_mm = m4 / safe_m3
-    sigma_mm = np.sqrt(np.maximum(m5 / safe_m3 - dm_mm ** 2, 0.0))
+    sigma_mm = np.sqrt(np.maximum(m5 / safe_m3 - dm_mm**2, 0.0))
     # LWC[g/m^3] = (pi rho_w / 6) M3, with M3 in mm^3/m^3 and the
     # 1e-3 factor converting mm^3 of water at rho_w=1g/cm^3 to grams.
     lwc_g_m3 = (math.pi / 6.0) * safe_m3 * 1.0e-3
@@ -631,7 +723,7 @@ def empirical_dsd_parameters(
     else:
         raise ValueError("bin_widths shape mismatch")
     d0 = empirical_d0_from_psd(nd, bin_centers_mm, bin_widths_mm)
-    nw = NW_PREFACTOR * lwc_g_m3 / dm_mm ** 4
+    nw = NW_PREFACTOR * lwc_g_m3 / dm_mm**4
     log_nw = np.full_like(nw, np.nan)
     pos = np.isfinite(nw) & (nw > 0.0)
     log_nw[pos] = np.log10(nw[pos])

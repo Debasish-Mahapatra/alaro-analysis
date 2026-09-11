@@ -9,20 +9,27 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from alaro_analysis.common.experiments import EXPERIMENT_CATALOG, canonical_experiment
+from alaro_analysis.common.paths import DATA_ROOT, RUNS_ROOT, WORKSPACE_ROOT
+
 DEFAULT_CONFIG_NAME = "alaro.toml"
 
 
 def add_config_argument(parser: argparse.ArgumentParser) -> None:
-    """Add the common --config argument to a workflow parser."""
-    parser.add_argument(
-        "--config",
-        type=Path,
-        default=None,
-        help=(
-            "Optional TOML config file. If omitted, ./alaro.toml is used "
-            "when present."
-        ),
-    )
+    """Add common config and inspection options, safely when called twice."""
+    if "--config" not in parser._option_string_actions:
+        parser.add_argument(
+            "--config",
+            type=Path,
+            default=None,
+            help="TOML configuration (default: ./alaro.toml when present).",
+        )
+    if "--show-config" not in parser._option_string_actions:
+        parser.add_argument(
+            "--show-config",
+            action="store_true",
+            help="Print resolved settings as JSON and exit before processing.",
+        )
 
 
 def parse_configured_args(
@@ -30,23 +37,45 @@ def parse_configured_args(
     workflow_name: str,
     argv: list[str] | None = None,
 ) -> argparse.Namespace:
-    """Parse CLI args and apply optional TOML config defaults.
+    """Resolve built-in defaults < TOML defaults < workflow TOML < CLI.
 
-    Command line values win over config values. Config values win over
-    argparse defaults.
+    Defaults are applied before argparse parses the command, so abbreviations,
+    aliases, repeated flags and explicit false values follow argparse's own
+    precedence rules. Workflow keys are strict; unrelated shared defaults are
+    ignored so one config can serve several analyses.
     """
-    supplied_dests = supplied_cli_dests(parser, argv)
-    args = parser.parse_args(argv)
+    import json
 
+    for action in parser._actions:
+        if action.dest in {"experiment", "experiments"} and action.type in (None, str):
+            if action.choices and set(action.choices).issubset(EXPERIMENT_CATALOG):
+                action.type = canonical_experiment
+    add_config_argument(parser)
+    tokens = list(sys.argv[1:] if argv is None else argv)
+    if "--help" in tokens or "-h" in tokens:
+        return parser.parse_args(tokens)
+    selector = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+    selector.add_argument("--config", type=Path)
+    selected, _ = selector.parse_known_args(tokens)
     try:
-        config_path = resolve_config_path(args.config)
-        if config_path is None:
-            args.config = None
-            return args
-
-        config = load_config(config_path)
-        apply_config(args, parser, config, workflow_name, supplied_dests)
+        config_path = resolve_config_path(selected.config)
+        if config_path is not None:
+            config = load_config(config_path)
+            defaults = argparse.Namespace(
+                **{
+                    action.dest: parser.get_default(action.dest)
+                    for action in parser._actions
+                    if action.dest != argparse.SUPPRESS
+                }
+            )
+            relocate_path_defaults(defaults, config.get("paths", {}))
+            apply_config(defaults, parser, config, workflow_name, set())
+            parser.set_defaults(**vars(defaults))
+        args = parser.parse_args(tokens)
         args.config = config_path
+        if args.show_config:
+            print(json.dumps(vars(args), indent=2, sort_keys=True, default=str))
+            parser.exit()
         return args
     except (OSError, ValueError, TypeError) as exc:
         parser.error(str(exc))
@@ -119,8 +148,18 @@ def apply_config(
     actions = {
         action.dest: action
         for action in parser._actions
-        if action.dest not in (argparse.SUPPRESS, "help", "config")
+        if action.dest not in (argparse.SUPPRESS, "help", "config", "show_config")
     }
+
+    workflows = config.get("workflows") or {}
+    specific = (
+        workflows.get(workflow_name, workflows.get(workflow_name.replace("_", "-"), {})) or {}
+    )
+    unknown = set(specific) - actions.keys()
+    if unknown:
+        raise ValueError(
+            f"Unknown keys in [workflows.{workflow_name}]: {', '.join(sorted(unknown))}"
+        )
 
     for dest, raw_value in values.items():
         if dest in supplied_dests or dest not in actions or not hasattr(args, dest):
@@ -137,9 +176,7 @@ def supplied_cli_dests(
     """Return argparse destinations explicitly present on the command line."""
     tokens = list(sys.argv[1:] if argv is None else argv)
     option_dests = {
-        option: action.dest
-        for action in parser._actions
-        for option in action.option_strings
+        option: action.dest for action in parser._actions for option in action.option_strings
     }
 
     supplied: set[str] = set()
@@ -195,6 +232,31 @@ def validate_choices(dest: str, value: Any, action: argparse.Action) -> None:
     if invalid:
         allowed = ", ".join(str(v) for v in choices)
         raise ValueError(
-            f"Invalid config value for {dest}: {invalid[0]!r}. "
-            f"Expected one of: {allowed}"
+            f"Invalid config value for {dest}: {invalid[0]!r}. Expected one of: {allowed}"
         )
+
+
+def relocate_path_defaults(args: argparse.Namespace, paths: Mapping[str, Any]) -> None:
+    """Relocate built-in path defaults; explicit workflow and CLI values win."""
+    roots = {"data_root": DATA_ROOT, "runs_root": RUNS_ROOT, "workspace_root": WORKSPACE_ROOT}
+    if not isinstance(paths, Mapping):
+        raise ValueError("[paths] must be a TOML table")
+    unknown = set(paths) - roots.keys()
+    if unknown:
+        raise ValueError(f"Unknown [paths] keys: {', '.join(sorted(unknown))}")
+    replacements = sorted(
+        ((roots[key], Path(value).expanduser()) for key, value in paths.items()),
+        key=lambda pair: len(pair[0].parts),
+        reverse=True,
+    )
+    for key, value in vars(args).items():
+        if not isinstance(value, (str, Path)):
+            continue
+        for old, new in replacements:
+            try:
+                relative = Path(value).relative_to(old)
+            except ValueError:
+                continue
+            relocated = new / relative
+            setattr(args, key, relocated if isinstance(value, Path) else str(relocated))
+            break

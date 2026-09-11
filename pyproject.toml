@@ -17,8 +17,9 @@ dependencies = [
 
 [project.optional-dependencies]
 fa = ["faxarray"]
-full = ["faxarray", "cmaps", "cartopy", "scipy", "metpy"]
-dev = ["pytest"]
+tracking = ["pandas", "tobac"]
+full = ["faxarray", "cmaps", "cartopy", "scipy", "metpy", "pandas", "tobac"]
+dev = ["pytest", "ruff"]
 
 [project.scripts]
 alaro-convert = "alaro_analysis.converter:main"
@@ -59,3 +60,11 @@ packages = ["alaro_analysis"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+include = ["alaro_analysis/**/*.py", "scripts/*.py", "tests/*.py", "pyproject.toml"]
+
+[tool.ruff.lint]
+select = ["E9", "F821", "F822", "F823", "I"]

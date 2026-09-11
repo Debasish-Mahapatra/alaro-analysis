@@ -1,0 +1,32 @@
+# Copy to ./alaro.toml and replace these example locations.
+# Paths supplied explicitly on the CLI always win.
+[paths]
+runs_root = "/data/ALARO-RUNS"
+data_root = "/data"
+
+[defaults]
+n_workers = 32
+workers = 32
+utc_offset_hours = -4
+
+[workflows.hydrometeor]
+control_dir = "/data/ALARO-RUNS/ALARO/control/masked-netcdf"
+graupel_dir = "/data/ALARO-RUNS/ALARO/graupel/masked-netcdf"
+twomom_dir = "/data/ALARO-RUNS/ALARO/2mom/masked-netcdf"
+variables = ["RAIN", "SNOW", "GRAUPEL"]
+analysis_modes = ["full", "seasonal"]
+seasons = ["wet", "dry"]
+output_dir = "/data/ALARO-RUNS/figures/hydrometeor"
+intermediate_dir = "/data/ALARO-RUNS/processed-data"
+
+[workflows.temperature]
+control_dir = "/data/ALARO-RUNS/ALARO/control/masked-netcdf"
+graupel_dir = "/data/ALARO-RUNS/ALARO/graupel/masked-netcdf"
+twomom_dir = "/data/ALARO-RUNS/ALARO/2mom/masked-netcdf"
+output_dir = "/data/ALARO-RUNS/figures/temperature"
+
+[workflows.make_paper1_strong_updraft_rain]
+data_root = "/data/ALARO-RUNS/ALARO"
+output_dir = "/data/ALARO-RUNS/figures/paper1/strong_updraft_rain"
+cache_dir = "/data/ALARO-RUNS/processed-data/strong_updraft_rain"
+min_updraft_pa_s = 10.0
