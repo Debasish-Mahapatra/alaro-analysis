@@ -455,6 +455,12 @@ def process_task(
 ) -> Dict[str, object]:
     ds = None
     try:
+        out_root = Path(cfg.output_root)
+        if not cfg.overwrite and all(
+            output_path(out_root, name, task).exists() for name in var_plan.output_vars
+        ):
+            return {"status": "ok", "source_file": task.source_file, "written": 0}
+
         fx = _require_faxarray()
         ds = fx.open_dataset(str(task.source_file), variables=list(var_plan.read_vars), stack_levels=True)
         read_var_to_ds_name = {name: var_to_ds_name(name) for name in var_plan.read_vars}
@@ -512,7 +518,6 @@ def process_task(
             ds[aux_ds_name] = geo
 
         written = 0
-        out_root = Path(cfg.output_root)
         for raw_name, ds_name in output_var_to_ds_name.items():
             out_file = output_path(out_root, raw_name, task)
             out_file.parent.mkdir(parents=True, exist_ok=True)
@@ -535,8 +540,12 @@ def process_task(
             if cfg.compress == "zlib":
                 encoding[raw_name] = {"zlib": True, "complevel": cfg.compress_level}
 
-            out_ds.to_netcdf(out_file, mode="w", encoding=encoding)
+            # Write beside the target and rename, so an interrupted run never leaves
+            # a truncated .nc that --no-overwrite would then treat as complete.
+            tmp_file = out_file.with_name(out_file.name + ".tmp")
+            out_ds.to_netcdf(tmp_file, mode="w", encoding=encoding)
             out_ds.close()
+            tmp_file.replace(out_file)
             written += 1
 
         return {"status": "ok", "source_file": task.source_file, "written": written}

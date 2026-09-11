@@ -286,8 +286,12 @@ def process_day(task: DayTask, cfg: DeaccumConfig) -> dict[str, object]:
                 encoding = {}
                 if cfg.compress == "zlib":
                     encoding[var_name] = {"zlib": True, "complevel": cfg.compress_level}
-                out_ds.to_netcdf(out_file, mode="w", encoding=encoding)
+                # Write beside the target and rename, so an interrupted run never
+                # leaves a truncated .nc that a rerun would skip as existing.
+                tmp_file = out_file.with_name(out_file.name + ".tmp")
+                out_ds.to_netcdf(tmp_file, mode="w", encoding=encoding)
                 out_ds.close()
+                tmp_file.replace(out_file)
 
                 written += 1
                 small_negative_clipped += int(stats["small_negative_clipped"])
