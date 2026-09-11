@@ -132,6 +132,5 @@ def test_discover_model_records_uses_init_valid_and_lead_keys(tmp_path):
         ("2014-01-02T00:00:00", "2014-01-01T00:00:00", 24),
     }
     assert discover_model_records("control", (24,), tmp_path) == {
-        ("2014-01-02T00:00:00", "2014-01-01T00:00:00", 24): base
-        / "pfABOFABOF+0024"
+        ("2014-01-02T00:00:00", "2014-01-01T00:00:00", 24): base / "pfABOFABOF+0024"
     }

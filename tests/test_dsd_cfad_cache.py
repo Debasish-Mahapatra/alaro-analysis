@@ -25,9 +25,9 @@ def test_array_fingerprint_distinguishes_shape_and_values():
 
 def test_dsd_cfad_cache_roundtrip_and_signature(tmp_path):
     from alaro_analysis.workflows.dsd_cfad_profiles import (
+        PANEL_FIELDS,
         CfadGrid,
         ExperimentCfad,
-        PANEL_FIELDS,
         load_experiment_cfad,
         read_cache_signature,
         save_experiment_cfad,

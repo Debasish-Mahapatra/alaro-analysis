@@ -1,4 +1,7 @@
-from alaro_analysis.converter.aliases import REQUESTED_VAR_FALLBACK_ALIASES, var_to_ds_name
+from alaro_analysis.converter.aliases import (
+    REQUESTED_VAR_FALLBACK_ALIASES,
+    var_to_ds_name,
+)
 
 
 def test_var_to_ds_name_replaces_dot():

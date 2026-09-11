@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from alaro_analysis.workflows.dsd_cfad_profiles import CfadGrid, ExperimentCfad
 from alaro_analysis.workflows import dsd_cfad_matched_colorbars as matched
+from alaro_analysis.workflows.dsd_cfad_profiles import CfadGrid, ExperimentCfad
 
 
 def _cfads_with_hist(hist: np.ndarray) -> dict[str, ExperimentCfad]:

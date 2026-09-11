@@ -9,8 +9,8 @@ from alaro_analysis.common import dsd
 
 def test_mp_lambda_from_lwc_nt_round_trip():
     # Pick (N0, lambda) and verify recovery.
-    n0 = 8000.0   # 1/(m^3 mm) -- classical Marshall-Palmer
-    lam = 2.5     # 1/mm
+    n0 = 8000.0  # 1/(m^3 mm) -- classical Marshall-Palmer
+    lam = 2.5  # 1/mm
     diag = dsd.mp_diagnostics_from_n0_lambda(np.asarray([n0]), np.asarray([lam]))
     lam_back = dsd.mp_lambda_from_lwc_nt(
         np.asarray([float(diag["lwc_g_m3"][0])]),
@@ -92,11 +92,13 @@ def test_apply_disdrometer_qc_combines_thresholds_and_continuity():
 def test_empirical_dsd_parameters_recover_synthetic_moments():
     centers = np.array([0.5, 1.0, 1.5])
     widths = np.array([0.5, 0.5, 0.5])
-    nd = np.array([
-        [0.0, 0.0, 0.0],
-        [10.0, 5.0, 1.0],
-    ])
-    m_powers = lambda k: np.sum(nd * (centers ** k)[None, :] * widths[None, :], axis=1)
+    nd = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [10.0, 5.0, 1.0],
+        ]
+    )
+    m_powers = lambda k: np.sum(nd * (centers**k)[None, :] * widths[None, :], axis=1)
     m3 = m_powers(3)
     m4 = m_powers(4)
     m5 = m_powers(5)

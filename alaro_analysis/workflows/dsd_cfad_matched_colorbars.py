@@ -9,33 +9,28 @@ from typing import Sequence
 
 import numpy as np
 
+from alaro_analysis.analysis.cfad import frequency_percent
 from alaro_analysis.common.cli_config import add_config_argument, parse_configured_args
 from alaro_analysis.common.constants import EXPERIMENTS
-from alaro_analysis.workflows.disdrometer_dsd import MASK_FILE, NETCDF_ROOT
-from alaro_analysis.workflows.dsd_cfad_profiles import (
-    CACHE_DIR as FULL_CACHE_DIR,
-    DATA_TXT_DIR as FULL_DATA_TXT_DIR,
-    DSD_FIELDS,
-    FIGURE_NAME as FULL_FIGURE_NAME,
-    OUTPUT_DIR as FULL_OUTPUT_DIR,
-    TEXT_NAME as FULL_TEXT_NAME,
-    ExperimentCfad,
-    build_cfads as build_full_cfads,
-    frequency_percent,
-    plot_cfads,
-    row_vmax,
-    write_data_txt as write_full_data_txt,
-)
-from alaro_analysis.workflows.dsd_cfad_strong_convection import (
-    CACHE_DIR as STRONG_CACHE_DIR,
-    DATA_TXT_DIR as STRONG_DATA_TXT_DIR,
-    FIGURE_NAME as STRONG_FIGURE_NAME,
-    OUTPUT_DIR as STRONG_OUTPUT_DIR,
-    TEXT_NAME as STRONG_TEXT_NAME,
-    build_cfads as build_strong_cfads,
+from alaro_analysis.common.dsd_models import ExperimentCfad
+from alaro_analysis.data.cfad_exports import write_data_txt as write_full_data_txt
+from alaro_analysis.data.strong_cfad_exports import (
     write_data_txt as write_strong_data_txt,
 )
-
+from alaro_analysis.dsd.profile_cfad import CACHE_DIR as FULL_CACHE_DIR
+from alaro_analysis.dsd.profile_cfad import DATA_TXT_DIR as FULL_DATA_TXT_DIR
+from alaro_analysis.dsd.profile_cfad import DSD_FIELDS
+from alaro_analysis.dsd.profile_cfad import FIGURE_NAME as FULL_FIGURE_NAME
+from alaro_analysis.dsd.profile_cfad import OUTPUT_DIR as FULL_OUTPUT_DIR
+from alaro_analysis.dsd.profile_cfad import TEXT_NAME as FULL_TEXT_NAME
+from alaro_analysis.dsd.profile_cfad import build_cfads as build_full_cfads
+from alaro_analysis.dsd.strong_cfad import CACHE_DIR as STRONG_CACHE_DIR
+from alaro_analysis.dsd.strong_cfad import DATA_TXT_DIR as STRONG_DATA_TXT_DIR
+from alaro_analysis.dsd.strong_cfad import FIGURE_NAME as STRONG_FIGURE_NAME
+from alaro_analysis.dsd.strong_cfad import OUTPUT_DIR as STRONG_OUTPUT_DIR
+from alaro_analysis.dsd.strong_cfad import TEXT_NAME as STRONG_TEXT_NAME
+from alaro_analysis.dsd.strong_cfad import build_cfads as build_strong_cfads
+from alaro_analysis.dsd.surface import MASK_FILE, NETCDF_ROOT
 
 MATCHED_SUFFIX = "_matched_colorbar"
 
@@ -180,6 +175,8 @@ def percentile_vmax(
     field: str,
     percentile: float,
 ) -> float:
+    from alaro_analysis.plotting.dsd_cfad import row_vmax
+
     if percentile == 99.0:
         return row_vmax(cfads, list(experiments), field)
     values: list[np.ndarray] = []
@@ -241,6 +238,8 @@ def append_colorbar_metadata(
 
 
 def main(argv: list[str] | None = None) -> None:
+    from alaro_analysis.plotting.dsd_cfad import plot_cfads
+
     args = parse_args(argv)
     full_args = namespace_for_full(args)
     strong_args = namespace_for_strong(args)
@@ -281,7 +280,9 @@ def main(argv: list[str] | None = None) -> None:
         dpi=args.dpi,
         row_vmax_values=row_vmax_values,
     )
-    write_full_data_txt(full_text, full_cfads, args.experiments, lead_tag=full_lead_tag, args=full_args)
+    write_full_data_txt(
+        full_text, full_cfads, args.experiments, lead_tag=full_lead_tag, args=full_args
+    )
     append_colorbar_metadata(
         full_text,
         frequency_scale=args.frequency_scale,
@@ -306,6 +307,13 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Saved strong-convection figure: {strong_output}", flush=True)
     print(f"Saved full-domain data:          {full_text}", flush=True)
     print(f"Saved strong-convection data:   {strong_text}", flush=True)
+
+
+def __getattr__(name):
+    """Compatibility for moved functions; new callers use the owning module."""
+    from alaro_analysis.common.legacy_exports import resolve_export
+
+    return resolve_export(__name__, name)
 
 
 if __name__ == "__main__":

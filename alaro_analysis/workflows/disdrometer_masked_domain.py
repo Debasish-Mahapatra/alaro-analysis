@@ -4,6 +4,7 @@ import argparse
 import csv
 import math
 from dataclasses import dataclass
+from multiprocessing import get_context
 from pathlib import Path
 from typing import Any
 
@@ -11,13 +12,24 @@ import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
-from multiprocessing import get_context
 from netCDF4 import Dataset
 
-from alaro_analysis.common.constants import EXPERIMENT_COLORS, EXPERIMENT_LABELS, EXPERIMENTS, RD
-from alaro_analysis.converter.pipeline import _regrid_mask_to_model
-from alaro_analysis.workflows.disdrometer_comparison import (
+from alaro_analysis.analysis.disdrometer import (
+    rain_mean_volume_diameter_mm,
+    single_moment_rain_number_per_kg,
+    summarize_experiment,
+)
+from alaro_analysis.common.cli_config import parse_configured_args
+from alaro_analysis.common.constants import (
+    EXPERIMENT_COLORS,
+    EXPERIMENT_LABELS,
+    EXPERIMENTS,
+    RD,
+    RUNS_ROOT,
+)
+from alaro_analysis.common.observation_settings import (
     ANALYTICS_DIR,
+    BOTTOM_LEVEL,
     CACHE_DIR,
     DEFAULT_LAT,
     DEFAULT_LON,
@@ -25,21 +37,21 @@ from alaro_analysis.workflows.disdrometer_comparison import (
     MODEL_ROOT,
     OBS_ZIP,
     PROCESSED_DIR,
-    RUNS_ROOT,
-    BOTTOM_LEVEL,
-    ObservationWindow,
+)
+from alaro_analysis.data.cache import save_npz
+from alaro_analysis.data.disdrometer import (
     average_observation_window,
+    read_observations,
+)
+from alaro_analysis.data.disdrometer_exports import save_summary_csv
+from alaro_analysis.data.masks import _regrid_mask_to_model
+from alaro_analysis.data.model_records import (
     discover_model_records,
     lead_label,
     parse_lead_selection,
-    rain_mean_volume_diameter_mm,
-    read_observations,
-    save_summary_csv,
-    single_moment_rain_number_per_kg,
-    summarize_experiment,
     title_lead_text,
 )
-
+from alaro_analysis.data.observation_models import ObservationWindow
 
 MASK_FILE = RUNS_ROOT / "mask" / "Radar_mask_latlon.nc"
 MASKED_NETCDF_DIR = PROCESSED_DIR / "masked-lowest-layer"
@@ -219,8 +231,7 @@ def _read_masked_domain_task(
                 grids[exp] = grid
         except Exception as exc:
             warnings.append(
-                f"WARNING {exp} {valid_time} lead +{lead:04d}: "
-                f"failed to read masked domain: {exc}"
+                f"WARNING {exp} {valid_time} lead +{lead:04d}: failed to read masked domain: {exc}"
             )
             row.update(
                 {
@@ -269,8 +280,12 @@ def init_grid_netcdf(
     valid = np.asarray([np.datetime64(record[0]) for record in records], dtype="datetime64[s]")
     init = np.asarray([np.datetime64(record[1]) for record in records], dtype="datetime64[s]")
     leads = np.asarray([record[2] for record in records], dtype=np.int16)
-    obs = np.asarray([obs_by_valid_time[record[0]].rain_number_m3 for record in records], dtype=np.float32)
-    obs_precip = np.asarray([obs_by_valid_time[record[0]].precip_rate_mm_h for record in records], dtype=np.float32)
+    obs = np.asarray(
+        [obs_by_valid_time[record[0]].rain_number_m3 for record in records], dtype=np.float32
+    )
+    obs_precip = np.asarray(
+        [obs_by_valid_time[record[0]].precip_rate_mm_h for record in records], dtype=np.float32
+    )
 
     tvar = ds.createVariable("valid_time", "f8", ("time",))
     tvar.units = "hours since 1970-01-01 00:00:00"
@@ -336,7 +351,9 @@ def init_grid_netcdf(
     return ds
 
 
-def save_timeseries_csv(path: Path, rows: list[dict[str, Any]], experiments: tuple[str, ...]) -> None:
+def save_timeseries_csv(
+    path: Path, rows: list[dict[str, Any]], experiments: tuple[str, ...]
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     base_fields = [
         "valid_time_utc",
@@ -672,7 +689,7 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Path]:
     }
 
     npz_path = args.processed_dir / f"disdrometer_rain_number_comparison_{output_tag}.npz"
-    np.savez(
+    save_npz(
         npz_path,
         valid_time=valid_times_arr.astype("datetime64[s]").astype(str),
         init_time=init_times_arr.astype("datetime64[s]").astype(str),
@@ -687,14 +704,18 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Path]:
         **{f"{exp}_rain_mixing_ratio_kgkg": values for exp, values in model_qr_arrs.items()},
     )
 
-    timeseries_csv = args.analytics_dir / f"disdrometer_rain_number_comparison_{output_tag}_timeseries.csv"
+    timeseries_csv = (
+        args.analytics_dir / f"disdrometer_rain_number_comparison_{output_tag}_timeseries.csv"
+    )
     save_timeseries_csv(timeseries_csv, rows, experiments)
 
     summaries = [
         summarize_experiment(exp, obs_arr, model_arrs[exp], model_qr_arrs[exp])
         for exp in experiments
     ]
-    summary_csv = args.analytics_dir / f"disdrometer_rain_number_comparison_{output_tag}_summary.csv"
+    summary_csv = (
+        args.analytics_dir / f"disdrometer_rain_number_comparison_{output_tag}_summary.csv"
+    )
     save_summary_csv(summary_csv, summaries)
 
     timeseries_png = args.figure_dir / f"disdrometer_rain_number_timeseries_{output_tag}.png"
@@ -740,7 +761,9 @@ def build_parser() -> argparse.ArgumentParser:
         choices=list(EXPERIMENTS),
         help="Experiments to compare.",
     )
-    parser.add_argument("--level", type=int, default=BOTTOM_LEVEL, help="Bottom model level fid number.")
+    parser.add_argument(
+        "--level", type=int, default=BOTTOM_LEVEL, help="Bottom model level fid number."
+    )
     parser.add_argument("--obs-window-minutes", type=int, default=30)
     parser.add_argument("--obs-min-precip", type=float, default=0.1)
     parser.add_argument("--max-days", type=int, default=None)
@@ -765,8 +788,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parse_configured_args(parser, "disdrometer_masked_domain", argv=argv)
     run_comparison(args)
+
+
+def __getattr__(name):
+    """Compatibility for moved functions; new callers use the owning module."""
+    from alaro_analysis.common.legacy_exports import resolve_export
+
+    return resolve_export(__name__, name)
 
 
 if __name__ == "__main__":

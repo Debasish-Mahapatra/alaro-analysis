@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
 import re
+from pathlib import Path
 from typing import Optional, Sequence
 
 from alaro_analysis.common.naming import normalize_var_token
+
 from .models import VariablePlan
 
 MODEL_LEVEL_FIELD_RE = re.compile(r"^S(\d{3})(.+)$")

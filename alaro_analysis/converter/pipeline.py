@@ -10,17 +10,22 @@ Output layout:
 """
 
 import argparse
+import json
+import re
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timezone
-import json
 from pathlib import Path
-import re
-from typing import Dict, List, Optional, Sequence, Set, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import xarray as xr
 
-from .aliases import normalize_var_token, resolve_requested_vars, var_to_ds_name
+from alaro_analysis.common.cli_config import parse_configured_args
+from alaro_analysis.data.masks import (
+    _regrid_mask_to_model,
+)
+
+from .aliases import resolve_requested_vars, var_to_ds_name
 from .config import (
     AUX_VAR,
     DERIVED_MODEL_RH_VAR,
@@ -134,6 +139,8 @@ def _coerce_pressure_to_pa(pressure: xr.DataArray, source_name: str) -> xr.DataA
         f"Cannot derive RH: unsupported pressure range for '{source_name}' "
         f"(units='{units}', p01={p01:.3g}, p99={p99:.3g})."
     )
+
+
 def parse_yyyymmdd(value: Optional[str], name: str):
     if value is None:
         return None
@@ -239,140 +246,6 @@ def compute_crop_window(sample_file: Path, cfg: RunConfig, reference_var: str) -
         ds.close()
 
 
-def _guess_coord_name(
-    da: xr.DataArray,
-    explicit_name: Optional[str],
-    kind: str,
-) -> str:
-    if explicit_name is not None:
-        if explicit_name in da.coords or explicit_name in da.dims:
-            return explicit_name
-        raise ValueError(f"{kind} coordinate '{explicit_name}' not found in mask variable")
-
-    candidates = {
-        "lat": ["lat", "latitude", "nav_lat", "y_lat"],
-        "lon": ["lon", "longitude", "nav_lon", "x_lon"],
-    }[kind]
-    for name in candidates:
-        if name in da.coords or name in da.dims:
-            return name
-    for name in list(da.coords) + list(da.dims):
-        low = name.lower()
-        if kind == "lat" and "lat" in low:
-            return name
-        if kind == "lon" and ("lon" in low or "long" in low):
-            return name
-    raise ValueError(f"Could not auto-detect {kind} coordinate in mask variable")
-
-
-def _select_mask_variable(mask_ds: xr.Dataset, requested_var: Optional[str]) -> str:
-    if requested_var:
-        if requested_var not in mask_ds.data_vars:
-            raise ValueError(
-                f"Mask variable '{requested_var}' not found. "
-                f"Available: {list(mask_ds.data_vars)}"
-            )
-        return requested_var
-
-    if not mask_ds.data_vars:
-        raise ValueError("Mask NetCDF has no data variables")
-
-    preferred = [
-        "mask",
-        "MASK",
-        "spatial_mask",
-        "radar_mask",
-        "Radar_mask",
-        "Radar_mask_latlon",
-    ]
-    for name in preferred:
-        if name in mask_ds.data_vars:
-            return name
-    return list(mask_ds.data_vars)[0]
-
-
-def _regrid_mask_to_model(
-    mask_file: Path,
-    target_lat: xr.DataArray,
-    target_lon: xr.DataArray,
-    mask_var: Optional[str],
-    mask_lat_name: Optional[str],
-    mask_lon_name: Optional[str],
-    mask_threshold: float,
-) -> Tuple[np.ndarray, str]:
-    mask_ds = xr.open_dataset(mask_file)
-    try:
-        selected_var = _select_mask_variable(mask_ds, mask_var)
-        mask_da = mask_ds[selected_var].squeeze(drop=True)
-        # xarray.interp() requires numeric dtype; some masks are stored as bool.
-        if mask_da.dtype == np.bool_:
-            mask_da = mask_da.astype(np.float32)
-
-        lat_name = _guess_coord_name(mask_da, mask_lat_name, "lat")
-        lon_name = _guess_coord_name(mask_da, mask_lon_name, "lon")
-
-        # Drop non-spatial dimensions by taking first index (common for time/band singleton dims).
-        for dim in list(mask_da.dims):
-            if dim not in {lat_name, lon_name}:
-                if mask_da.sizes[dim] < 1:
-                    raise ValueError(f"Mask dimension '{dim}' is empty")
-                mask_da = mask_da.isel({dim: 0})
-
-        if lat_name in mask_da.coords and lon_name in mask_da.coords:
-            lat_coord = mask_da.coords[lat_name]
-            lon_coord = mask_da.coords[lon_name]
-        else:
-            raise ValueError(
-                f"Mask variable '{selected_var}' must expose '{lat_name}' and '{lon_name}' coordinates"
-            )
-
-        if lat_coord.ndim == 1 and lon_coord.ndim == 1:
-            target_lat_da = xr.DataArray(target_lat.values, dims=("y", "x"))
-            target_lon_da = xr.DataArray(target_lon.values, dims=("y", "x"))
-            remapped = mask_da.interp(
-                {lat_name: target_lat_da, lon_name: target_lon_da},
-                method="nearest",
-            )
-        elif lat_coord.ndim == 2 and lon_coord.ndim == 2:
-            try:
-                from scipy.spatial import cKDTree
-            except ImportError as exc:
-                raise ImportError(
-                    "Mask has 2D lat/lon coordinates and requires scipy for nearest-neighbor remap."
-                ) from exc
-
-            mask_values = np.asarray(mask_da.values)
-            if mask_values.ndim != 2:
-                raise ValueError(
-                    "Mask with 2D coordinates must be a 2D variable after squeezing extra dims."
-                )
-
-            source_points = np.column_stack(
-                [np.asarray(lon_coord.values).ravel(), np.asarray(lat_coord.values).ravel()]
-            )
-            target_points = np.column_stack(
-                [np.asarray(target_lon.values).ravel(), np.asarray(target_lat.values).ravel()]
-            )
-            tree = cKDTree(source_points)
-            _, nearest_idx = tree.query(target_points, k=1)
-            remapped_values = mask_values.ravel()[nearest_idx].reshape(target_lon.shape)
-            remapped = xr.DataArray(remapped_values, dims=("y", "x"))
-        else:
-            raise ValueError(
-                "Unsupported mask coordinate layout. Expected lat/lon as 1D or 2D coordinates."
-            )
-
-        remapped_values = np.asarray(remapped.values, dtype=np.float64)
-        mask_binary = remapped_values > float(mask_threshold)
-        if not np.any(mask_binary):
-            raise ValueError(
-                f"Mask threshold ({mask_threshold}) removed all points on model grid."
-            )
-        return mask_binary, selected_var
-    finally:
-        mask_ds.close()
-
-
 def compute_crop_and_spatial_mask(
     sample_file: Path,
     cfg: RunConfig,
@@ -462,11 +335,16 @@ def process_task(
             return {"status": "ok", "source_file": task.source_file, "written": 0}
 
         fx = _require_faxarray()
-        ds = fx.open_dataset(str(task.source_file), variables=list(var_plan.read_vars), stack_levels=True)
+        ds = fx.open_dataset(
+            str(task.source_file), variables=list(var_plan.read_vars), stack_levels=True
+        )
         read_var_to_ds_name = {name: var_to_ds_name(name) for name in var_plan.read_vars}
         output_var_to_ds_name = {name: var_to_ds_name(name) for name in var_plan.output_vars}
 
-        if int(ds.sizes.get("y", -1)) != crop.source_y or int(ds.sizes.get("x", -1)) != crop.source_x:
+        if (
+            int(ds.sizes.get("y", -1)) != crop.source_y
+            or int(ds.sizes.get("x", -1)) != crop.source_x
+        ):
             raise ValueError(
                 f"Grid mismatch for {task.source_file}: "
                 f"expected ({crop.source_y}, {crop.source_x}), "
@@ -489,9 +367,7 @@ def process_task(
             if ds_name not in ds.data_vars
         ]
         if missing_raw:
-            raise KeyError(
-                f"Missing variables in {task.source_file}: {', '.join(missing_raw)}"
-            )
+            raise KeyError(f"Missing variables in {task.source_file}: {', '.join(missing_raw)}")
 
         if var_plan.derive_model_rh:
             if not (var_plan.rh_q_var and var_plan.rh_t_var and var_plan.rh_p_var):
@@ -531,8 +407,7 @@ def process_task(
             out_ds.attrs = dict(ds.attrs)
             out_ds.attrs["source_fa_file"] = str(task.source_file)
             out_ds.attrs["roi_bbox"] = (
-                f"lon=[{cfg.bbox_west}, {cfg.bbox_east}], "
-                f"lat=[{cfg.bbox_south}, {cfg.bbox_north}]"
+                f"lon=[{cfg.bbox_west}, {cfg.bbox_east}], lat=[{cfg.bbox_south}, {cfg.bbox_north}]"
             )
             out_ds.attrs["roi_mask_mode"] = "cropped_bbox_exact_mask"
 
@@ -656,9 +531,13 @@ def run_conversion(
                 "Check variable selection."
             )
 
-        if any(msg.startswith(f"{DERIVED_MODEL_RH_VAR} requires") for msg in var_plan.missing_requested):
+        if any(
+            msg.startswith(f"{DERIVED_MODEL_RH_VAR} requires") for msg in var_plan.missing_requested
+        ):
             missing_msg = ", ".join(
-                msg for msg in var_plan.missing_requested if msg.startswith(f"{DERIVED_MODEL_RH_VAR} requires")
+                msg
+                for msg in var_plan.missing_requested
+                if msg.startswith(f"{DERIVED_MODEL_RH_VAR} requires")
             )
             raise ValueError(f"Cannot derive {DERIVED_MODEL_RH_VAR}: {missing_msg}")
 
@@ -668,19 +547,21 @@ def run_conversion(
         )
         if not cfg.quiet:
             print(
-                f"Crop window y=[{crop.y_start}:{crop.y_stop}), "
-                f"x=[{crop.x_start}:{crop.x_stop})"
-            , flush=True)
+                f"Crop window y=[{crop.y_start}:{crop.y_stop}), x=[{crop.x_start}:{crop.x_stop})",
+                flush=True,
+            )
             print(
                 "Mask coverage vs ROI: "
                 f"{mask_stats['kept_points']}/{mask_stats['roi_points']} "
-                f"({100.0 * mask_stats['keep_fraction_vs_roi']:.2f}%)"
-            , flush=True)
+                f"({100.0 * mask_stats['keep_fraction_vs_roi']:.2f}%)",
+                flush=True,
+            )
             if mask_stats.get("mask_file"):
                 print(
                     f"Using external mask: {mask_stats['mask_file']} "
-                    f"(var={mask_stats.get('mask_var')}, threshold>{mask_stats.get('mask_threshold')})"
-                , flush=True)
+                    f"(var={mask_stats.get('mask_var')}, threshold>{mask_stats.get('mask_threshold')})",
+                    flush=True,
+                )
             if var_plan.missing_requested:
                 print(
                     "Missing variables (skipped): " + ", ".join(var_plan.missing_requested),
@@ -689,8 +570,9 @@ def run_conversion(
             if var_plan.derive_model_rh:
                 print(
                     f"Deriving {DERIVED_MODEL_RH_VAR} from "
-                    f"{var_plan.rh_q_var}, {var_plan.rh_t_var}, {var_plan.rh_p_var}"
-                , flush=True)
+                    f"{var_plan.rh_q_var}, {var_plan.rh_t_var}, {var_plan.rh_p_var}",
+                    flush=True,
+                )
 
         if cfg.workers > 1:
             with ProcessPoolExecutor(max_workers=cfg.workers) as pool:
@@ -828,13 +710,27 @@ def main() -> int:
         help="Directory containing pfYYYYMMDD or sfxYYYYMMDD folders",
     )
     parser.add_argument("output_root", help="Directory where NetCDF outputs will be written")
-    parser.add_argument("--workers", type=int, default=16, help="Parallel worker count (default: 16)")
-    parser.add_argument("--bbox-west", type=float, default=-67.0, help="ROI west bound (default: -67)")
-    parser.add_argument("--bbox-east", type=float, default=-53.0, help="ROI east bound (default: -53)")
-    parser.add_argument("--bbox-south", type=float, default=-10.0, help="ROI south bound (default: -10)")
-    parser.add_argument("--bbox-north", type=float, default=4.0, help="ROI north bound (default: 4)")
-    parser.add_argument("--include-init", dest="include_init", action="store_true", help="Include +0000 (default)")
-    parser.add_argument("--exclude-init", dest="include_init", action="store_false", help="Skip +0000")
+    parser.add_argument(
+        "--workers", type=int, default=16, help="Parallel worker count (default: 16)"
+    )
+    parser.add_argument(
+        "--bbox-west", type=float, default=-67.0, help="ROI west bound (default: -67)"
+    )
+    parser.add_argument(
+        "--bbox-east", type=float, default=-53.0, help="ROI east bound (default: -53)"
+    )
+    parser.add_argument(
+        "--bbox-south", type=float, default=-10.0, help="ROI south bound (default: -10)"
+    )
+    parser.add_argument(
+        "--bbox-north", type=float, default=4.0, help="ROI north bound (default: 4)"
+    )
+    parser.add_argument(
+        "--include-init", dest="include_init", action="store_true", help="Include +0000 (default)"
+    )
+    parser.add_argument(
+        "--exclude-init", dest="include_init", action="store_false", help="Skip +0000"
+    )
     parser.set_defaults(include_init=True)
     parser.add_argument(
         "--include-hour24",
@@ -849,10 +745,16 @@ def main() -> int:
         help="Skip +0024 files (default).",
     )
     parser.set_defaults(include_hour24=False)
-    parser.add_argument("--compress", choices=["zlib", "none"], default="zlib", help="Compression mode")
+    parser.add_argument(
+        "--compress", choices=["zlib", "none"], default="zlib", help="Compression mode"
+    )
     parser.add_argument("--level", type=int, default=1, help="Compression level when using zlib")
-    parser.add_argument("--overwrite", dest="overwrite", action="store_true", help="Overwrite outputs (default)")
-    parser.add_argument("--no-overwrite", dest="overwrite", action="store_false", help="Do not overwrite outputs")
+    parser.add_argument(
+        "--overwrite", dest="overwrite", action="store_true", help="Overwrite outputs (default)"
+    )
+    parser.add_argument(
+        "--no-overwrite", dest="overwrite", action="store_false", help="Do not overwrite outputs"
+    )
     parser.set_defaults(overwrite=True)
     parser.add_argument(
         "--skip-incomplete-days",
@@ -901,10 +803,16 @@ def main() -> int:
         action="store_true",
         help="Print built-in default variables and exit.",
     )
-    parser.add_argument("--mask-file", default=None, help="Optional NetCDF mask file (e.g., 1 km radar mask)")
+    parser.add_argument(
+        "--mask-file", default=None, help="Optional NetCDF mask file (e.g., 1 km radar mask)"
+    )
     parser.add_argument("--mask-var", default=None, help="Mask variable name in mask NetCDF")
-    parser.add_argument("--mask-lat-name", default=None, help="Latitude coordinate name in mask file")
-    parser.add_argument("--mask-lon-name", default=None, help="Longitude coordinate name in mask file")
+    parser.add_argument(
+        "--mask-lat-name", default=None, help="Latitude coordinate name in mask file"
+    )
+    parser.add_argument(
+        "--mask-lon-name", default=None, help="Longitude coordinate name in mask file"
+    )
     parser.add_argument(
         "--mask-threshold",
         type=float,
@@ -912,7 +820,7 @@ def main() -> int:
         help="Keep points where remapped mask > threshold (default: 0.5)",
     )
     parser.add_argument("--quiet", "-q", action="store_true", help="Reduce logging")
-    args = parser.parse_args()
+    args = parse_configured_args(parser, "pipeline", argv=None)
 
     if args.list_default_vars:
         for name in REQUESTED_VARS:
