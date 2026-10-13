@@ -57,6 +57,166 @@
     "interface": "fixed study settings; inspect module before running"
   },
   {
+    "name": "build_iop_closure_budgets",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.build_iop_closure_budgets",
+    "description": "DDH condensation budgets for the GoAmazon IOPs, for all four experiments.",
+    "legacy_script": "scripts/build_iop_closure_budgets.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.common.paths",
+      "alaro_analysis.data.cache"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "build_iop_convection_diurnal",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.build_iop_convection_diurnal",
+    "description": "Diurnal height-hour sections of the convection diagnostics for the GoAmazon IOPs.",
+    "legacy_script": "scripts/build_iop_convection_diurnal.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.common.parallel",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.data.convection_sections"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "build_iop_disdrometer_seasons",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.build_iop_disdrometer_seasons",
+    "description": "Disdrometer Dm-log10 Nw statistics for the wet and dry seasons that match the IOPs.",
+    "legacy_script": "scripts/build_iop_disdrometer_seasons.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.dsd",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.common.observation_settings",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.data.disdrometer",
+      "alaro_analysis.data.microphysics_columns"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "build_iop_echo_statistics",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.build_iop_echo_statistics",
+    "description": "Reflectivity CFADs, echo occurrence and tops, convective-stratiform split and ice water content, SIPAM and the four runs.",
+    "legacy_script": "scripts/build_iop_echo_statistics.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.analysis.radar_echo",
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.data.echo_statistics",
+      "alaro_analysis.data.sipam_reflectivity",
+      "alaro_analysis.recipes.iop.build_iop_convection_diurnal",
+      "alaro_analysis.recipes.iop.build_iop_microphysics_fields",
+      "alaro_analysis.recipes.iop.build_iop_sipam_reflectivity",
+      "alaro_analysis.recipes.iop.build_iop_updraft_partition"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "build_iop_hydrometeor_histograms",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.build_iop_hydrometeor_histograms",
+    "description": "Hydrometeor mass-fraction histograms for the GoAmazon IOPs, with no normalisation.",
+    "legacy_script": "scripts/build_iop_hydrometeor_histograms.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.common.parallel",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.data.convection_sections",
+      "alaro_analysis.data.hydrometeor_histograms"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "build_iop_microphysics_columns",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.build_iop_microphysics_columns",
+    "description": "Column microphysics of the four runs: surface DSD, hydrometeor and precipitation-flux profiles, cold pools, droplet numbers.",
+    "legacy_script": "scripts/build_iop_microphysics_columns.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.data.microphysics_columns",
+      "alaro_analysis.recipes.iop.build_iop_convection_diurnal",
+      "alaro_analysis.recipes.iop.build_iop_microphysics_fields",
+      "alaro_analysis.recipes.iop.build_iop_updraft_partition"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "build_iop_microphysics_fields",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.build_iop_microphysics_fields",
+    "description": "Convert the raw FA fields the microphysics analysis needs to daily NetCDF on the 4 km radar-domain window, GoAmazon IOPs.",
+    "legacy_script": "scripts/build_iop_microphysics_fields.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.common.parallel",
+      "alaro_analysis.data.microphysics_fields",
+      "alaro_analysis.data.radar_domain",
+      "alaro_analysis.recipes.iop.build_iop_convection_diurnal",
+      "alaro_analysis.recipes.iop.build_iop_updraft_partition"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "build_iop_rainfall_common_valid",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.build_iop_rainfall_common_valid",
+    "description": "Common-valid hourly rainfall for the combined GoAmazon2014/5 IOPs.",
+    "legacy_script": "scripts/build_iop_rainfall_common_valid.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.common.parallel",
+      "alaro_analysis.common.paths",
+      "alaro_analysis.workflows.precip_conservative_common_valid"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "build_iop_rainfall_roi",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.build_iop_rainfall_roi",
+    "description": "Hourly rainfall over the whole ROI for the GoAmazon IOPs, models against IMERG.",
+    "legacy_script": "scripts/build_iop_rainfall_roi.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.common.parallel",
+      "alaro_analysis.recipes.iop.build_iop_rainfall_common_valid",
+      "alaro_analysis.workflows.precip_conservative_common_valid"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
     "name": "build_iop_rainfall_total",
     "family": "iop",
     "module": "alaro_analysis.recipes.iop.build_iop_rainfall_total",
@@ -65,6 +225,90 @@
     "status": "available",
     "package_dependencies": [
       "alaro_analysis.common.cli_config"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "build_iop_sipam_reflectivity",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.build_iop_sipam_reflectivity",
+    "description": "SIPAM 3-D reflectivity (raw CAPPI volumes, 2-16 km) averaged in linear Z onto the 4 km model cells, radar-valid hours.",
+    "legacy_script": "scripts/build_iop_sipam_reflectivity.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.data.sipam_reflectivity",
+      "alaro_analysis.recipes.iop.build_iop_convection_diurnal",
+      "alaro_analysis.recipes.iop.build_iop_microphysics_fields"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "build_iop_updraft_cloud_partition",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.build_iop_updraft_cloud_partition",
+    "description": "Diurnal height-hour sections of updraft extent, mass flux and cloud cover, all four runs.",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.data.convection_sections",
+      "alaro_analysis.recipes.iop.build_iop_convection_diurnal",
+      "alaro_analysis.recipes.iop.build_iop_updraft_partition"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "build_iop_updraft_partition",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.build_iop_updraft_partition",
+    "description": "Parameterized and resolved updraft mass flux for the GoAmazon IOPs, all four runs.",
+    "legacy_script": "scripts/build_iop_updraft_partition.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.common.parallel",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.data.convection_sections",
+      "alaro_analysis.recipes.iop.build_iop_convection_diurnal"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "build_iop_wacr_occurrence",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.build_iop_wacr_occurrence",
+    "description": "Hydrometeor occurrence above T3 in September 2014: ARM W-band cloud radar against the four runs.",
+    "legacy_script": "scripts/build_iop_wacr_occurrence.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.data.microphysics_columns",
+      "alaro_analysis.data.wacr_occurrence",
+      "alaro_analysis.recipes.iop.build_iop_microphysics_fields",
+      "alaro_analysis.recipes.iop.build_iop_sipam_reflectivity",
+      "alaro_analysis.recipes.iop.build_iop_updraft_partition"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "build_iop_water_budget",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.build_iop_water_budget",
+    "description": "Water budget (condensation, evaporation of precipitation, precipitation, moisture convergence, surface fluxes) of the four runs over the DDH box around T3.",
+    "legacy_script": "scripts/build_iop_water_budget.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.data.cache",
+      "alaro_analysis.data.ddh_water_budget",
+      "alaro_analysis.recipes.iop.build_iop_convection_diurnal"
     ],
     "interface": "arguments and TOML"
   },
@@ -196,6 +440,162 @@
       "alaro_analysis.common.cli_config",
       "alaro_analysis.common.paths",
       "alaro_analysis.data.cache"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_iop_closure_budget_figures",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.make_iop_closure_budget_figures",
+    "description": "Closure-budget compression figure for the GoAmazon IOPs, for all four experiments.",
+    "legacy_script": "scripts/make_iop_closure_budget_figures.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.figio",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.recipes.iop.build_iop_closure_budgets",
+      "alaro_analysis.recipes.iop.build_iop_convection_diurnal"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_iop_convection_figures",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.make_iop_convection_figures",
+    "description": "Updraft and downdraft figures for the GoAmazon IOPs, from the cached diurnal sections.",
+    "legacy_script": "scripts/make_iop_convection_figures.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.figio",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.common.models",
+      "alaro_analysis.common.vertical",
+      "alaro_analysis.plotting.scales",
+      "alaro_analysis.recipes.iop.build_iop_convection_diurnal"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_iop_fss",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.make_iop_fss",
+    "description": "Fractions skill score of hourly rain against the SIPAM radar for the GoAmazon IOPs.",
+    "legacy_script": "scripts/make_iop_fss.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.analysis.fractions_skill",
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.figio",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.recipes.iop.build_iop_rainfall_common_valid"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_iop_hydrometeor_figures",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.make_iop_hydrometeor_figures",
+    "description": "Hydrometeor mass-fraction figures for the GoAmazon IOPs, with no normalisation.",
+    "legacy_script": "scripts/make_iop_hydrometeor_figures.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.figio",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.common.vertical",
+      "alaro_analysis.recipes.iop.build_iop_hydrometeor_histograms"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_iop_microphysics_story",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.make_iop_microphysics_story",
+    "description": "Supplementary S04 microphysics figures: radar, disdrometer and W-band cloud radar against the four runs.",
+    "legacy_script": "scripts/make_iop_microphysics_story.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.analysis.radar_echo",
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.figio",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.data.microphysics_columns",
+      "alaro_analysis.data.wacr_occurrence"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_iop_rain_pdf_roi",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.make_iop_rain_pdf_roi",
+    "description": "Rain-rate distribution over the whole ROI against IMERG for the GoAmazon IOPs.",
+    "legacy_script": "scripts/make_iop_rain_pdf_roi.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.figio",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.recipes.iop.build_iop_rainfall_roi",
+      "alaro_analysis.recipes.iop.make_iop_rainfall_verification",
+      "alaro_analysis.workflows.precip_distribution"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_iop_rainfall_verification",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.make_iop_rainfall_verification",
+    "description": "Rainfall verification against the SIPAM radar and GPM IMERG for the GoAmazon IOPs.",
+    "legacy_script": "scripts/make_iop_rainfall_verification.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.figio",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.recipes.iop.build_iop_rainfall_common_valid",
+      "alaro_analysis.workflows.precip_distribution",
+      "alaro_analysis.workflows.precip_diurnal_cycle",
+      "alaro_analysis.workflows.precip_spatial_bias_maps"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_iop_sounding_profiles",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.make_iop_sounding_profiles",
+    "description": "Sounding profiles against the ARM MAO radiosondes for the GoAmazon IOPs.",
+    "legacy_script": "scripts/make_iop_sounding_profiles.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.figio",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.common.parallel",
+      "alaro_analysis.common.radiosonde_settings",
+      "alaro_analysis.data.radiosondes",
+      "alaro_analysis.plotting.radiosondes"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_iop_updraft_partition_figures",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.make_iop_updraft_partition_figures",
+    "description": "Closure budget of IOP1 against IOP2 with parameterized, resolved and combined updrafts.",
+    "legacy_script": "scripts/make_iop_updraft_partition_figures.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.figio",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.recipes.iop.build_iop_closure_budgets",
+      "alaro_analysis.recipes.iop.build_iop_convection_diurnal",
+      "alaro_analysis.recipes.iop.make_iop_closure_budget_figures"
     ],
     "interface": "arguments and TOML"
   },
@@ -459,6 +859,20 @@
       "alaro_analysis.analysis.rain_evaporation",
       "alaro_analysis.common.cli_config",
       "alaro_analysis.common.paths"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_paper_updraft_cloud_partition_panel",
+    "family": "paper1",
+    "module": "alaro_analysis.recipes.paper1.make_paper_updraft_cloud_partition_panel",
+    "description": "Paper figure 5, rebuilt on the GoAmazon IOPs: updraft extent, upward mass flux, cloud cover.",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.common.paths",
+      "alaro_analysis.data.convection_sections",
+      "alaro_analysis.recipes.iop.make_iop_convection_figures"
     ],
     "interface": "arguments and TOML"
   },
