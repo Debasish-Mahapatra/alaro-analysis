@@ -89,6 +89,9 @@ SUPPLEMENTARY_SERIES = {
         "microphysics", "build_iop_microphysics_fields, build_iop_sipam_reflectivity, "
         "build_iop_echo_statistics, build_iop_microphysics_columns, build_iop_disdrometer_seasons, "
         "build_iop_wacr_occurrence, build_iop_water_budget, make_iop_microphysics_story"),
+    5: ("convective_mass_flux_vs_profiler",
+        "Convective mass flux against the ARM radar wind profiler at T3 (Giangrande et al. 2016)",
+        "convection", "build_iop_rwp_mass_flux, make_iop_rwp_mass_flux_comparison"),
 }
 # Period key -> IOPs it covers; the key goes in every figure file name.
 IOP_PERIODS = {"combined": (1, 2), "iop1": (1,), "iop2": (2,)}

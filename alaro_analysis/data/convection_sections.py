@@ -95,7 +95,8 @@ BOX_CELLS = 5  # 5 x 5 native cells = 20 km
 BOX_MIN_INSIDE = 0.5  # boxes at least half inside the radar domain
 RAIN_MIN_MM_H = 1.0  # a convective column rains at least this much in the hour
 ACTIVE_MESH = 1.0e-3  # a 3MT updraft is present (smaller fractions are advection noise)
-BOX_QUANTITIES = ("box_up", "box_up_nodd", "box_down", "box_par_up", "box_res_up", "box_frequency")
+BOX_QUANTITIES = ("box_up", "box_up_nodd", "box_down", "box_par_up", "box_res_up",
+                  "box_up_area", "box_down_area", "box_conv_frac", "box_frequency")
 
 
 def column_fluxes(omega, sig_u, om_u_rel, sig_d, om_d):
@@ -125,8 +126,13 @@ def column_fluxes(omega, sig_u, om_u_rel, sig_d, om_d):
     om_ed = ((1.0 - sig_u) * om_e - sig_d * om_d) / rest
     up = -(sig_u * np.minimum(om_up, 0) + sig_d * np.minimum(om_d, 0) + rest * np.minimum(om_ed, 0)) / g
     down = (sig_u * np.maximum(om_up, 0) + sig_d * np.maximum(om_d, 0) + rest * np.maximum(om_ed, 0)) / g
+    # Area of the rising and sinking parts, for the profiler's sigma_u and sigma_d.
+    rising = sig_u * (om_up < 0) + sig_d * (om_d < 0) + rest * (om_ed < 0)
+    sinking = sig_u * (om_up > 0) + sig_d * (om_d > 0) + rest * (om_ed > 0)
     return {
         "box_up": up,
+        "box_up_area": rising,
+        "box_down_area": sinking,
         "box_up_nodd": -(sig_u * np.minimum(om_up, 0) + (1.0 - sig_u) * np.minimum(om_e, 0)) / g,
         "box_down": down,
         "box_par_up": -sig_u * np.minimum(om_up, 0) / g,
@@ -176,6 +182,9 @@ def convective_boxes(fields: dict[str, np.ndarray], rain: np.ndarray, mask: np.n
     use = kept & (n_conv > 0)
     out = {key: box_means(np.where(convective, value, 0.0), ny, nx)[:, use].sum(axis=1)
            for key, value in fluxes.items()}
+    # The convective columns' share of the box, the model's counterpart of the
+    # profiler's five-minute criterion; the same at every level, stored per level.
+    out["box_conv_frac"] = np.full(omega.shape[0], float(n_conv[use].sum()))
     return out, int(use.sum()), int(kept.sum())
 
 
