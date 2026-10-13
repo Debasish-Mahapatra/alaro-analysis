@@ -31,7 +31,12 @@ from alaro_analysis.common.iop_settings import CACHE_DIRS, GOAMAZON_IOPS
 from alaro_analysis.common.parallel import resolve_workers
 from alaro_analysis.common.paths import runs_path
 from alaro_analysis.data.cache import save_npz
-from alaro_analysis.data.rwp_profiler import MIN_RETRIEVAL_COVERAGE, day_of, day_task
+from alaro_analysis.data.rwp_profiler import (
+    MIN_RETRIEVAL_COVERAGE,
+    SAMPLE_SECONDS,
+    day_of,
+    day_task,
+)
 
 RWP_ROOT = runs_path("Obs/ARM_RWP/rwpcls")
 DEFAULT_WORK_DIR = CACHE_DIRS["convection"] / "rwp"
@@ -80,6 +85,11 @@ def aggregate(rows: list[dict]) -> dict[str, np.ndarray]:
     n_up = np.concatenate([r["n_up"][m] for r, m in keep]).sum(axis=0)
     n_down = np.concatenate([r["n_down"][m] for r, m in keep]).sum(axis=0)
     n_conv = np.concatenate([r["n_conv"][m] for r, m in keep]).sum(axis=0)
+    rho = np.concatenate([r["rho"][m] for r, m in keep])
+    # Share of the window's profiles that are convective somewhere in the column, the
+    # counterpart of the model's share of convective columns in a box.
+    column_frac = np.concatenate([r["minutes"][m] / (r["n_samples"][m] * SAMPLE_SECONDS / 60.0)
+                                  for r, m in keep])
     # Weighted-mean velocity: every retrieved sample counts once, as in section 4.1.
     v_up = np.divide(sum_up, n_up, out=np.full_like(sum_up, np.nan), where=n_up > 0)
     v_down = np.divide(sum_down, n_down, out=np.full_like(sum_down, np.nan), where=n_down > 0)
@@ -99,6 +109,8 @@ def aggregate(rows: list[dict]) -> dict[str, np.ndarray]:
         "n_down": n_down,
         "n_conv": n_conv,
         "coverage": coverage,
+        "rho": np.nanmean(rho, axis=0),
+        "convective_column_fraction": np.array([np.mean(column_frac)]),
         "n_windows": np.array([sigma_up.shape[0]]),
         "n_days": np.array([len({r["day"] for r, _ in keep})]),
     }
@@ -135,7 +147,9 @@ def main(argv: list[str] | None = None) -> int:
                   f"convection, {int(result['n_windows'][0])} windows; "
                   f"peak upward flux {result['flux_up'][peak]:.3f} kg m-2 s-1 at "
                   f"{result['height_km'][peak]:.1f} km; max convective area fraction "
-                  f"{np.nanmax(result['sigma_total']):.3f}; {len(failed)} files failed",
+                  f"{np.nanmax(result['sigma_total']):.3f}; convective columns "
+                  f"{result['convective_column_fraction'][0]:.3f} of the window; "
+                  f"{len(failed)} files failed",
                   flush=True)
             print(f"[saved] {out}", flush=True)
     return 0
