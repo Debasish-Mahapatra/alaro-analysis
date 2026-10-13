@@ -91,8 +91,15 @@ def read_volume(path: Path) -> dict[str, np.ndarray] | None:
     return out
 
 
-def classify(volume: dict[str, np.ndarray], temperature_km, temperature_c) -> np.ndarray:
-    """CSU fuzzy-logic class per gate; 0 where the gate is rejected."""
+def classify(volume: dict[str, np.ndarray], temperature_km, temperature_c,
+             zdr_offset: float = 0.0) -> np.ndarray:
+    """CSU fuzzy-logic class per gate; 0 where the gate is rejected.
+
+    ``zdr_offset`` is the radar's own differential bias, measured from the
+    vertical-pointing scans where rain must have ZDR = 0 dB, and subtracted here.
+    It matters: graupel has low intrinsic ZDR, so a positive bias pushes graupel
+    gates into the higher-ZDR aggregate class.
+    """
     from csu_radartools import csu_fhc
 
     good = (
@@ -107,7 +114,8 @@ def classify(volume: dict[str, np.ndarray], temperature_km, temperature_c) -> np
         return classes
     temperature = np.interp(volume["height_km"][good], temperature_km, temperature_c)
     scores = csu_fhc.csu_fhc_summer(
-        dz=volume["Z"][good], zdr=volume["ZDR"][good], kdp=volume["KDP"][good],
+        dz=volume["Z"][good], zdr=volume["ZDR"][good] - zdr_offset,
+        kdp=volume["KDP"][good],
         rho=volume["RHOHV"][good], T=temperature, band="X",
     )
     classes[good] = np.asarray(scores, dtype=np.int8)
@@ -126,14 +134,14 @@ def histogram(classes: np.ndarray, height_km: np.ndarray) -> np.ndarray:
     return out
 
 
-def process_volume(task: tuple[str, np.ndarray, np.ndarray]) -> tuple[np.ndarray, int, str]:
-    """Class histogram of one volume; task = (path, sonde heights km, sonde temps C)."""
-    path, temperature_km, temperature_c = task
+def process_volume(task) -> tuple[np.ndarray, int, str]:
+    """Class histogram of one volume; task = (path, sonde km, sonde degC, ZDR offset)."""
+    path, temperature_km, temperature_c, zdr_offset = task
     try:
         volume = read_volume(Path(path))
         if volume is None:
             return np.zeros((HEIGHT_EDGES_KM.size - 1, len(CLASS_NAMES)), np.int64), 0, "empty"
-        classes = classify(volume, temperature_km, temperature_c)
+        classes = classify(volume, temperature_km, temperature_c, zdr_offset)
         return histogram(classes, volume["height_km"]), int((classes > 0).sum()), ""
     except Exception as exc:  # noqa: BLE001 - one bad volume must not stop the pass
         return (np.zeros((HEIGHT_EDGES_KM.size - 1, len(CLASS_NAMES)), np.int64), 0,

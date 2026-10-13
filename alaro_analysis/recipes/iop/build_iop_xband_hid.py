@@ -75,7 +75,7 @@ def volume_time(path: Path) -> datetime:
     return datetime.strptime(token, "%Y%m%d%H%M%S")
 
 
-def build(iop: int, work: Path, workers: int) -> None:
+def build(iop: int, work: Path, workers: int, zdr_offset: float) -> None:
     start, end = GOAMAZON_IOPS[iop]
     days = [d for d in sorted(p.name for p in RADAR.iterdir() if p.is_dir())
             if start.isoformat() <= d <= end.isoformat()]
@@ -90,7 +90,7 @@ def build(iop: int, work: Path, workers: int) -> None:
     tasks = []
     for path in volumes:
         _, alt, temp = nearest_profile(profiles, volume_time(path))
-        tasks.append((str(path), alt, temp))
+        tasks.append((str(path), alt, temp, zdr_offset))
     print(f"[IOP{iop}] {len(days)} days, {len(volumes)} volumes, {len(profiles)} sondes, "
           f"{workers} workers", flush=True)
 
@@ -109,7 +109,8 @@ def build(iop: int, work: Path, workers: int) -> None:
                 print(f"  {i}/{len(tasks)} volumes, {gates:,} classified gates", flush=True)
 
     work.mkdir(parents=True, exist_ok=True)
-    out = work / f"xband_hid_iop{iop}.npz"
+    tag = "" if zdr_offset == 0.0 else "_zdrcal"
+    out = work / f"xband_hid_iop{iop}{tag}.npz"
     save_npz(
         out, counts=counts, height_edges_km=HEIGHT_EDGES_KM,
         classes=np.array([CLASS_NAMES[i] for i in sorted(CLASS_NAMES)]),
@@ -130,6 +131,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--work-dir", type=Path, default=CACHE_DIRS["microphysics"] / "xband")
     p.add_argument("--iops", nargs="+", type=int, default=[1])
     p.add_argument("--workers", type=int, default=32)
+    p.add_argument("--zdr-offset", type=float, default=0.0,
+                   help="system ZDR bias in dB, subtracted before classifying "
+                        "(+0.50 dB measured from the birdbath scans over IOP1)")
     return parse_configured_args(p, "build_iop_xband_hid", argv=argv)
 
 
@@ -138,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     workers = resolve_workers(args.workers)
     for iop in args.iops:
-        build(iop, args.work_dir, workers)
+        build(iop, args.work_dir, workers, args.zdr_offset)
     return 0
 
 
