@@ -18,7 +18,8 @@ dependencies = [
 [project.optional-dependencies]
 fa = ["faxarray"]
 tracking = ["pandas", "tobac"]
-full = ["faxarray", "cmaps", "cartopy", "scipy", "metpy", "pandas", "tobac"]
+verification = ["nwpeval>=1.6.3", "scipy"]
+full = ["faxarray", "cmaps", "cartopy", "scipy", "metpy", "pandas", "tobac", "nwpeval>=1.6.3"]
 dev = ["pytest", "ruff"]
 
 [project.scripts]

@@ -721,36 +721,62 @@ def plot_combined_profiles(args: argparse.Namespace) -> list[Path]:
     matched ALARO experiments for temperature, dewpoint, and relative humidity
     on a shared height axis."""
     data = _load_profile_data(args)
+    panel_names = _resolve_panel_names(getattr(args, "variables", None))
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    filename = getattr(args, "combined_filename", "radiosonde_profiles_panels")
+    output = output_dir / f"{filename}.png"
+    draw_combined_profiles(
+        data,
+        output,
+        panel_names=panel_names,
+        diff_vars=getattr(args, "diff_vars", None) or (),
+        max_height_m=args.max_height_m,
+        dpi=args.dpi,
+    )
+
+    outputs = [output]
+    if getattr(args, "write_txt", False):
+        txt_path = _write_combined_txt(output, panel_names, data, args.stat, data["model_source"])
+        print(f"Wrote {txt_path}")
+    return outputs
+
+
+def _draw_profile_row(
+    axes,
+    data: dict[str, object],
+    *,
+    panel_names: Sequence[str],
+    diff_vars: Sequence[str],
+    max_height_m: float,
+    letters: Sequence[str],
+    titles: bool = True,
+    xlabels: bool = True,
+):
+    """Draw one row of sonde/model profile panels of ``data`` onto ``axes``.
+
+    Returns the legend handles and, per panel, the finite model-minus-sonde values
+    below ``max_height_m`` (empty for absolute panels) so the caller can set the
+    symmetric x-limits of the difference panels.
+    """
     experiments = data["experiments"]
     obs_data = data["obs_data"]
     model_data = data["model_data"]
     y_km = data["y_km"]
-    model_source = data["model_source"]
-    obs_freezing_km = data["obs_freezing_km"]
-    model_freezing_km = data["model_freezing_km"]
-
-    panel_names = _resolve_panel_names(getattr(args, "variables", None))
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    npan = len(panel_names)
-    fig, axes = plt.subplots(1, npan, figsize=(4.7 * npan, 6.7), sharey=True)
-    if npan == 1:
-        axes = [axes]
-
-    diff_vars = set(getattr(args, "diff_vars", None) or [])
-    height_mask = y_km <= (args.max_height_m / 1000.0)
+    diff_vars = set(diff_vars)
+    height_mask = y_km <= (max_height_m / 1000.0)
 
     legend_handles: tuple[list, list] | None = None
+    panel_spans: list[np.ndarray] = []
     for i, (ax, panel_name) in enumerate(zip(axes, panel_names)):
         spec = PANEL_VARS[panel_name]
         obs_center, _ = obs_data[panel_name]
         is_diff = panel_name in diff_vars
+        spans: list[np.ndarray] = []
 
         if is_diff:
             # Model minus ARM sonde, so the sub-degree variation is visible.
             ax.axvline(0.0, color="black", lw=1.8, ls="-", label="ARM sonde", zorder=4)
-            spans: list[np.ndarray] = []
             for exp in experiments:
                 diff = model_data[exp][panel_name][0] - obs_center
                 ax.plot(
@@ -780,6 +806,8 @@ def plot_combined_profiles(args: argparse.Namespace) -> list[Path]:
                 )
             title = COMBINED_PANEL_TITLES.get(panel_name, spec["title"])
             xlabel = COMBINED_PANEL_XLABELS.get(panel_name, spec["label"])
+            if spec["xlim"] is not None:
+                ax.set_xlim(*spec["xlim"])
 
         # Capture the data-curve handles before adding the 0 degC reference lines.
         if legend_handles is None:
@@ -789,7 +817,7 @@ def plot_combined_profiles(args: argparse.Namespace) -> list[Path]:
         mark = panel_name == "tdry" and not is_diff
         _draw_freezing_level(
             ax,
-            obs_freezing_km,
+            data["obs_freezing_km"],
             color="black",
             label="_nolegend_",
             marker="o",
@@ -798,38 +826,43 @@ def plot_combined_profiles(args: argparse.Namespace) -> list[Path]:
         for exp in experiments:
             _draw_freezing_level(
                 ax,
-                model_freezing_km[exp],
+                data["model_freezing_km"][exp],
                 color=EXPERIMENT_COLORS.get(exp, "0.5"),
                 label="_nolegend_",
                 marker="s",
                 mark_at_zero_c=mark,
             )
 
-        ax.set_title(title, fontsize=13)
-        ax.set_xlabel(xlabel, fontsize=12)
+        if titles:
+            ax.set_title(title, fontsize=13)
+        if xlabels:
+            ax.set_xlabel(xlabel, fontsize=12)
         ax.grid(True, color="0.88", linewidth=0.8)
-        if is_diff:
-            finite = np.concatenate(spans)
-            finite = finite[np.isfinite(finite)]
-            if finite.size and float(np.max(np.abs(finite))) > 0.0:
-                lim = float(np.max(np.abs(finite))) * 1.15
-                ax.set_xlim(-lim, lim)
-        elif spec["xlim"] is not None:
-            ax.set_xlim(*spec["xlim"])
         ax.text(
             0.0,
             1.015,
-            PANEL_LETTERS[i],
+            letters[i],
             transform=ax.transAxes,
             ha="left",
             va="bottom",
             fontsize=14,
             fontweight="bold",
         )
+        finite = np.concatenate(spans) if spans else np.array([])
+        panel_spans.append(finite[np.isfinite(finite)])
+    return legend_handles, panel_spans
 
-    axes[0].set_ylabel("Height above mean sea level (km)", fontsize=12)
-    axes[0].set_ylim(0.0, args.max_height_m / 1000.0)
 
+def _symmetric_limit(values: Sequence[np.ndarray]) -> float | None:
+    """1.15 x the largest finite magnitude in ``values``, or None if there is none."""
+    finite = np.concatenate([np.ravel(v) for v in values]) if values else np.array([])
+    finite = finite[np.isfinite(finite)]
+    if not finite.size or float(np.max(np.abs(finite))) <= 0.0:
+        return None
+    return float(np.max(np.abs(finite))) * 1.15
+
+
+def _profile_legend(fig, legend_handles, *, y: float) -> None:
     handles, labels = legend_handles
     handles = list(handles) + [Line2D([0], [0], color="0.4", lw=1.1, ls=":")]
     labels = list(labels) + ["0 °C height"]
@@ -840,17 +873,160 @@ def plot_combined_profiles(args: argparse.Namespace) -> list[Path]:
         ncol=len(labels),
         frameon=False,
         fontsize=11,
-        bbox_to_anchor=(0.5, 0.01),
+        bbox_to_anchor=(0.5, y),
     )
+
+
+def draw_combined_profiles(
+    data: dict[str, object],
+    output: Path,
+    *,
+    panel_names: Sequence[str],
+    diff_vars: Sequence[str],
+    max_height_m: float,
+    dpi: int,
+) -> Path:
+    """Draw the sonde and model profiles of ``data`` side by side on a shared height axis.
+
+    ``data`` carries the keys returned by ``_load_profile_data``; the panels named
+    in ``diff_vars`` show model minus sonde.
+    """
+    npan = len(panel_names)
+    fig, axes = plt.subplots(1, npan, figsize=(4.7 * npan, 6.7), sharey=True)
+    if npan == 1:
+        axes = [axes]
+
+    legend_handles, spans = _draw_profile_row(
+        axes,
+        data,
+        panel_names=panel_names,
+        diff_vars=diff_vars,
+        max_height_m=max_height_m,
+        letters=PANEL_LETTERS,
+    )
+    for ax, panel_name, panel_spans in zip(axes, panel_names, spans):
+        if panel_name in set(diff_vars):
+            lim = _symmetric_limit([panel_spans])
+            if lim is not None:
+                ax.set_xlim(-lim, lim)
+
+    axes[0].set_ylabel("Height above mean sea level (km)", fontsize=12)
+    axes[0].set_ylim(0.0, max_height_m / 1000.0)
+    _profile_legend(fig, legend_handles, y=0.01)
     fig.subplots_adjust(left=0.065, right=0.985, top=0.92, bottom=0.135, wspace=0.10)
-
-    filename = getattr(args, "combined_filename", "radiosonde_profiles_panels")
-    output = output_dir / f"{filename}.png"
-    fig.savefig(output, dpi=args.dpi)
+    fig.savefig(output, dpi=dpi)
     plt.close(fig)
+    return output
 
-    outputs = [output]
-    if getattr(args, "write_txt", False):
-        txt_path = _write_combined_txt(output, panel_names, data, args.stat, model_source)
-        print(f"Wrote {txt_path}")
-    return outputs
+
+def draw_profile_rows(
+    rows: dict[str, dict[str, object]],
+    output: Path,
+    *,
+    panel_names: Sequence[str],
+    diff_vars: Sequence[str],
+    max_height_m: float,
+    dpi: int,
+) -> Path:
+    """One row of profile panels per entry of ``rows`` (row label -> data), stacked.
+
+    Every column shares its x-limits across the rows, so the rows compare directly.
+    """
+    nrow, ncol = len(rows), len(panel_names)
+    fig, axes = plt.subplots(
+        nrow, ncol, figsize=(4.7 * ncol, 6.2 * nrow), sharey=True, squeeze=False
+    )
+    letters = iter(PANEL_LETTERS)
+    legend_handles = None
+    column_spans: list[list[np.ndarray]] = [[] for _ in panel_names]
+    for r, (row_label, data) in enumerate(rows.items()):
+        handles, spans = _draw_profile_row(
+            axes[r],
+            data,
+            panel_names=panel_names,
+            diff_vars=diff_vars,
+            max_height_m=max_height_m,
+            letters=[next(letters) for _ in panel_names],
+            titles=r == 0,
+            xlabels=r == nrow - 1,
+        )
+        legend_handles = legend_handles or handles
+        for c, values in enumerate(spans):
+            column_spans[c].append(values)
+        axes[r][0].set_ylabel(f"{row_label}\nHeight above mean sea level (km)", fontsize=12)
+    for c, panel_name in enumerate(panel_names):
+        if panel_name in set(diff_vars):
+            lim = _symmetric_limit(column_spans[c])
+            if lim is not None:
+                for r in range(nrow):
+                    axes[r][c].set_xlim(-lim, lim)
+    axes[0][0].set_ylim(0.0, max_height_m / 1000.0)
+    _profile_legend(fig, legend_handles, y=0.005)
+    fig.subplots_adjust(
+        left=0.075, right=0.985, top=0.955, bottom=0.075, wspace=0.10, hspace=0.12
+    )
+    fig.savefig(output, dpi=dpi)
+    plt.close(fig)
+    return output
+
+
+def draw_delta_profiles(
+    delta: dict[str, object],
+    output: Path,
+    *,
+    panel_names: Sequence[str],
+    max_height_m: float,
+    dpi: int,
+) -> Path:
+    """Day-minus-night change of each model's bias, one panel per variable.
+
+    ``delta`` holds ``y_km``, ``experiments``, ``models[exp][panel]`` (the change per
+    height), ``band[panel]`` (low, high) for the shaded interval, ``band_label`` and
+    ``freezing_km`` (a reference 0 degC height).
+    """
+    y_km = delta["y_km"]
+    npan = len(panel_names)
+    fig, axes = plt.subplots(1, npan, figsize=(4.7 * npan, 6.7), sharey=True)
+    if npan == 1:
+        axes = [axes]
+    height_mask = y_km <= (max_height_m / 1000.0)
+    for i, (ax, panel) in enumerate(zip(axes, panel_names)):
+        low, high = delta["band"][panel]
+        ax.fill_betweenx(y_km, low, high, color="0.8", lw=0, label=delta["band_label"], zorder=1)
+        ax.axvline(0.0, color="black", lw=1.4, zorder=2)
+        spans = [low[height_mask], high[height_mask]]
+        for exp in delta["experiments"]:
+            values = delta["models"][exp][panel]
+            ax.plot(
+                values,
+                y_km,
+                color=EXPERIMENT_COLORS.get(exp, "0.5"),
+                lw=2.0,
+                label=EXPERIMENT_LABELS.get(exp, exp),
+                zorder=3,
+            )
+            spans.append(values[height_mask])
+        if np.isfinite(delta["freezing_km"]):
+            ax.axhline(delta["freezing_km"], color="0.4", lw=1.1, ls=":", zorder=2)
+        lim = _symmetric_limit(spans)
+        if lim is not None:
+            ax.set_xlim(-lim, lim)
+        spec = PANEL_VARS[panel]
+        base = COMBINED_DIFF_TITLES.get(panel, spec["title"])
+        ax.set_title(f"Day − night of {base}", fontsize=13)
+        unit = COMBINED_DIFF_XLABELS.get(panel, spec["label"]).split("(")[-1].rstrip(")")
+        ax.set_xlabel(f"Day − night of model − ARM sonde ({unit})", fontsize=12)
+        ax.grid(True, color="0.88", linewidth=0.8)
+        ax.text(0.0, 1.015, PANEL_LETTERS[i], transform=ax.transAxes, ha="left", va="bottom",
+                fontsize=14, fontweight="bold")
+    axes[0].set_ylabel("Height above mean sea level (km)", fontsize=12)
+    axes[0].set_ylim(0.0, max_height_m / 1000.0)
+    handles, labels = axes[0].get_legend_handles_labels()
+    handles.append(Line2D([0], [0], color="0.4", lw=1.1, ls=":"))
+    labels.append("0 °C height (ARM sonde)")
+    fig.legend(handles, labels, loc="lower center", ncol=len(labels), frameon=False,
+               fontsize=11, bbox_to_anchor=(0.5, 0.01))
+    fig.subplots_adjust(left=0.065, right=0.985, top=0.92, bottom=0.135, wspace=0.10)
+    fig.savefig(output, dpi=dpi)
+    plt.close(fig)
+    return output

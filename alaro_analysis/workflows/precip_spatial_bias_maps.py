@@ -17,7 +17,7 @@ import xarray as xr
 
 from alaro_analysis.common.cli_config import parse_configured_args
 from alaro_analysis.common.constants import RUNS_ROOT
-from alaro_analysis.common.figio import DatasetConfig, add_io_args
+from alaro_analysis.common.figio import DatasetConfig, add_io_args, strip_cbar_zeros
 
 DEFAULT_DATA_DIR = RUNS_ROOT / "rainfall-conservative-rebuild" / "common-valid-time-production"
 DEFAULT_OUTPUT_DIR = RUNS_ROOT / "figures" / "rainfall_spatial_bias_maps"
@@ -436,6 +436,7 @@ def plot_bias_maps(
     if image is None:
         raise ValueError("No bias maps were supplied for plotting")
     cbar = fig.colorbar(image, cax=cbar_ax)
+    strip_cbar_zeros(cbar)
     cbar.set_label("Relative Bias (%)", fontsize=14)
     fig.savefig(output_path, dpi=dpi, facecolor="white", bbox_inches="tight")
     plt.close(fig)
@@ -585,6 +586,7 @@ def plot_spatial_mean_maps(
     if image is None:
         raise ValueError("No spatial rainfall fields were supplied for plotting")
     cbar = fig.colorbar(image, cax=cbar_ax)
+    strip_cbar_zeros(cbar)
     cbar.set_label(r"Mean Rainfall (mm h$^{-1}$)", fontsize=14)
     fig.savefig(output_path, dpi=dpi, facecolor="white")
     plt.close(fig)
