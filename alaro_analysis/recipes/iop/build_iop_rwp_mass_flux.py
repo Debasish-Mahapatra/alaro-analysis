@@ -14,7 +14,11 @@ Periods: ``full`` is every day on disk, for comparison with the paper's own figu
 ``combined``, and ``wet2015``, the IOP1 calendar window a year later, when the
 profiler ran for the whole wet season.
 
-Writes ``<cache>/rwp/rwp_mass_flux_<period>_<window>h.npz``.
+``--echo-dbz`` keeps only the samples whose reflectivity reaches the threshold (the profiler
+sees rain and precipitating ice down to about 0 dBZ; 25 dBZ keeps moderate-to-strong
+convection), so the profiler is sampled at the model's echo threshold.
+
+Writes ``<cache>/rwp/rwp_mass_flux_<period>_<window>h[_<N>dbz].npz``.
 """
 
 from __future__ import annotations
@@ -55,8 +59,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--work-dir", type=Path, default=DEFAULT_WORK_DIR)
     p.add_argument("--periods", nargs="+", default=tuple(PERIODS), choices=tuple(PERIODS))
     p.add_argument("--window-hours", type=int, nargs="+", default=(1, 3))
+    p.add_argument("--echo-dbz", nargs="+", default=["none"],
+                   help="Reflectivity thresholds (dBZ); 'none' keeps every convective sample.")
     p.add_argument("--workers", type=int, default=None)
     return parse_configured_args(p, "build_iop_rwp_mass_flux", argv=argv)
+
+
+def mass_flux_file(work_dir: Path, period: str, window_hours: int, echo_dbz: float | None = None) -> Path:
+    suffix = "" if echo_dbz is None else f"_{echo_dbz:g}dbz"
+    return work_dir / f"rwp_mass_flux_{period}_{window_hours}h{suffix}.npz"
 
 
 def period_files(root: Path, period: str) -> list[Path]:
@@ -133,33 +144,35 @@ def main(argv: list[str] | None = None) -> int:
     workers = resolve_workers(args.workers)
     args.work_dir.mkdir(parents=True, exist_ok=True)
     ctx = mp.get_context("spawn")  # netCDF/HDF5 does not survive fork on this machine
-    for window in args.window_hours:
-        for period in args.periods:
-            files = period_files(args.rwp_root, period)
-            if not files:
-                print(f"[{period} {window}h] no files", flush=True)
-                continue
-            rows, failed = [], []
-            with ctx.Pool(workers) as pool:
-                for row in pool.imap_unordered(day_task, [(str(f), window) for f in files], 4):
-                    (failed if row is None or "error" in row else rows).append(row)
-            if not rows:
-                print(f"[{period} {window}h] nothing readable", flush=True)
-                continue
-            rows.sort(key=lambda r: r["day"])
-            result = aggregate(rows)
-            out = args.work_dir / f"rwp_mass_flux_{period}_{window}h.npz"
-            save_npz(out, **result)
-            peak = int(np.nanargmax(result["flux_up"]))
-            print(f"[{period} {window}h] {len(files)} days, {int(result['n_days'][0])} with "
-                  f"convection, {int(result['n_windows'][0])} windows; "
-                  f"peak upward flux {result['flux_up'][peak]:.3f} kg m-2 s-1 at "
-                  f"{result['height_km'][peak]:.1f} km; max convective area fraction "
-                  f"{np.nanmax(result['sigma_total']):.3f}; convective columns "
-                  f"{result['convective_column_fraction'][0]:.3f} of the window; "
-                  f"{len(failed)} files failed",
-                  flush=True)
-            print(f"[saved] {out}", flush=True)
+    thresholds = [None if str(v).lower() == "none" else float(v) for v in args.echo_dbz]
+    for echo_dbz, window, period in ((e, w, p) for e in thresholds for w in args.window_hours
+                                     for p in args.periods):
+        tag = f"[{period} {window}h echo {'any' if echo_dbz is None else f'>= {echo_dbz:g} dBZ'}]"
+        files = period_files(args.rwp_root, period)
+        if not files:
+            print(f"{tag} no files", flush=True)
+            continue
+        rows, failed = [], []
+        with ctx.Pool(workers) as pool:
+            for row in pool.imap_unordered(day_task, [(str(f), window, echo_dbz) for f in files], 4):
+                (failed if row is None or "error" in row else rows).append(row)
+        if not rows:
+            print(f"{tag} nothing readable", flush=True)
+            continue
+        rows.sort(key=lambda r: r["day"])
+        result = aggregate(rows)
+        out = mass_flux_file(args.work_dir, period, window, echo_dbz)
+        save_npz(out, **result)
+        peak = int(np.nanargmax(result["flux_up"]))
+        print(f"{tag} {len(files)} days, {int(result['n_days'][0])} with "
+              f"convection, {int(result['n_windows'][0])} windows; "
+              f"peak upward flux {result['flux_up'][peak]:.3f} kg m-2 s-1 at "
+              f"{result['height_km'][peak]:.1f} km; max convective area fraction "
+              f"{np.nanmax(result['sigma_total']):.3f}; convective columns "
+              f"{result['convective_column_fraction'][0]:.3f} of the window; "
+              f"{len(failed)} files failed",
+              flush=True)
+        print(f"[saved] {out}", flush=True)
     return 0
 
 

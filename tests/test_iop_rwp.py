@@ -12,6 +12,7 @@ from alaro_analysis.data.rwp_profiler import (
     flux_weighted_updraft,
     gate_histogram,
     histogram_quantiles,
+    window_profiles,
 )
 
 
@@ -26,6 +27,17 @@ def test_averaging_windows_skip_samples_without_echo():
     assert np.allclose(means[:, 0], [2.0, 4.0, 4.0])
     means, kept = block_means(w, valid, 3)
     assert kept[:, 0].tolist() == [True, False] and means[0, 0] == 3.0
+
+
+def test_profiler_echo_threshold_drops_weak_samples_but_not_windows():
+    n = 600  # one hour of 6 s profiles, one gate
+    day = {"convective": np.ones((n, 1), bool), "w": np.full((n, 1), 2.0), "rho": np.ones((n, 1)),
+           "dbz": np.where(np.arange(n)[:, None] < 300, 20.0, 2.0), "n_times": n}
+    every = window_profiles(day, 1)
+    echo = window_profiles(day, 1, echo_dbz=5.0)
+    assert np.isclose(every["flux_up"][0, 0], 2.0) and np.isclose(echo["flux_up"][0, 0], 1.0)
+    assert echo["n_conv"][0, 0] == 300 and echo["coverage"][0, 0] == 1.0
+    assert echo["present"][0] and every["present"][0]
 
 
 def test_histograms_put_outliers_in_the_end_bins():

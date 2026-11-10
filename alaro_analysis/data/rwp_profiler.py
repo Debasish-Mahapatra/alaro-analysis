@@ -110,17 +110,21 @@ def read_day(path: Path) -> dict[str, np.ndarray]:
         "stratiform": np.isin(classification, STRATIFORM_CLASSES),
         "profile_ok": np.isfinite(classification).any(axis=1),
         "w": w,
+        "dbz": fields["ReflectivityUAZR"],
         "rho": air_density(fields["Temperature"], fields["BarometricPressure"], fields["RH"]),
         "n_times": classification.shape[0],
     }
 
 
-def window_profiles(day: dict[str, np.ndarray], window_hours: int) -> dict[str, np.ndarray]:
+def window_profiles(day: dict[str, np.ndarray], window_hours: int,
+                    echo_dbz: float | None = None) -> dict[str, np.ndarray]:
     """Per window: area fractions, mean velocities, mass flux and the sums behind them.
 
     One row per window of the day. ``sigma_u`` is the share of all the window's samples
     that are convective and rising at that height, so the denominator is the whole
     domain, as in eq. (1); ``v_u`` is the mean velocity over the rising samples alone.
+    With ``echo_dbz``, a sample counts only where the reflectivity reaches it (the model is
+    sampled at its own echo threshold); which windows count does not depend on it.
     Windows without five minutes of convective echo are marked ``present = False`` and
     left for the caller to drop.
     """
@@ -134,8 +138,11 @@ def window_profiles(day: dict[str, np.ndarray], window_hours: int) -> dict[str, 
     conv = conv.reshape(shape)
     w = w.reshape(shape)
     rho = rho.reshape(shape)
+    echo = conv
+    if echo_dbz is not None:
+        echo = conv & (np.nan_to_num(day["dbz"][: n_windows * per_window], nan=-99.0).reshape(shape) >= echo_dbz)
 
-    valid = conv & np.isfinite(w)
+    valid = echo & np.isfinite(w)
     up = valid & (w > 0)
     down = valid & (w < 0)
     with warnings.catch_warnings():
@@ -159,8 +166,8 @@ def window_profiles(day: dict[str, np.ndarray], window_hours: int) -> dict[str, 
         # anywhere in the column.
         column = conv.any(axis=2)
         minutes = column.sum(axis=1) * SAMPLE_SECONDS / 60.0
-        # Retrieval coverage per height: the share of convective samples that have w.
-        n_conv = conv.sum(axis=1).astype(float)
+        # Retrieval coverage per height: the share of convective echo samples that have w.
+        n_conv = echo.sum(axis=1).astype(float)
         coverage = np.divide(n_up + n_down, n_conv, out=np.zeros_like(n_conv), where=n_conv > 0)
     return {
         "sigma_up": sigma_u,
@@ -183,13 +190,13 @@ def window_profiles(day: dict[str, np.ndarray], window_hours: int) -> dict[str, 
 
 
 def day_task(task) -> dict | None:
-    """Worker: ``(path, window_hours)`` -> the day's window rows, or None if unreadable."""
-    path, window_hours = task
+    """Worker: ``(path, window_hours, echo_dbz)`` -> the day's window rows, or None if unreadable."""
+    path, window_hours, echo_dbz = task
     try:
         day = read_day(Path(path))
     except Exception as exc:  # a few days are short or corrupt; skip them
         return {"path": str(path), "error": repr(exc)}
-    rows = window_profiles(day, window_hours)
+    rows = window_profiles(day, window_hours, echo_dbz)
     rows["height_km"] = day["height_km"]
     rows["day"] = str(day_of(Path(path)))
     rows["path"] = str(path)
@@ -222,7 +229,7 @@ def block_means(w: np.ndarray, valid: np.ndarray, n: int) -> tuple[np.ndarray, n
     return total / np.maximum(count, 1.0), count >= BLOCK_COVERAGE * n - 1e-9
 
 
-def velocity_statistics(day: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+def velocity_statistics(day: dict[str, np.ndarray], echo_dbz: float | None = None) -> dict[str, np.ndarray]:
     """Velocity distributions of one day, for the comparisons of the model's w.
 
     ``hist_conv`` (block, gate, bin): convective echo, w averaged over each of
@@ -231,10 +238,13 @@ def velocity_statistics(day: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     the retrieval error. ``lag_sq``/``lag_n``: squared differences of consecutive convective
     samples; for white noise on a signal that hardly changes in 6 s, sqrt(lag_sq / lag_n / 2)
     is the noise standard deviation. ``available`` (24,): share of each UTC hour's profiles
-    that carry data.
+    that carry data. With ``echo_dbz``, convective samples count only where the reflectivity
+    reaches it, as on the model side.
     """
     w = day["w"]
     conv = day["convective"] & np.isfinite(w)
+    if echo_dbz is not None:
+        conv = conv & (np.nan_to_num(day["dbz"], nan=-99.0) >= echo_dbz)
     strat = day["stratiform"] & np.isfinite(w)
     hist_conv = np.stack([
         gate_histogram(*block_means(w, conv, int(round(seconds / SAMPLE_SECONDS))))
@@ -252,11 +262,12 @@ def velocity_statistics(day: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     }
 
 
-def velocity_task(path) -> dict:
-    """Worker: one file -> its velocity statistics, or the error."""
+def velocity_task(task) -> dict:
+    """Worker: ``(path, echo_dbz)`` -> the file's velocity statistics, or the error."""
+    path, echo_dbz = task
     try:
         day = read_day(Path(path))
-        out = velocity_statistics(day)
+        out = velocity_statistics(day, echo_dbz)
     except Exception as exc:  # a few days are short or corrupt; skip them
         return {"path": str(path), "error": repr(exc)}
     out["height_km"] = day["height_km"]

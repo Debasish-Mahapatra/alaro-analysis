@@ -11,6 +11,9 @@ from the PI product behind Giangrande et al. (2016) (doi:10.5439/1440997):
   is a few tenths of m s-1, and the white-noise part from consecutive 6 s samples;
 * which UTC hours the profiler observed, so the model is sampled at the same hours.
 
+Convective samples count where the reflectivity reaches ``--echo-dbz``, by default the
+model's echo threshold (``data.rwp_model_sample.MODEL_ECHO_DBZ``).
+
 Writes ``<cache>/rwp/rwp_velocity_iop<n>.npz``.
 """
 
@@ -26,6 +29,7 @@ from alaro_analysis.common.cli_config import parse_configured_args
 from alaro_analysis.common.iop_settings import GOAMAZON_IOPS
 from alaro_analysis.common.parallel import resolve_workers
 from alaro_analysis.data.cache import save_npz
+from alaro_analysis.data.rwp_model_sample import MODEL_ECHO_DBZ
 from alaro_analysis.data.rwp_profiler import BLOCK_SECONDS, W_EDGES, velocity_task
 from alaro_analysis.recipes.iop.build_iop_rwp_mass_flux import (
     DEFAULT_WORK_DIR,
@@ -41,6 +45,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--rwp-root", type=Path, default=RWP_ROOT)
     p.add_argument("--work-dir", type=Path, default=DEFAULT_WORK_DIR)
     p.add_argument("--iops", nargs="+", type=int, default=list(GOAMAZON_IOPS))
+    p.add_argument("--echo-dbz", type=float, default=MODEL_ECHO_DBZ)
     p.add_argument("--workers", type=int, default=32)
     return parse_configured_args(p, "build_iop_rwp_velocity", argv=argv)
 
@@ -54,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
         files = period_files(args.rwp_root, f"iop{iop}")
         rows, failed = [], []
         with ctx.Pool(workers) as pool:
-            for row in pool.imap_unordered(velocity_task, [str(f) for f in files], 2):
+            for row in pool.imap_unordered(velocity_task, [(str(f), args.echo_dbz) for f in files], 2):
                 (failed if "error" in row else rows).append(row)
         rows.sort(key=lambda r: r["day"])
         out = {key: sum(r[key] for r in rows) for key in SUMMED}
@@ -64,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
             block_seconds=np.asarray(BLOCK_SECONDS, dtype=float),
             days=np.array([r["day"] for r in rows]),
             available=np.stack([r["available"] for r in rows]),
+            echo_dbz=np.array(args.echo_dbz),
         )
         path = args.work_dir / f"rwp_velocity_iop{iop}.npz"
         save_npz(path, **out)

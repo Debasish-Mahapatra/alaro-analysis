@@ -3,8 +3,8 @@
 
 Model side of both comparisons in the supervisor's note (``data.rwp_model_sample``):
 mass flux of convective columns in 20 km boxes, each column split into 3MT updraft,
-downdraft and the rest, only at levels with model echo (>= 10 dBZ), for several
-definitions of a convective column, with the w histograms of the pieces (for the noise
+downdraft and the rest, only at levels with model echo (``MODEL_ECHO_DBZ``; 10 and 25 dBZ
+as checks), for several definitions of a convective column, with the w histograms of the pieces (for the noise
 test and the CFAD comparison) and of the resolved w (for the time-averaged profiler).
 
 Snapshots are taken only where the profiler observed the hour that ends at them

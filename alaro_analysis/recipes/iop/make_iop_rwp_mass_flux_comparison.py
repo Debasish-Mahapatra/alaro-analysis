@@ -9,8 +9,13 @@ minutes of convective echo. At the 5 m s-1 cell propagation speed of Amazon conv
 The model side comes from ``build_iop_rwp_model_sample``: the same quantity over the
 boxes of the 4 km radar domain that hold a convective column, each column split into 3MT
 updraft, downdraft and environment before any averaging, divided by the full box, at the
-hours the profiler observed and only at levels with model echo (>= 10 dBZ), since the
-profiler sees nothing outside echo. The two scales of the supervisor's note:
+hours the profiler observed and only at levels with echo, since the profiler sees nothing
+outside echo (rain and precipitating ice, not cloud droplets). Both sides use the same
+threshold, ``MODEL_ECHO_DBZ`` (5 dBZ): the profiler retrieves w down to about 0 dBZ, but the
+model's spectral reflectivity rings by a few dBZ around 0 in clear air. At 0 dBZ the
+profiler flux would be 1-10 % larger upward and 1-14 % downward (combined IOPs, 2-12 km).
+``ECHO_SETS`` adds 10 dBZ (the former choice) and
+25 dBZ (moderate-to-strong convection only) as checks. The two scales of the supervisor's note:
 
 * ``20km`` (IOP figure): 20 km boxes, one snapshot, against the 1 h windows;
 * ``60km`` (supplementary): 60 km boxes over three consecutive hourly snapshots, against
@@ -60,11 +65,12 @@ from alaro_analysis.common.iop_settings import (
     figure_files,
     write_figure_index,
 )
-from alaro_analysis.data.rwp_model_sample import VARIANTS, noisy_fluxes
+from alaro_analysis.data.rwp_model_sample import MODEL_ECHO_DBZ, VARIANTS, noisy_fluxes
 from alaro_analysis.data.rwp_profiler import histogram_quantiles
 from alaro_analysis.recipes.iop.build_iop_closure_budgets import DISPLAY, LABELS
 from alaro_analysis.recipes.iop.build_iop_rwp_mass_flux import (
     DEFAULT_WORK_DIR as RWP_WORK_DIR,
+    mass_flux_file,
 )
 from alaro_analysis.recipes.iop.build_iop_rwp_model_sample import WORK_DIRS as MODEL_WORK_DIRS
 from alaro_analysis.recipes.iop.make_iop_closure_budget_figures import EXPERIMENTS
@@ -83,6 +89,10 @@ PERIOD_LABELS = {"combined": "Combined IOPs", "iop1": "IOP1", "iop2": "IOP2"}
 # in IOP2); rain >= 1 mm in the hour, the first definition, takes in stratiform rain too
 # (0.34-0.47). The rain thresholds are in the text file.
 VARIANT = "steiner"
+# figure tag -> (echo threshold in dBZ on both sides, model variant); "" is the main figure,
+# the others are written with the tag after the period.
+ECHO_SETS = {"": (MODEL_ECHO_DBZ, VARIANT), "10dbz": (10.0, "steiner_10dbz"),
+             "25dbz": (25.0, "steiner_25dbz")}
 SUPERVISOR_NOISE = 1.5  # m s-1, the error quoted in the note
 TEXT_HEIGHTS = (1.0, 2.0, 3.0, 6.0, 8.0, 10.0)
 Z_MAX_KM = 16.0
@@ -104,11 +114,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--dpi", type=int, default=DEFAULT_DPI)
     p.add_argument("--scales", nargs="+", default=list(SCALES), choices=list(SCALES))
     p.add_argument("--periods", nargs="+", default=list(IOP_PERIODS), choices=list(IOP_PERIODS))
+    p.add_argument("--echo-sets", nargs="+", default=list(ECHO_SETS), choices=list(ECHO_SETS))
     return parse_configured_args(p, "make_iop_rwp_mass_flux_comparison", argv=argv)
 
 
-def load_observed(rwp_dir: Path, period: str, window_hours: int) -> dict[str, np.ndarray]:
-    with np.load(rwp_dir / f"rwp_mass_flux_{period}_{window_hours}h.npz") as cache:
+def load_observed(rwp_dir: Path, period: str, window_hours: int, echo_dbz: float) -> dict[str, np.ndarray]:
+    with np.load(mass_flux_file(rwp_dir, period, window_hours, echo_dbz)) as cache:
         return {key: np.asarray(cache[key], float) for key in cache.files if key != "days"}
 
 
@@ -214,10 +225,11 @@ def observed_profiles(obs: dict) -> dict[str, np.ndarray]:
     return out
 
 
-def gather(args, scale: str, period: str) -> dict:
+def gather(args, scale: str, period: str, echo: str = "") -> dict:
     _, window_hours, box_km, _ = SCALES[scale]
     iops = IOP_PERIODS[period]
-    obs = load_observed(args.rwp_dir, period, window_hours)
+    echo_dbz, variant = ECHO_SETS[echo]
+    obs = load_observed(args.rwp_dir, period, window_hours, echo_dbz)
     noise = {iop: noise_profile(args.rwp_dir, iop) for iop in iops}
     runs = {}
     for experiment in EXPERIMENTS:
@@ -239,10 +251,12 @@ def gather(args, scale: str, period: str) -> dict:
             observed_days[iop] = (str(cache["days"][0]), str(cache["days"][-1]),
                                   int((np.asarray(cache["available"]) >= 0.5).sum()))
     return {"obs": obs, "observed": observed_profiles(obs), "runs": runs, "noise": noise,
-            "observed_days": observed_days, "iops": iops, "scale": scale, "period": period}
+            "observed_days": observed_days, "iops": iops, "scale": scale, "period": period,
+            "echo_dbz": echo_dbz, "variant": variant}
 
 
-def panel(ax, observed: dict, runs: dict, kind: str, title: str | None, xlabel: str) -> None:
+def panel(ax, observed: dict, runs: dict, kind: str, title: str | None, xlabel: str,
+          variant: str = VARIANT) -> None:
     ax.axvline(0.0, color="0.6", lw=0.8)
     z = observed["height_km"]
     band = observed["band"]
@@ -256,7 +270,7 @@ def panel(ax, observed: dict, runs: dict, kind: str, title: str | None, xlabel: 
         ax.plot(-observed["flux_down"], z, color=OBS_COLOR, lw=3.0, ls="--", zorder=5)
     level = "measured" if kind == "noisy" else "none"
     for experiment, run in runs.items():
-        prof = run["profiles"][(VARIANT, level)]
+        prof = run["profiles"][(variant, level)]
         colour = EXPERIMENT_COLORS[COLOR_KEY[experiment]]
         if kind == "net":
             ax.plot(prof["flux_net"], prof["height_km"], color=colour, lw=2.0)
@@ -284,29 +298,33 @@ def _at(height: np.ndarray, values: np.ndarray) -> list[float]:
 def write_text(data: dict, path: Path) -> None:
     stem, window_hours, box_km, description = SCALES[data["scale"]]
     obs = data["obs"]
-    title = f"{stem}_{data['period']}"
+    title = path.stem
     lines = [
         title, "=" * len(title),
         f"Convective mass flux at the {box_km} km scale, ARM radar wind profiler at T3 against the runs,",
         f"{PERIOD_LABELS[data['period']]}. Model: {description}.",
         "Profiler: PI product doi:10.5439/1440997, method of Giangrande et al. 2016 eq. (1),",
         f"Mc = rho (sigma_u v_u + sigma_d v_d) over {window_hours} h windows ({box_km} km at 5 m/s) with",
-        "5 min of convective echo; no retrieval in the melting layer (about 3.5-5 km); left out below",
+        f"5 min of convective echo, samples with reflectivity >= {data['echo_dbz']:g} dBZ (the model's",
+        "threshold); no retrieval in the melting layer (about 3.5-5 km); left out below",
         f"{OBS_MIN_KM:g} km, where the reflectivity-based fall-speed correction biases w low (receiver",
         "saturation in heavy rain; Wang et al. 2020, Gupta et al. 2024). Band: 2.5-97.5 % of the",
         f"profiler mean over {N_BOOT} resamplings of whole days.",
         "Model: boxes of the 4 km radar domain holding a convective column, each column split into 3MT",
         "updraft, downdraft and environment, divided by the full box, at the hours the profiler observed",
-        "(IOP1 from 5 March), levels with model echo >= 10 dBZ only."
+        f"(IOP1 from 5 March), levels with model echo >= {data['echo_dbz']:g} dBZ only (the model's"
+        " reflectivity is spectral and rings by a few dBZ around 0 in clear air, so 5 dBZ is its lowest"
+        " usable echo)."
         + (" A 60 km box-window counts when its convective columns, averaged over the three snapshots,"
            " cover at least 5/180 of it (the profiler's five minutes of convective echo in three hours);"
            " its flux is the mean over the three snapshots." if box_km == 60 else ""),
-        f"Figure: variant '{VARIANT}', the model as simulated (noise none); the model with the measured",
+        f"Figure: variant '{data['variant']}', the model as simulated (noise none); the model with the measured",
         "profiler error and the net flux are in this file only. The combined IOPs add up both IOPs'",
         "box sums, each IOP with its own profiler error.",
         "Variants: rain1_all = rain >= 1 mm/h and 3MT active, every level (the former definition);",
-        "rain1/rain5/rain10 = rain >= 1/5/10 mm/h, 3MT active, echo levels; steiner = Steiner-",
-        "convective at 3 km, 3MT active, echo levels. G2M-XCU has no 3MT: rain/Steiner only.",
+        f"rain1/rain5/rain10 = rain >= 1/5/10 mm/h, 3MT active, echo >= {MODEL_ECHO_DBZ:g} dBZ; steiner =",
+        f"Steiner-convective at 3 km, 3MT active, echo >= {MODEL_ECHO_DBZ:g} dBZ; steiner_10dbz/_25dbz the",
+        "same at 10/25 dBZ. G2M-XCU has no 3MT: rain/Steiner only.",
         "Noise: none, measured (profile below), supervisor (1.5 m/s at every level).",
         "Upward and downward quantities are positive; v = Mc / (rho sigma).",
         "",
@@ -355,7 +373,7 @@ def draw(data: dict, png: Path, dpi: int) -> None:
     fig, axes = plt.subplots(1, len(PANELS), figsize=(8.0 * len(PANELS), 9.0), sharey=True, squeeze=False)
     axes = axes[0]
     for ax, (kind, xlabel), letter in zip(axes, PANELS, "ab"):
-        panel(ax, data["observed"], data["runs"], kind, None, xlabel)
+        panel(ax, data["observed"], data["runs"], kind, None, xlabel, data["variant"])
         if len(PANELS) > 1:
             ax.text(0.02, 0.98, f"({letter})", transform=ax.transAxes, va="top",
                     fontsize=TITLE, fontweight="bold")
@@ -386,9 +404,9 @@ def main(argv: list[str] | None = None) -> int:
                    for iop in GOAMAZON_IOPS for e in EXPERIMENTS):
             print(f"[{scale}] model sample not built yet, skip", flush=True)
             continue
-        for period in args.periods:
-            data = gather(args, scale, period)
-            png, jpg, txt = figure_files(args.figure_root, stem, stem, period)
+        for period, echo in ((p, e) for e in args.echo_sets for p in args.periods):
+            data = gather(args, scale, period, echo)
+            png, jpg, txt = figure_files(args.figure_root, stem, stem, f"{period}_{echo}" if echo else period)
             draw(data, png, args.dpi)
             convert_to_jpg(png, jpg, dpi=args.dpi)
             png.unlink()

@@ -6,8 +6,9 @@ cut into the 20 km boxes of ``convection_sections`` and each column into 3MT upd
 downdraft and the rest (``column_pieces``), as for the box mass flux, with three changes
 that bring the model closer to what the profiler sees:
 
-* echo: a level counts only where the model's own reflectivity reaches 10 dBZ, because the
-  profiler retrieves w only inside precipitation echo and sees nothing above echo top;
+* echo: a level counts only where the model's own reflectivity reaches ``MODEL_ECHO_DBZ``,
+  because the profiler retrieves w only inside precipitation echo (rain and precipitating
+  ice, not cloud droplets) and sees nothing above echo top;
 * the convective column is defined several ways (``VARIANTS``): rain of the hour of at
   least 1, 5 or 10 mm, or Steiner-convective at 3 km, always with an active 3MT updraft in
   the runs that have one; the former definition (rain >= 1 mm, every level) is kept to tie
@@ -38,7 +39,7 @@ from pathlib import Path
 
 import numpy as np
 
-from alaro_analysis.analysis.radar_echo import ECHO_DBZ, interpolate_to_heights, steiner_classes
+from alaro_analysis.analysis.radar_echo import interpolate_to_heights, steiner_classes
 from alaro_analysis.common.constants import G
 from alaro_analysis.data import convection_sections
 from alaro_analysis.data.convection_sections import (
@@ -55,13 +56,21 @@ from alaro_analysis.data.rwp_profiler import CONVECTIVE_MINUTES, W_EDGES
 
 R_DRY = 287.058
 VIRTUAL = 0.6078  # T_v = T (1 + 0.6078 q)
-# name -> (minimum rain of the hour in mm or None, Steiner-convective at 3 km, echo levels only)
+# Lowest echo the model's reflectivity resolves. The profiler retrieves w down to 0 dBZ
+# (T. Biscaro, pers. comm.), but REFLEC_DBZ is written as a spectral field, so echo-free air
+# rings to +-1 dBZ around 0 (99.9th percentile 2-4 dBZ, up to 6 in G2M-XCU); 0 dBZ would
+# count half the clear air as echo.
+MODEL_ECHO_DBZ = 5.0
+# name -> (minimum rain of the hour in mm or None, Steiner-convective at 3 km,
+#          echo threshold in dBZ for the levels, or None for every level)
 VARIANTS = {
-    "rain1_all": (1.0, False, False),
-    "rain1": (1.0, False, True),
-    "rain5": (5.0, False, True),
-    "rain10": (10.0, False, True),
-    "steiner": (None, True, True),
+    "rain1_all": (1.0, False, None),
+    "rain1": (1.0, False, MODEL_ECHO_DBZ),
+    "rain5": (5.0, False, MODEL_ECHO_DBZ),
+    "rain10": (10.0, False, MODEL_ECHO_DBZ),
+    "steiner": (None, True, MODEL_ECHO_DBZ),
+    "steiner_10dbz": (None, True, 10.0),  # the former echo threshold
+    "steiner_25dbz": (None, True, 25.0),  # moderate-to-strong convection only
 }
 LEVEL_KEYS = ("up", "down", "up_area", "down_area", "ud_w1", "ud_w2")
 HIST_KEYS = ("hist_area", "hist_mass", "hist_grid")
@@ -136,7 +145,8 @@ def snapshot_sample(omega, rho, dbz, rain, dbz_3km, mask, drafts=None, size: int
     piece_bin = (level * n_bins + velocity_bins(w_pieces)).ravel()
     grid_bin = (level * n_bins + velocity_bins(w_grid)).ravel()
     updraft = (sig_u > ACTIVE_MESH) & (w_pieces[0] > 0)
-    echo = np.nan_to_num(dbz, nan=-99.0) >= ECHO_DBZ
+    dbz = np.nan_to_num(dbz, nan=-99.0)
+    echo = {thr: dbz >= thr for thr in {v[2] for v in VARIANTS.values()} if thr is not None}
     steiner = steiner_classes(dbz_3km, np.ones_like(mask, dtype=bool)) == 2
 
     ny, nx, kept = box_layout(mask, size)
@@ -146,7 +156,7 @@ def snapshot_sample(omega, rho, dbz, rain, dbz_3km, mask, drafts=None, size: int
     box_x = np.minimum(xx // size, kept.shape[1] - 1)
     n_cells = n_levels * n_bins
     out = {"_box_conv": {}}
-    for name, (rain_min, use_steiner, echo_only) in VARIANTS.items():
+    for name, (rain_min, use_steiner, echo_dbz) in VARIANTS.items():
         base = steiner if use_steiner else rain >= rain_min
         convective = base & active & tiled
         share = box_means(convective.astype(np.float64), ny, nx, size)
@@ -156,8 +166,8 @@ def snapshot_sample(omega, rho, dbz, rain, dbz_3km, mask, drafts=None, size: int
         out["_box_conv"][name] = use
         cells = convective & use[box_y, box_x]
         weight = np.broadcast_to(np.where(cells, 1.0 / size**2, 0.0), omega.shape)
-        if echo_only:
-            weight = weight * echo
+        if echo_dbz is not None:
+            weight = weight * echo[echo_dbz]
         piece_weight = areas * weight
         mass_weight = piece_weight * rho
         out[name] = {
