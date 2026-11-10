@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Closure budget of IOP1 against IOP2 with the convective upward mass flux.
 
-Supplementary figure S03 (``iop_settings.supplementary_files``): rows IOP1 and IOP2,
-one column per run (C1M, G1M, G2M, G2M-XCU), 24 h means. Condensation is the DDH QV
-budget of figure 11 (``build_iop_closure_budgets``). The mass-flux axis carries the
+Supplementary figure ``closure_budget_updraft_partition`` (``iop_settings.supplementary_files``): rows IOP1 and IOP2,
+one column per run (C1M_nodiaggrp, C1M_diaggrp, G1M, G2M, G2M-XCU), 24 h means. Condensation is the DDH QV
+budget of the closure budget figure (``build_iop_closure_budgets``). The mass-flux axis carries the
 convective profiles of ``build_iop_updraft_partition``, sampled as the radar wind
 profiler samples (Giangrande et al. 2016): convective columns only, 20 km boxes
 divided by their full area, mean over the box-hours with convection.
@@ -35,7 +35,7 @@ from alaro_analysis.common.iop_settings import (
     supplementary_files,
     write_figure_index,
 )
-from alaro_analysis.recipes.iop.build_iop_closure_budgets import DEFAULT_WORK_DIR, LABELS
+from alaro_analysis.recipes.iop.build_iop_closure_budgets import DEFAULT_WORK_DIR, DISPLAY, LABELS
 from alaro_analysis.recipes.iop.build_iop_convection_diurnal import (
     DEFAULT_WORK_DIR as CONVECTION_WORK_DIR,
 )
@@ -50,7 +50,7 @@ from alaro_analysis.recipes.iop.make_iop_closure_budget_figures import (
     peak_height_km,
 )
 
-SUPPLEMENT_NUMBER = 3
+SUPPLEMENT_NAME = "closure_budget_updraft_partition"
 STEM = "closure_budget_updraft_partition"
 PERIOD = "iop1_iop2"
 # Total in the updraft green; the two single pieces solid in their own colours, so
@@ -126,7 +126,7 @@ def write_txt(txt: Path, rows: dict, jpg: Path) -> None:
         start, end = GOAMAZON_IOPS[iop]
         lines.append(f"IOP{iop}: {start} to {end} inclusive, 24 h means.")
     lines += [
-        "Condensation: DDH QV budget (g kg-1 day-1), as figure 11, over the DDH domain (all columns).",
+        "Condensation: DDH QV budget (g kg-1 day-1), as the closure budget figure, over the DDH domain (all columns).",
         "Mass flux (kg m-2 s-1), sampled like the radar wind profiler (Giangrande et al. 2016):",
         "  - instantaneous hourly snapshots (leads +0001..+0024), split per column and level before "
         "any averaging;",
@@ -151,7 +151,7 @@ def write_txt(txt: Path, rows: dict, jpg: Path) -> None:
     for row_label, panels in rows.items():
         for experiment, data in panels.items():
             conv, total = data["box_hours"]
-            lines.append(f"{row_label},{LABELS[experiment]},{conv},{total},{conv / max(total, 1):.4f}")
+            lines.append(f"{row_label},{DISPLAY[experiment]},{conv},{total},{conv / max(total, 1):.4f}")
     lines += ["", "iop,run,quantity,peak_flux,peak_height_km,column_mean_flux"]
     names = {"box_up": "up", "box_up_nodd": "up_nodd", "box_down": "down",
              "box_par_up": "par_up", "box_res_up": "res_up"}
@@ -159,11 +159,11 @@ def write_txt(txt: Path, rows: dict, jpg: Path) -> None:
         for experiment, data in panels.items():
             for key in TEXT_QUANTITIES:
                 peak, z, column = flux_summary(*data["flux"][key])
-                lines.append(f"{row_label},{LABELS[experiment]},{names[key]},{peak:.5f},{z:.2f},{column:.5f}")
+                lines.append(f"{row_label},{DISPLAY[experiment]},{names[key]},{peak:.5f},{z:.2f},{column:.5f}")
     lines += ["", "iop,run,column_condensation_g_kg_day_km,peak_height_km,zero_degC_km"]
     for row_label, panels in rows.items():
         for experiment, data in panels.items():
-            lines.append(f"{row_label},{LABELS[experiment]},{data['column']:.3f},{data['z_peak']:.2f},"
+            lines.append(f"{row_label},{DISPLAY[experiment]},{data['column']:.3f},{data['z_peak']:.2f},"
                          f"{data['z_freeze']:.2f}")
     txt.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -180,7 +180,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     rows = {f"IOP{iop}": gather(args.work_dir, args.convection_work_dir, iop) for iop in GOAMAZON_IOPS}
-    png, jpg, txt = supplementary_files(args.output_dir, SUPPLEMENT_NUMBER, STEM, PERIOD)
+    png, jpg, txt = supplementary_files(args.output_dir, SUPPLEMENT_NAME, STEM, PERIOD)
     handles = [Line2D([0], [0], label=LINE_LABELS[k], **{"color": UPDRAFT_COLOR, **LINES[k]})
                for k in LINES]
     draw_rows(rows, png, args.dpi, updraft_handles=handles)

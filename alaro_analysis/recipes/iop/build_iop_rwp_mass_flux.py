@@ -86,6 +86,9 @@ def aggregate(rows: list[dict]) -> dict[str, np.ndarray]:
     n_down = np.concatenate([r["n_down"][m] for r, m in keep]).sum(axis=0)
     n_conv = np.concatenate([r["n_conv"][m] for r, m in keep]).sum(axis=0)
     rho = np.concatenate([r["rho"][m] for r, m in keep])
+    # Day of every window, so the sampling spread can be bootstrapped by whole days.
+    days = sorted({r["day"] for r, _ in keep})
+    window_day = np.concatenate([np.full(int(m.sum()), days.index(r["day"])) for r, m in keep])
     # Share of the window's profiles that are convective somewhere in the column, the
     # counterpart of the model's share of convective columns in a box.
     column_frac = np.concatenate([r["minutes"][m] / (r["n_samples"][m] * SAMPLE_SECONDS / 60.0)
@@ -112,7 +115,12 @@ def aggregate(rows: list[dict]) -> dict[str, np.ndarray]:
         "rho": np.nanmean(rho, axis=0),
         "convective_column_fraction": np.array([np.mean(column_frac)]),
         "n_windows": np.array([sigma_up.shape[0]]),
-        "n_days": np.array([len({r["day"] for r, _ in keep})]),
+        "n_days": np.array([len(days)]),
+        # Per window (window, height), for the bootstrap of the figure.
+        "window_flux_up": np.where(thin, np.nan, flux_up),
+        "window_flux_down": np.where(thin, np.nan, flux_down),
+        "window_day": window_day,
+        "days": np.array(days),
     }
     for key in ("sigma_up", "sigma_down", "sigma_total", "v_up", "v_down",
                 "flux_up", "flux_down", "flux_net"):

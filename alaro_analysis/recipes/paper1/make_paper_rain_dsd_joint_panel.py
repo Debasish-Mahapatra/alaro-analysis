@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Paper figure 10, rebuilt on the GoAmazon IOPs: log10 Nw against Dm, five datasets.
+"""IOP figure raindrop_size_distribution (paper figure 10 rebuilt on the GoAmazon IOPs): log10 Nw against Dm, five datasets.
 
 One panel per dataset (Manacapuru disdrometer, C1M, G1M, G2M, G2M-XCU). Each panel
 shows the joint distribution shaded by log10 relative frequency on a shared colour
@@ -27,7 +27,10 @@ calendar season of 2015: read it as the season's climatology of drop spectra, no
 a paired sample. The combined figure mixes the two, so the per-IOP figures are the
 honest ones.
 
-Written beside the published figure under a different name.
+Written to the IOP figure series, one stem per observed source:
+``raindrop_size_distribution_disdrometer`` (IOP2 day-matched, IOP1 from 2015),
+``..._disdrometer2015`` (both seasons from 2015) and ``..._mrr`` (the CHUVA micro rain
+radar on the IOP days, one gate ~800 m up).
 """
 
 from __future__ import annotations
@@ -46,13 +49,20 @@ from matplotlib.gridspec import GridSpecFromSubplotSpec
 from matplotlib.lines import Line2D
 
 from alaro_analysis.common.cli_config import parse_configured_args
-from alaro_analysis.common.figio import DEFAULT_DPI, LEGEND_FONTSIZE
-from alaro_analysis.common.iop_settings import CACHE_DIRS, GOAMAZON_IOPS, IOP_PERIODS
-from alaro_analysis.common.paths import data_path
+from alaro_analysis.common.experiments import run_color, run_display, shown_runs
+from alaro_analysis.common.figio import DEFAULT_DPI, LEGEND_FONTSIZE, convert_to_jpg
+from alaro_analysis.common.iop_settings import (
+    CACHE_DIRS,
+    FIGURES,
+    GOAMAZON_IOPS,
+    IOP_PERIODS,
+    figure_files,
+    write_figure_index,
+)
 
-OUTPUT_DIR = data_path("microphysics-paper/10. raindrop size distribution")
-FIGURE_STEM = "10. raindrop size distribution_iops"
-PERIOD_NAMES = {"combined": "iop1+iop2", "iop1": "iop1", "iop2": "iop2"}
+FIGURE_NAME = "raindrop_size_distribution"
+FIGURE_STEM = "raindrop_size_distribution"
+STEM_SUFFIX = {"parsivel": "disdrometer", "parsivel2015": "disdrometer2015", "mrr": "mrr"}
 # Shown under the legend, in the free cell of the 2x3 grid: (name, span)
 PERIOD_TITLES = {
     "combined": ("GoAmazon IOP1 and IOP2", "combined"),
@@ -65,7 +75,7 @@ PERIOD_TITLES = {
 OBS_SEASON = {1: "wet", 2: "iop2_2014"}
 # Observed source: the ARM Parsivel (no IOP1 coverage) or the CHUVA micro rain radar
 # at Manacapuru UEA, which ran through both IOPs (build_iop_mrr_dsd).
-OBS_SOURCES = ("parsivel", "parsivel2015", "mrr")
+OBS_SOURCES = ("parsivel2015", "mrr")  # the 2014-matched Parsivel version was dropped (user, 2026-10-14)
 OBS_LABEL = {"parsivel": "Disdrometer", "parsivel2015": "Disdrometer", "mrr": "MRR"}
 # (source, IOP) -> cache file, and whether those observations are the IOP's own days
 OBS_CACHE = {
@@ -96,10 +106,8 @@ OBS_SPANS = {
 }
 DATASETS = (
     ("obs", "Disdrometer", "#111111"),
-    ("C1M", "C1M", "#d62728"),
-    ("G1M", "G1M", "#1f77b4"),
-    ("G2M", "G2M", "#2ca02c"),
-    ("G2M-XCU", "G2M-XCU", "#9467bd"),
+    *((key, run_display(key), run_color(key))
+      for key in shown_runs(("C1M_nodiaggrp", "C1M", "G1M", "G2M", "G2M-XCU"))),
 )
 # Fraction of observed samples the black contour encloses (highest-density region).
 CONTOUR_FRACTION = 0.90
@@ -132,8 +140,10 @@ def load_histograms(cache: Path, iops: tuple[int, ...], source: str) -> dict:
                 path = cache / OBS_CACHE[(source, iop)][0]
             else:
                 path = cache / "columns" / f"{key}_iop{iop}.npz"
+            # the MRR gate is 800 m up, so the runs are sampled there too; the disdrometer at the ground
+            field = "dsd800_hist" if (key != "obs" and source == "mrr") else "dsd_hist"
             with np.load(path, allow_pickle=True) as data:
-                hist = np.asarray(data["dsd_hist"], dtype=np.float64)
+                hist = np.asarray(data[field], dtype=np.float64)
                 edges.setdefault("dm", np.asarray(data["dm_edges"], dtype=np.float64))
                 edges.setdefault("lognw", np.asarray(data["lognw_edges"], dtype=np.float64))
             total = hist if total is None else total + hist
@@ -192,9 +202,9 @@ def draw(data: dict, png: Path, dpi: int, source: str, period: str) -> None:
     lognw_max = max(pdf[1].max() for pdf in pdfs.values()) * 1.1
 
     plt.rcParams.update({"font.size": 13, "axes.titlesize": 17})
-    fig = plt.figure(figsize=(22.0, 13.5))
-    outer = fig.add_gridspec(2, 3, wspace=0.26, hspace=0.30,
-                             left=0.045, right=0.925, top=0.93, bottom=0.07)
+    fig = plt.figure(figsize=(22.0, 15.5))
+    outer = fig.add_gridspec(2, 3, wspace=0.26, hspace=0.26,
+                             left=0.045, right=0.925, top=0.94, bottom=0.215)
 
     mesh = None
     for index, (key, label, color) in enumerate(DATASETS):
@@ -252,24 +262,16 @@ def draw(data: dict, png: Path, dpi: int, source: str, period: str) -> None:
     ]
     handles.append(Line2D([0], [0], color="black", lw=1.3,
                           label=f"observed {int(CONTOUR_FRACTION * 100)} % contour"))
-    # The sixth cell of the 2x3 grid is free: the legend goes there rather than
-    # under the panels, where it would sit on the bottom marginals.
-    ax_legend = fig.add_subplot(outer[1, 2])
-    ax_legend.axis("off")
-    ax_legend.legend(handles=handles, loc="center", ncol=1, fontsize=LEGEND_FONTSIZE + 3,
-                     frameon=False, handlelength=2.6, labelspacing=1.1)
+    # All six cells of the 2x3 grid hold panels: the legend and the period go below them.
+    fig.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.485, 0.165), ncol=len(handles),
+               fontsize=LEGEND_FONTSIZE, frameon=False, handlelength=2.6, columnspacing=1.6)
     name, span = PERIOD_TITLES[period]
     note = obs_note(source, PERIOD_IOPS[period])
-    ax_legend.text(0.5, 0.11, name, transform=ax_legend.transAxes, ha="center", va="bottom",
-                   fontsize=LEGEND_FONTSIZE + 5, fontweight="bold")
-    ax_legend.text(0.5, 0.045, span, transform=ax_legend.transAxes, ha="center", va="bottom",
-                   fontsize=LEGEND_FONTSIZE + 2)
-    ax_legend.text(0.5, -0.09, note, transform=ax_legend.transAxes, ha="center", va="top",
-                   fontsize=LEGEND_FONTSIZE, style="italic", color="#333333")
-    fig.suptitle(
-        r"log$_{10}$ N$_w$ against D$_m$, scheme moments truncated at D$_{min}$ = 0.312 mm",
-        fontsize=19,
-    )
+    fig.text(0.485, 0.112, name, ha="center", va="top", fontsize=LEGEND_FONTSIZE + 3, fontweight="bold")
+    fig.text(0.485, 0.083, span, ha="center", va="top", fontsize=LEGEND_FONTSIZE)
+    fig.text(0.485, 0.052, note, ha="center", va="top", fontsize=LEGEND_FONTSIZE - 1, style="italic", color="#333333")
+    where = "800 m above the ground" if source == "mrr" else "at the ground"
+    fig.suptitle(rf"Rain drop size distribution, log$_{{10}}$ N$_w$ against D$_m$, {where}", fontsize=19)
     fig.savefig(png, dpi=dpi, bbox_inches="tight", facecolor="white")
     plt.close(fig)
 
@@ -299,8 +301,14 @@ def write_txt(txt: Path, data: dict, iops: tuple[int, ...], source: str) -> None
         "The ARM laser disdrometer record starts on 25 Sep 2014: IOP2 is matched day for "
         "day, IOP1 has no observations of its own and borrows the same calendar season of "
         "2015.",
-        "Model samples: rainy cells of the bottom model level over the 4 km radar domain, "
-        "hourly. Dm = M4/M3 and Nw from LWC and Dm, built from the scheme-native moments "
+        ("Model samples: rainy cells 800 m above the ground (the MRR gate; qr, Nr and density "
+         "interpolated in height, the lowest model level taken as 20 m up)"
+         if source == "mrr" else "Model samples: rainy cells of the bottom model level")
+        + " over the 4 km radar domain, hourly, with the observations' QC (R > 0.1 mm/h, "
+        "Z < 55 dBZ). The narrow G2M and G2M-XCU peak at Dm = 1.44 mm is the 2-moment scheme's "
+        "equilibrium rain: self-collection and break-up relax the mean volume diameter to "
+        "RDMEANREQ = 0.9 mm (su2mommps.F90, acselfcoll.F90), which is Dm = 1.44 mm under the "
+        "variable-shape law. Dm = M4/M3 and Nw from LWC and Dm, built from the scheme-native moments "
         "(1-moment Abel & Boutle 2012 with mu = 0 for C1M/G1M; ALARO variable-shape gamma "
         "for G2M and G2M-XCU) and truncated at Dmin = 0.312 mm with upper-incomplete-gamma "
         "factors, so the model sees the part of the spectrum the Parsivel sees.",
@@ -326,27 +334,28 @@ def write_txt(txt: Path, data: dict, iops: tuple[int, ...], source: str) -> None
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--cache-dir", type=Path, default=CACHE_DIRS["microphysics"])
-    p.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
+    p.add_argument("--figure-root", type=Path, default=FIGURES)
     p.add_argument("--periods", nargs="+", default=list(IOP_PERIODS), choices=list(IOP_PERIODS))
     p.add_argument("--dpi", type=int, default=DEFAULT_DPI)
-    p.add_argument("--observations", choices=OBS_SOURCES, default="parsivel",
-                   help="observed dataset in the first panel")
+    p.add_argument("--observations", nargs="+", choices=OBS_SOURCES, default=list(OBS_SOURCES),
+                   help="observed datasets, one figure each")
     return parse_configured_args(p, "make_paper_rain_dsd_joint_panel", argv=argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    for key in args.periods:
-        iops = IOP_PERIODS[key]
-        data = load_histograms(args.cache_dir, iops, args.observations)
-        suffix = "" if args.observations == "parsivel" else f"_{args.observations}"
-        name = f"{FIGURE_STEM}{suffix}_{PERIOD_NAMES[key]}"
-        png = args.output_dir / f"{name}_450dpi.png"
-        txt = args.output_dir / f"{name}_data.txt"
-        draw(data, png, args.dpi, args.observations, key)
-        write_txt(txt, data, iops, args.observations)
-        print(f"[saved] {png}\n[saved] {txt}", flush=True)
+    for source in args.observations:
+        stem = f"{FIGURE_STEM}_{STEM_SUFFIX[source]}"
+        for key in args.periods:
+            iops = IOP_PERIODS[key]
+            data = load_histograms(args.cache_dir, iops, source)
+            png, jpg, txt = figure_files(args.figure_root, FIGURE_NAME, stem, key)
+            draw(data, png, args.dpi, source, key)
+            convert_to_jpg(png, jpg, dpi=args.dpi)
+            png.unlink()
+            write_txt(txt, data, iops, source)
+            print(f"[saved] {jpg}\n[saved] {txt}", flush=True)
+    write_figure_index(args.figure_root)
     return 0
 
 

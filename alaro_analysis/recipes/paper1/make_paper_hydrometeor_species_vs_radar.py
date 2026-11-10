@@ -55,7 +55,7 @@ RADAR_GROUPS = {
 MODEL_GROUPS = {"rain": "qr", "ice": "qi", "snow": "qs", "graupel": "qg"}
 COLORS = {"rain": "#1f77b4", "ice": "#9467bd", "snow": "#17becf", "graupel": "#d62728",
           "melting": "#7f7f7f"}
-MAX_HEIGHT_KM = 14.0
+MAX_HEIGHT_KM = 15.0  # top of every height axis, iop_settings.PLOT_TOP_KM
 SONDES = Path("/mnt/HDS_CLIMATE/CLIMATE/deba/ARM/radiosond_data/maosondewnpnM1.b1")
 MIN_POINTS = 10_000     # a layer thinner than this is too noisy to plot
 TICK_FS, AXIS_FS, HEADER_FS, LETTER_FS = 15, 17, 18, 14

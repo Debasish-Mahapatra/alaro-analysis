@@ -36,7 +36,6 @@ from alaro_analysis.common.iop_settings import (
     FIGURES,
     GOAMAZON_IOPS,
     IOP_PERIODS,
-    figure_files,
     supplementary_files,
     write_figure_index,
 )
@@ -49,13 +48,15 @@ from alaro_analysis.recipes.iop.make_iop_rainfall_verification import (
     MIN_REFERENCE_MM_H,
     PDF_BINS,
     PDF_MIN_MM_H,
+    PERIOD_LABELS,
+    RUN_NOTE,
     colour_limit,
     finish,
 )
 from alaro_analysis.workflows import precip_distribution as pdf_wf
 
-FIGURE_NUMBER = 5
-STEM = "rain_pdf_log_linear_roi_vs_imerg"
+FIGURE_NAME = "rain_pdf_roi_vs_imerg"  # supplementary
+STEM = "rain_pdf_roi_vs_imerg"
 PERIODS = {
     "combined": COMMON_SUBDIR,
     "iop1": f"{COMMON_SUBDIR}-iop1",
@@ -107,10 +108,10 @@ def period_header(data_dir: Path, iops: tuple[int, ...], shape: tuple[int, int])
         "cells of the 0.1 deg IMERG grid. No radar footprint and no radar time mask.",
         "The model window lies 11-15 native cells inside the C zone (the ROI itself 19-24), "
         "so no relaxation-zone or extension-zone cells enter.",
-        f"Hours: {times.size}, every IOP hour where IMERG and all four models are complete.",
+        f"Hours: {times.size}, every IOP hour where IMERG and all {len(DATASETS) - 1} models are complete.",
         "Models: hourly FA rain (CON + GEC) remapped conservatively (cdo remapcon) to the "
         "IMERG grid. IMERG: V07B Final, mean of the two half-hours of each hour.",
-        "C1M: continuous control run on the IOP dates. G1M, G2M, G2M-XCU: IOP warm-restart runs.",
+        RUN_NOTE,
     ]
     return lines
 
@@ -149,17 +150,9 @@ def make_pdf(data_dir: Path, root: Path, period: str, dpi: int) -> None:
     for sample in samples:
         key = sample.config.key
         counts[key], densities[key] = pdf_wf.compute_unconditional_pdf(sample.values, edges)
-    png, jpg, txt = figure_files(root, FIGURE_NUMBER, STEM, period)
-    pdf_wf.plot_pdf(
-        samples,
-        edges=edges,
-        densities=densities,
-        output_path=png,
-        xscale_log=False,
-        yscale_log=True,
-        show_tail_marker=False,
-        dpi=dpi,
-    )
+    png, jpg, txt = supplementary_files(root, FIGURE_NAME, STEM, period)
+    pdf_wf.plot_pdf_panels(samples, edges=edges, densities=densities, output_path=png, dpi=dpi,
+                           period_label=PERIOD_LABELS[period])
     pdf_wf.write_pdf_txt(
         txt,
         figure_path=jpg,
@@ -169,7 +162,7 @@ def make_pdf(data_dir: Path, root: Path, period: str, dpi: int) -> None:
         densities=densities,
         counts=counts,
         min_threshold=PDF_MIN_MM_H,
-        x_axis="linear",
+        x_axis="log in (a), linear in (b)",
         y_axis="log",
     )
     header = period_header(data_dir, IOP_PERIODS[period], shape)
@@ -197,7 +190,7 @@ def _map_txt(txt: Path, title: str, header: list[str], rows: list[str]) -> None:
 
 
 def make_supplementary_maps(data_dir: Path, root: Path, period: str, dpi: int) -> None:
-    """S01 total rain (IMERG + four runs, 2x3) and S02 bias against IMERG (2x2) of one IOP."""
+    """S01 total rain (IMERG + five runs, 2x3) and S02 bias against IMERG (five runs, 2x3) of one IOP."""
     (iop,) = IOP_PERIODS[period]
     totals = {}
     for cfg in DATASETS:
@@ -209,18 +202,19 @@ def make_supplementary_maps(data_dir: Path, root: Path, period: str, dpi: int) -
     header = period_header(data_dir, (iop,), shape)
     title_text = f"IOP{iop}"
 
-    # S01: total rain, one colour scale for the five panels
+    # S01: total rain, one colour scale for the six panels
     vmax = float(50.0 * np.ceil(np.percentile(np.concatenate([v.ravel() for v in totals.values()]), 99) / 50.0))
-    png, jpg, txt = supplementary_files(root, 1, ACCUMULATION_STEM, period)
-    fig, axes = plt.subplots(2, 3, figsize=(15, 10.5), constrained_layout=True)
+    png, jpg, txt = supplementary_files(root, "rain_accumulation_roi", ACCUMULATION_STEM, period)
+    fig, axes = plt.subplots(2, 3, figsize=(16.5, 10.5), constrained_layout=True)
     for ax, (label, total) in zip(axes.ravel(), totals.items()):
         pm = _map_axes(ax, lon, lat, total, label, f"mean {total.mean():.0f} mm",
                        cmap="YlGnBu", vmin=0.0, vmax=vmax)
-    axes[1, 2].axis("off")
-    cbar = fig.colorbar(pm, cax=axes[1, 2].inset_axes([0.08, 0.55, 0.84, 0.07]), orientation="horizontal")
+    for ax in axes.ravel()[len(totals):]:
+        ax.axis("off")
+    cbar = fig.colorbar(pm, ax=axes, shrink=0.8)
     cbar.set_label("Total rain over the IOP (mm)", fontsize=13)
     cbar.ax.tick_params(labelsize=11)
-    cbar.ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:g}"))
+    cbar.ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:g}"))
     fig.suptitle(title_text, fontsize=18, fontweight="bold")
     fig.savefig(png, dpi=dpi)
     plt.close(fig)
@@ -237,15 +231,24 @@ def make_supplementary_maps(data_dir: Path, root: Path, period: str, dpi: int) -
     biases = {k: np.where(ref / hours > MIN_REFERENCE_MM_H, 100.0 * (v - ref) / ref, np.nan)
               for k, v in totals.items() if k != "IMERG"}
     limit = colour_limit(biases.values())
-    png, jpg, txt = supplementary_files(root, 2, BIAS_STEM, period)
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10.5), constrained_layout=True)
+    png, jpg, txt = supplementary_files(root, "rain_bias_vs_imerg_roi", BIAS_STEM, period)
+    # Five runs: 2x3 with the colour bar in the free panel; four runs: 2x2, colour bar beside.
+    four = len(biases) == 4
+    fig, axes = plt.subplots(2, 2 if four else 3, figsize=(12.5, 10.5) if four else (16.5, 10.5),
+                             constrained_layout=True)
     for ax, (label, bias) in zip(axes.ravel(), biases.items()):
         domain = 100.0 * (totals[label].mean() - ref.mean()) / ref.mean()
         pm = _map_axes(ax, lon, lat, bias, label, f"domain {domain:+.0f} %",
                        cmap="RdBu_r", vmin=-limit, vmax=limit)
-    cbar = fig.colorbar(pm, ax=axes, shrink=0.8, extend="both")
+    if four:
+        cbar = fig.colorbar(pm, ax=axes, shrink=0.8, extend="both")
+    else:
+        axes[1, 2].axis("off")
+        cbar = fig.colorbar(pm, cax=axes[1, 2].inset_axes([0.08, 0.55, 0.84, 0.07]), orientation="horizontal",
+                            extend="both")
     cbar.set_label("Relative bias vs IMERG (%)", fontsize=13)
-    cbar.ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:g}"))
+    cbar.ax.tick_params(labelsize=11)
+    (cbar.ax.yaxis if four else cbar.ax.xaxis).set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:g}"))
     fig.suptitle(title_text, fontsize=18, fontweight="bold")
     fig.savefig(png, dpi=dpi)
     plt.close(fig)
@@ -254,7 +257,7 @@ def make_supplementary_maps(data_dir: Path, root: Path, period: str, dpi: int) -
     rows = [f"Figure: {jpg}",
             "Bias: 100 * (model - IMERG) / IMERG of the IOP mean per cell; cells with IMERG mean "
             f"<= {MIN_REFERENCE_MM_H:g} mm h^-1 masked.",
-            f"Colour limits: +/-{limit:g} % (p98 of |bias| over the four panels, rounded up to 10 %).",
+            f"Colour limits: +/-{limit:g} % (p98 of |bias| over the {len(biases)} panels, rounded up to 10 %).",
             "dataset,domain_bias_percent,cell_bias_p02,cell_bias_median,cell_bias_p98"]
     for k, b in biases.items():
         v = b[np.isfinite(b)]

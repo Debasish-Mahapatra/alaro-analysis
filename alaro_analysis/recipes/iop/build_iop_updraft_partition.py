@@ -30,7 +30,11 @@ The upward flux is not box_par_up + box_res_up: the resolved motion already cont
 the updraft (it is the area mean), and the updraft is compensated by sinking in the
 rest of the column. Without a downdraft it equals the larger of the two.
 
-Writes ``<LABEL>_<quantity>.npz`` into the convection cache. Needs the epygram environment.
+Writes ``<LABEL>_<quantity>.npz`` into the convection cache. With ``--rain-only`` the
+runs with 3MT pick their convective columns by rain alone, as G2M-XCU has to, and write
+``<LABEL>_rainonly_<quantity>.npz``: the same selection in every run, to separate the
+effect of switching 3MT off from the effect of picking the columns differently.
+Needs the epygram environment.
 """
 
 from __future__ import annotations
@@ -68,16 +72,21 @@ MODEL_RUNS = {
 NO_SCHEME = {"2mom-xcu"}
 
 
-def build(work: Path, iop: int, key: str, workers: int, attempts: int) -> None:
+def cache_prefix(key: str, rain_only: bool = False) -> str:
+    return EXPERIMENT_LABELS[key] + ("_rainonly" if rain_only else "")
+
+
+def build(work: Path, iop: int, key: str, workers: int, attempts: int, rain_only: bool = False) -> None:
     root = MODEL_RUNS[key][iop]
     days = campaign_days(iop)
     label = EXPERIMENT_LABELS[key]
+    prefix = cache_prefix(key, rain_only)
     has_scheme = key not in NO_SCHEME
-    tasks = [(str(root), f"{day:%Y%m%d}", has_scheme) for day in days]
+    tasks = [(str(root), f"{day:%Y%m%d}", has_scheme, not rain_only) for day in days]
     window = build_window()
     init_worker(window)
     pool_workers = min(workers, FA_WORKERS)
-    print(f"[IOP{iop} {label}] {len(days)} days from {root}, scheme={has_scheme}, "
+    print(f"[IOP{iop} {prefix}] {len(days)} days from {root}, scheme={has_scheme}, "
           f"{pool_workers} workers", flush=True)
     sums, counts, n_files, problems = reduce_days(
         fa_day_boxes, tasks, pool_workers, attempts, initargs=window,
@@ -89,13 +98,13 @@ def build(work: Path, iop: int, key: str, workers: int, attempts: int) -> None:
         mean = np.full((N_LEVELS, 24), np.nan)
         seen = counts[quantity] > 0
         mean[seen] = sums[quantity][seen] / counts[quantity][seen]
-        save_npz(out / f"{label}_{quantity}.npz", mean=mean, counts=counts[quantity], n_files=n_files)
+        save_npz(out / f"{prefix}_{quantity}.npz", mean=mean, counts=counts[quantity], n_files=n_files)
     if not (out / f"{label}_height.npz").exists():
         save_npz(out / f"{label}_height.npz", height_m=fa_height(Path(root), f"{days[0]:%Y%m%d}"),
                  n_files=n_files)
     if problems:
-        (out / f"{label}_updraft_problems.log").write_text("\n".join(problems) + "\n")
-    print(f"[IOP{iop} {label}] {n_files} files, {len(problems)} problems -> {out}", flush=True)
+        (out / f"{prefix}_updraft_problems.log").write_text("\n".join(problems) + "\n")
+    print(f"[IOP{iop} {prefix}] {n_files} files, {len(problems)} problems -> {out}", flush=True)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -106,6 +115,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--workers", type=int, default=32)
     p.add_argument("--attempts", type=int, default=3)
     p.add_argument("--recompute", action="store_true", help="Rebuild existing caches.")
+    p.add_argument("--rain-only", action="store_true",
+                   help="Pick convective columns by rain alone in the runs with 3MT too.")
     return parse_configured_args(p, "build_iop_updraft_partition", argv=argv)
 
 
@@ -114,11 +125,14 @@ def main(argv: list[str] | None = None) -> int:
     workers = resolve_workers(args.workers)
     for iop in args.iops:
         for key in args.experiments:
-            done = args.work_dir / f"iop{iop}" / f"{EXPERIMENT_LABELS[key]}_box_up.npz"
+            if args.rain_only and key in NO_SCHEME:
+                continue  # already picked by rain alone
+            prefix = cache_prefix(key, args.rain_only)
+            done = args.work_dir / f"iop{iop}" / f"{prefix}_box_up.npz"
             if done.exists() and not args.recompute:
-                print(f"[IOP{iop} {EXPERIMENT_LABELS[key]}] cached, skip", flush=True)
+                print(f"[IOP{iop} {prefix}] cached, skip", flush=True)
                 continue
-            build(args.work_dir, iop, key, workers, args.attempts)
+            build(args.work_dir, iop, key, workers, args.attempts, args.rain_only)
     return 0
 
 

@@ -31,6 +31,7 @@ import numpy as np
 import xarray as xr
 
 from alaro_analysis.common.cli_config import parse_configured_args
+from alaro_analysis.common.experiments import run_display, shown_runs
 from alaro_analysis.common.iop_settings import FIGURES, GOAMAZON_IOPS, IOP_PERIODS, figure_files
 from alaro_analysis.recipes.iop.build_iop_rainfall_common_valid import (
     COMMON_SUBDIR,
@@ -44,8 +45,8 @@ PERIODS = {
     "iop2": f"{COMMON_SUBDIR}-iop2",
 }
 REFERENCE = "Radar"
-CANDIDATES = ("IMERG", "C1M", "G1M", "G2M", "G2M-XCU")
-FIGURE_NUMBER = 1
+CANDIDATES = ("IMERG", *shown_runs(("C1M_nodiaggrp", "C1M", "G1M", "G2M", "G2M-XCU")))  # file stems
+FIGURE_NAME = "spatial_bias_vs_radar"
 UTC_OFFSET_HOURS = -4
 
 
@@ -145,7 +146,7 @@ def metric_rows(data_dir: Path) -> tuple[list[dict], list[str]]:
             "time-mean map (mm/h)": scores(ref_map, nanmean(cand, axis=0)),
         }
         for level, s in levels.items():
-            rows.append({"candidate": label, "level": level, **s})
+            rows.append({"candidate": run_display(label), "level": level, **s})
     notes = [
         f"Grid cells: {ref.shape[1]} x {ref.shape[2]}, of which "
         f"{int(np.isfinite(ref_map).sum())} are inside the radar footprint.",
@@ -221,7 +222,7 @@ def main(argv: list[str] | None = None) -> int:
     for period in args.periods:
         data_dir = args.work_dir / PERIODS[period]
         rows, notes = metric_rows(data_dir)
-        _, _, txt = figure_files(args.figure_root, FIGURE_NUMBER, "spatial_bias_vs_radar", period)
+        _, _, txt = figure_files(args.figure_root, FIGURE_NAME, "spatial_bias_vs_radar", period)
         out = write_metrics(rows, notes, txt.with_name(f"rain_error_metrics_{period}.txt"), period)
         print(f"[saved] {out}", flush=True)
         for r in rows:

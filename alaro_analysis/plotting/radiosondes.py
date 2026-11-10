@@ -17,7 +17,8 @@ from alaro_analysis.analysis.radiosonde_thermodynamics import (
     dewpoint_c_from_specific_humidity,
     relative_humidity_percent,
 )
-from alaro_analysis.common.constants import EXPERIMENT_COLORS, EXPERIMENT_LABELS, G
+from alaro_analysis.common.constants import EXPERIMENT_COLORS, EXPERIMENT_DISPLAY, G
+from alaro_analysis.common.figio import legend_below
 from alaro_analysis.common.radiosonde_settings import (
     DEFAULT_ALARO_ROOT,
     DEFAULT_SONDE_ROOT,
@@ -413,13 +414,13 @@ def _write_profile_txt(
         fh.write("series,z_freeze_km\n")
         fh.write(f"ARM sonde,{_fmt_txt(obs_freezing_km)}\n")
         for exp in experiments:
-            label = EXPERIMENT_LABELS.get(exp, exp)
+            label = EXPERIMENT_DISPLAY.get(exp, exp)
             fh.write(f"{label},{_fmt_txt(model_freezing_km[exp])}\n")
         fh.write("\n")
 
         columns = ["height_km", "ARM_sonde", "ARM_sonde_count"]
         for exp in experiments:
-            label = EXPERIMENT_LABELS.get(exp, exp)
+            label = EXPERIMENT_DISPLAY.get(exp, exp)
             columns.extend([label, f"{label}_count"])
         fh.write("Profile data\n")
         fh.write("------------\n")
@@ -597,13 +598,13 @@ def plot_profiles(args: argparse.Namespace) -> list[Path]:
                 y_km,
                 color=color,
                 lw=2.0,
-                label=EXPERIMENT_LABELS.get(exp, exp),
+                label=EXPERIMENT_DISPLAY.get(exp, exp),
             )
             _draw_freezing_level(
                 ax,
                 model_freezing_km[exp],
                 color=color,
-                label=EXPERIMENT_LABELS.get(exp, exp),
+                label=EXPERIMENT_DISPLAY.get(exp, exp),
                 marker="s",
                 mark_at_zero_c=panel_name == "tdry",
             )
@@ -672,7 +673,9 @@ COMBINED_DIFF_XLABELS = {
 }
 
 
-PANEL_LETTERS = ("(a)", "(b)", "(c)", "(d)", "(e)", "(f)")
+PANEL_LETTERS = tuple(f"({letter})" for letter in "abcdefghijkl")
+# Font sizes of the panel figures, legible when printed at the full text width.
+TICK_FONTSIZE, AXIS_FONTSIZE, TITLE_FONTSIZE, ROW_FONTSIZE = 15, 16, 18, 19
 
 
 def _write_combined_txt(
@@ -686,7 +689,7 @@ def _write_combined_txt(
     obs_data = data["obs_data"]
     model_data = data["model_data"]
     y_km = data["y_km"]
-    labels = [EXPERIMENT_LABELS.get(exp, exp) for exp in experiments]
+    labels = [EXPERIMENT_DISPLAY.get(exp, exp) for exp in experiments]
 
     txt_path = output_path.parent / f"{output_path.stem}_data.txt"
     with txt_path.open("w", encoding="utf-8") as fh:
@@ -784,7 +787,7 @@ def _draw_profile_row(
                     y_km,
                     color=EXPERIMENT_COLORS.get(exp, "0.5"),
                     lw=2.0,
-                    label=EXPERIMENT_LABELS.get(exp, exp),
+                    label=EXPERIMENT_DISPLAY.get(exp, exp),
                     zorder=3,
                 )
                 spans.append(diff[height_mask])
@@ -801,7 +804,7 @@ def _draw_profile_row(
                     y_km,
                     color=EXPERIMENT_COLORS.get(exp, "0.5"),
                     lw=2.0,
-                    label=EXPERIMENT_LABELS.get(exp, exp),
+                    label=EXPERIMENT_DISPLAY.get(exp, exp),
                     zorder=3,
                 )
             title = COMBINED_PANEL_TITLES.get(panel_name, spec["title"])
@@ -834,9 +837,10 @@ def _draw_profile_row(
             )
 
         if titles:
-            ax.set_title(title, fontsize=13)
+            ax.set_title(title, fontsize=TITLE_FONTSIZE)
         if xlabels:
-            ax.set_xlabel(xlabel, fontsize=12)
+            ax.set_xlabel(xlabel, fontsize=AXIS_FONTSIZE)
+        ax.tick_params(labelsize=TICK_FONTSIZE)
         ax.grid(True, color="0.88", linewidth=0.8)
         ax.text(
             0.0,
@@ -845,7 +849,7 @@ def _draw_profile_row(
             transform=ax.transAxes,
             ha="left",
             va="bottom",
-            fontsize=14,
+            fontsize=TITLE_FONTSIZE,
             fontweight="bold",
         )
         finite = np.concatenate(spans) if spans else np.array([])
@@ -862,19 +866,9 @@ def _symmetric_limit(values: Sequence[np.ndarray]) -> float | None:
     return float(np.max(np.abs(finite))) * 1.15
 
 
-def _profile_legend(fig, legend_handles, *, y: float) -> None:
-    handles, labels = legend_handles
-    handles = list(handles) + [Line2D([0], [0], color="0.4", lw=1.1, ls=":")]
-    labels = list(labels) + ["0 °C height"]
-    fig.legend(
-        handles,
-        labels,
-        loc="lower center",
-        ncol=len(labels),
-        frameon=False,
-        fontsize=11,
-        bbox_to_anchor=(0.5, y),
-    )
+def _profile_legend(fig, axes, legend_handles, ncol: int | None = None) -> None:
+    handles = list(legend_handles[0]) + [Line2D([0], [0], color="0.4", lw=1.1, ls=":", label="0 °C height")]
+    legend_below(fig, axes, handles, ncol=ncol or len(handles))
 
 
 def draw_combined_profiles(
@@ -910,11 +904,11 @@ def draw_combined_profiles(
             if lim is not None:
                 ax.set_xlim(-lim, lim)
 
-    axes[0].set_ylabel("Height above mean sea level (km)", fontsize=12)
+    axes[0].set_ylabel("Height above mean sea level (km)", fontsize=AXIS_FONTSIZE)
     axes[0].set_ylim(0.0, max_height_m / 1000.0)
-    _profile_legend(fig, legend_handles, y=0.01)
     fig.subplots_adjust(left=0.065, right=0.985, top=0.92, bottom=0.135, wspace=0.10)
-    fig.savefig(output, dpi=dpi)
+    _profile_legend(fig, axes, legend_handles)
+    fig.savefig(output, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
     return output
 
@@ -953,7 +947,10 @@ def draw_profile_rows(
         legend_handles = legend_handles or handles
         for c, values in enumerate(spans):
             column_spans[c].append(values)
-        axes[r][0].set_ylabel(f"{row_label}\nHeight above mean sea level (km)", fontsize=12)
+        axes[r][0].set_ylabel("Height above mean sea level (km)", fontsize=AXIS_FONTSIZE)
+        axes[r][0].annotate(row_label, xy=(0, 0.5), xycoords="axes fraction", xytext=(-72, 0),
+                            textcoords="offset points", rotation=90, ha="center", va="center",
+                            fontsize=ROW_FONTSIZE, fontweight="bold")
     for c, panel_name in enumerate(panel_names):
         if panel_name in set(diff_vars):
             lim = _symmetric_limit(column_spans[c])
@@ -961,11 +958,12 @@ def draw_profile_rows(
                 for r in range(nrow):
                     axes[r][c].set_xlim(-lim, lim)
     axes[0][0].set_ylim(0.0, max_height_m / 1000.0)
-    _profile_legend(fig, legend_handles, y=0.005)
     fig.subplots_adjust(
-        left=0.075, right=0.985, top=0.955, bottom=0.075, wspace=0.10, hspace=0.12
+        left=0.075, right=0.985, top=0.955, bottom=0.075, wspace=0.10, hspace=0.16
     )
-    fig.savefig(output, dpi=dpi)
+    # Two columns cannot hold the legend in one line.
+    _profile_legend(fig, axes[-1], legend_handles, ncol=3 if ncol < 3 else None)
+    fig.savefig(output, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
     return output
 
@@ -1002,7 +1000,7 @@ def draw_delta_profiles(
                 y_km,
                 color=EXPERIMENT_COLORS.get(exp, "0.5"),
                 lw=2.0,
-                label=EXPERIMENT_LABELS.get(exp, exp),
+                label=EXPERIMENT_DISPLAY.get(exp, exp),
                 zorder=3,
             )
             spans.append(values[height_mask])
@@ -1021,12 +1019,10 @@ def draw_delta_profiles(
                 fontsize=14, fontweight="bold")
     axes[0].set_ylabel("Height above mean sea level (km)", fontsize=12)
     axes[0].set_ylim(0.0, max_height_m / 1000.0)
-    handles, labels = axes[0].get_legend_handles_labels()
-    handles.append(Line2D([0], [0], color="0.4", lw=1.1, ls=":"))
-    labels.append("0 °C height (ARM sonde)")
-    fig.legend(handles, labels, loc="lower center", ncol=len(labels), frameon=False,
-               fontsize=11, bbox_to_anchor=(0.5, 0.01))
+    handles, _ = axes[0].get_legend_handles_labels()
+    handles.append(Line2D([0], [0], color="0.4", lw=1.1, ls=":", label="0 °C height (ARM sonde)"))
     fig.subplots_adjust(left=0.065, right=0.985, top=0.92, bottom=0.135, wspace=0.10)
-    fig.savefig(output, dpi=dpi)
+    legend_below(fig, axes, handles, ncol=4)
+    fig.savefig(output, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
     return output

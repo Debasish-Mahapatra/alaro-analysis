@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Common-valid hourly rainfall for the combined GoAmazon2014/5 IOPs.
 
-Radar, IMERG and the four models (C1M, G1M, G2M, G2M-XCU) on the 0.1 deg IMERG
-grid over the radar box, for IOP1 and IOP2 combined. Every dataset gets the radar
+Radar, IMERG and the five models (C1M_nodiaggrp, C1M, G1M, G2M, G2M-XCU) on the 0.1 deg
+IMERG grid over the radar box, for IOP1 and IOP2 combined. Every dataset gets the radar
 valid-time mask and the radar footprint (bilinear projection, as in the paper
-figures), so all six are compared over the same hours and cells.
+figures), so all seven are compared over the same hours and cells.
 
 Radar and IMERG come from the 2014-15 conservative rebuild. The models are
-rebuilt from raw FA with that rebuild's deaccumulation and ``remapcon``: G1M,
-G2M and G2M-XCU from the IOP warm-restart runs, C1M from the continuous control
+rebuilt from raw FA with that rebuild's deaccumulation and ``remapcon``: C1M_nodiaggrp,
+G1M, G2M and G2M-XCU from the IOP warm-restart runs, C1M from the continuous control
 run on the same dates. Hours are UTC and labelled at the start of the interval.
 """
 
@@ -49,6 +49,7 @@ REFERENCE_FILES = (
 DEFAULT_WORK_DIR = CACHE_DIRS["rainfall"]
 COMMON_SUBDIR = "common-valid-time-production-bilinearmask"
 MODEL_SOURCES = {
+    "C1M_nodiaggrp": {iop: IOP_RUNS / f"iop{iop}" / "control_nodiaggrp" / "untar-pf" for iop in GOAMAZON_IOPS},
     "C1M": {iop: CONTROL_RUN / "untar-output" for iop in GOAMAZON_IOPS},
     "G1M": {iop: IOP_RUNS / f"iop{iop}" / "graupel" / "untar-pf" for iop in GOAMAZON_IOPS},
     "G2M": {iop: IOP_RUNS / f"iop{iop}" / "2mom" / "untar-pf" for iop in GOAMAZON_IOPS},

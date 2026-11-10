@@ -57,10 +57,14 @@ DEFAULT_WORK_DIR = CACHE_DIRS["convection"]
 FA_WORKERS = 16
 # Experiment -> IOP -> raw FA directory holding pfYYYYMMDD/pfABOFABOF+HHHH.
 MODEL_RUNS = {
+    "control-nodiag": {iop: IOP_RUNS / f"iop{iop}" / "control_nodiaggrp" / "untar-pf" for iop in GOAMAZON_IOPS},
     "control": {iop: CONTROL_RUN / "untar-output" for iop in GOAMAZON_IOPS},
     "graupel": {iop: IOP_RUNS / f"iop{iop}" / "graupel" / "untar-pf" for iop in GOAMAZON_IOPS},
     "2mom": {iop: IOP_RUNS / f"iop{iop}" / "2mom" / "untar-pf" for iop in GOAMAZON_IOPS},
+    "2mom-xcu": {iop: IOP_RUNS / f"iop{iop}" / "NO3M" / "untar-pf" for iop in GOAMAZON_IOPS},
 }
+# Runs without 3MT: only the resolved motion, cloud cover and temperature are read.
+NO_SCHEME = {"2mom-xcu"}
 
 
 def campaign_days(iop: int) -> list[date]:
@@ -119,7 +123,7 @@ def build(work: Path, iop: int, key: str, workers: int, attempts: int) -> None:
     days = campaign_days(iop)
     label = EXPERIMENT_LABELS[key]
     first_day = f"{days[0]:%Y%m%d}"
-    tasks = [(str(root), f"{day:%Y%m%d}") for day in days]
+    tasks = [(str(root), f"{day:%Y%m%d}", key not in NO_SCHEME) for day in days]
 
     window = build_window()
     init_worker(window)  # the parent needs the window for the height profile
@@ -168,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
     workers = resolve_workers(args.workers)
     for iop in args.iops:
         for key in args.experiments:
-            done = args.work_dir / f"iop{iop}" / f"{EXPERIMENT_LABELS[key]}_height.npz"
+            done = args.work_dir / f"iop{iop}" / f"{EXPERIMENT_LABELS[key]}_w_dn.npz"
             if done.exists() and not args.recompute:
                 print(f"[IOP{iop} {EXPERIMENT_LABELS[key]}] cached, skip", flush=True)
                 continue

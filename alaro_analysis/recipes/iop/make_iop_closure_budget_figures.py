@@ -1,23 +1,26 @@
 #!/usr/bin/env python3
 """Closure-budget compression figure for the GoAmazon IOPs, for all four experiments.
 
-One panel per experiment (C1M, G1M, G2M, G2M-XCU), in the layout of the paper's
+One panel per experiment (C1M_nodiaggrp, C1M_diaggrp, G1M, G2M, G2M-XCU), in the layout of the paper's
 closure figure: total DDH condensation with its convection-scheme and
-resolved-microphysics parts, the updraft mass flux on a green twin axis, the
-condensation peak height and the 0 degC isotherm.
+resolved-microphysics parts, the convective upward mass flux on a green twin axis,
+the condensation peak height and the 0 degC isotherm.
 
 Condensation comes from the DDH QV budget aggregated by
 ``build_iop_closure_budgets`` (convective = max(-condcv, 0), resolved =
-max(-condrs, 0)); the 0 degC line from the DDH temperature of the same days. The
-updraft mass flux is the 4 km radar-domain profile already cached by
-``build_iop_convection_diurnal``.
+max(-condrs, 0)) over the DDH domain around T3 (all columns); the 0 degC line from
+the DDH temperature of the same days. The upward mass flux follows the supervisor's
+procedure (``build_iop_updraft_partition``, as IOP figure 6): each column split into the
+3MT updraft, the downdraft and the rest on the hourly snapshots, the rising part of every
+piece times its area, convective columns only, 20 km boxes over the 4 km radar domain
+divided by their full area, mean over the box-hours with convection.
 
-G2M-XCU carries no parameterized convection, so its convective curve is zero and
-it has no updraft mass flux to draw.
+G2M-XCU carries no parameterized convection, so its convective curve is zero and its
+upward flux is the rising resolved motion of its convective columns.
 
 A second figure per period stacks day (06-18 LT, Amazon local time UTC-4) over night
 (18-06 LT), with one condensation and one updraft axis range for all panels, so the
-two rows compare directly (``closure_budget_compression_day_night_<period>``). The
+two rows compare directly (supplementary ``closure_budget_compression_day_night``). The
 condensation comes from the day and night DDH windows of ``build_iop_closure_budgets``;
 the updraft flux from the same local hours of the convection caches.
 """
@@ -36,25 +39,29 @@ import numpy as np
 from matplotlib.lines import Line2D
 
 from alaro_analysis.common.cli_config import parse_configured_args
+from alaro_analysis.common.experiments import shown_runs
 from alaro_analysis.common.figio import DEFAULT_DPI, convert_to_jpg, legend_below
 from alaro_analysis.common.iop_settings import (
+    PLOT_TOP_KM,
     FIGURES,
     GOAMAZON_IOPS,
     IOP_PERIODS,
     figure_files,
+    supplementary_files,
     write_figure_index,
 )
-from alaro_analysis.recipes.iop.build_iop_closure_budgets import DEFAULT_WORK_DIR, LABELS
+from alaro_analysis.recipes.iop.build_iop_closure_budgets import DEFAULT_WORK_DIR, DISPLAY
 from alaro_analysis.recipes.iop.build_iop_convection_diurnal import (
     DEFAULT_WORK_DIR as CONVECTION_WORK_DIR,
 )
 
-# Experiment directory -> key of the convection cache holding its updraft flux.
-# G2M-XCU has no parameterized updraft, so it has no entry.
-UPDRAFT_KEYS = {"control": "C1M", "graupel": "G1M", "2mom": "G2M"}
-EXPERIMENTS = ("control", "graupel", "2mom", "NO3M")
-FIGURE_NUMBER = 11
+# Experiment directory -> label of its convective-box caches.
+UPDRAFT_KEYS = {"control_nodiaggrp": "C1M_nodiaggrp", "control": "C1M", "graupel": "G1M", "2mom": "G2M",
+                "NO3M": "G2M-XCU"}
+EXPERIMENTS = shown_runs(("control_nodiaggrp", "control", "graupel", "2mom", "NO3M"))
+FIGURE_NAME = "closure_budget_compression"
 FIGURE_STEM = "closure_budget_compression"
+# Supplementary figure, its folder named after its stem.
 DAY_NIGHT_STEM = "closure_budget_compression_day_night"
 # Local-hour columns of the convection caches (Amazon local time, UTC-4).
 DAY_HOURS = tuple(range(6, 18))
@@ -68,7 +75,9 @@ RESOLVED_COLOR = "#1F77B4"
 UPDRAFT_COLOR = "#009E73"
 PEAK_COLOR = "#4D4D4D"
 FREEZING_COLOR = "#555555"
-PANEL_LABELS = ("(a)", "(b)", "(c)", "(d)", "(e)", "(f)", "(g)", "(h)")
+PANEL_LABELS = ("(a)", "(b)", "(c)", "(d)", "(e)", "(f)", "(g)", "(h)", "(i)", "(j)")
+# Font sizes for a figure printed at the full text width.
+TICK_FONTSIZE, AXIS_FONTSIZE, TITLE_FONTSIZE, ROW_FONTSIZE, LEGEND_FONTSIZE = 17, 19, 22, 24, 20
 
 
 def load_condensation(
@@ -110,13 +119,14 @@ def load_condensation(
 def load_updraft(
     convection_work: Path, iops: tuple[int, ...], experiment: str, hours=tuple(range(24))
 ):
-    """Mean updraft mass-flux profile (kg m-2 s-1) over the given local hours, and height (km)."""
+    """Convective upward mass-flux profile (kg m-2 s-1) over the given local hours, and
+    height (km): mean over the convective box-hours of those hours."""
     label = UPDRAFT_KEYS.get(experiment)
     if label is None:
         return None
     total, weight, height = None, None, None
     for iop in iops:
-        with np.load(convection_work / f"iop{iop}" / f"{label}_ud_flux.npz") as cache:
+        with np.load(convection_work / f"iop{iop}" / f"{label}_box_up.npz") as cache:
             mean = np.asarray(cache["mean"], float)[:, list(hours)]
             counts = np.asarray(cache["counts"], float)[:, list(hours)]
         valid = np.isfinite(mean) & (counts > 0)
@@ -208,15 +218,19 @@ def draw_rows(rows: dict, png: Path, dpi: int, updraft_handles=None) -> tuple[fl
     """
     cond_max, flux_max = axis_ranges(list(rows.values()))
     nrow = len(rows)
-    plt.rcParams.update({"font.size": 12, "axes.titlesize": 16})
-    width = 5.2 * len(EXPERIMENTS)
+    plt.rcParams.update({"font.size": TICK_FONTSIZE, "axes.titlesize": TITLE_FONTSIZE,
+                         "axes.labelsize": AXIS_FONTSIZE, "xtick.labelsize": TICK_FONTSIZE,
+                         "ytick.labelsize": TICK_FONTSIZE})
+    # Four panels in a single row go 2x2.
+    wrap = nrow == 1 and len(EXPERIMENTS) == 4
+    shape = (2, 2) if wrap else (nrow, len(EXPERIMENTS))
     fig, axes = plt.subplots(
-        nrow, len(EXPERIMENTS), figsize=(width, 8.0 * nrow), sharey=True, squeeze=False
+        *shape, figsize=(4.8 * shape[1], 7.2 * shape[0]), sharey=True, squeeze=False
     )
     for row, (row_label, panels) in enumerate(rows.items()):
         for index, experiment in enumerate(EXPERIMENTS):
             data = panels[experiment]
-            ax = axes[row][index]
+            ax = axes[index // 2][index % 2] if wrap else axes[row][index]
             z = data["altitude_km"]
             if np.isfinite(data["z_peak"]):
                 ax.axhspan(0, data["z_peak"], color="#BFC7D5", alpha=0.18, zorder=0)
@@ -243,26 +257,31 @@ def draw_rows(rows: dict, png: Path, dpi: int, updraft_handles=None) -> tuple[fl
                     transform=twin.transAxes,
                     ha="center",
                     va="top",
-                    fontsize=10,
+                    fontsize=TICK_FONTSIZE,
                     color=UPDRAFT_COLOR,
                 )
             twin.set_xlim(0, flux_max)
+            twin.xaxis.set_major_locator(mticker.MaxNLocator(4))
             twin.set_xlabel(
-                r"updraft mass flux (kg m$^{-2}$ s$^{-1}$)", color=UPDRAFT_COLOR, labelpad=8
+                r"upward mass flux (kg m$^{-2}$ s$^{-1}$)", color=UPDRAFT_COLOR, labelpad=8
             )
             twin.tick_params(axis="x", colors=UPDRAFT_COLOR)
             twin.spines["top"].set_color(UPDRAFT_COLOR)
             twin.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:g}"))
 
             ax.set_xlim(0, cond_max)
-            ax.set_ylim(0, Z_MAX_KM)
+            ax.set_ylim(0, PLOT_TOP_KM)
             if row == 0:
-                ax.set_title(LABELS[experiment], pad=32)
+                ax.set_title(DISPLAY[experiment], pad=32)
             ax.set_xlabel(r"condensation (g kg$^{-1}$ day$^{-1}$)")
             ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:g}"))
             ax.grid(alpha=0.25)
-            if index == 0:
-                ax.set_ylabel(f"{row_label}\naltitude (km)" if row_label else "altitude (km)")
+            if index % shape[1] == 0:
+                ax.set_ylabel("altitude (km)")
+                if row_label:
+                    ax.annotate(row_label, xy=(0, 0.5), xycoords="axes fraction", xytext=(-82, 0),
+                                textcoords="offset points", rotation=90, ha="center", va="center",
+                                fontsize=ROW_FONTSIZE, fontweight="bold")
             ax.text(
                 0.97,
                 0.96,
@@ -270,7 +289,7 @@ def draw_rows(rows: dict, png: Path, dpi: int, updraft_handles=None) -> tuple[fl
                 transform=ax.transAxes,
                 ha="right",
                 va="top",
-                fontsize=14,
+                fontsize=TITLE_FONTSIZE,
                 fontweight="bold",
                 bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.75, "pad": 2.0},
                 zorder=20,
@@ -280,17 +299,20 @@ def draw_rows(rows: dict, png: Path, dpi: int, updraft_handles=None) -> tuple[fl
         Line2D([0], [0], color=TOTAL_COLOR, lw=2.8, label="total condensation"),
         Line2D([0], [0], color=CONVECTIVE_COLOR, lw=2.0, ls="-.", label="convection-scheme part"),
         Line2D([0], [0], color=RESOLVED_COLOR, lw=2.0, ls="--", label="resolved-microphysics part"),
-        *(updraft_handles or [Line2D([0], [0], color=UPDRAFT_COLOR, lw=2.1, label="updraft mass flux")]),
+        *(updraft_handles or [Line2D([0], [0], color=UPDRAFT_COLOR, lw=2.1,
+                                     label="convective upward mass flux")]),
         Line2D(
             [0], [0], color=PEAK_COLOR, lw=1.2, ls=(0, (6, 3)), label="condensation peak height"
         ),
         Line2D([0], [0], color=FREEZING_COLOR, lw=1.2, ls=":", label=r"0 $^{\circ}$C isotherm"),
     ]
-    if nrow == 1:
+    if wrap:
+        fig.subplots_adjust(left=0.10, right=0.975, top=0.92, bottom=0.06, wspace=0.14, hspace=0.42)
+    elif nrow == 1:
         fig.subplots_adjust(left=0.06, right=0.985, top=0.84, bottom=0.10, wspace=0.12)
     else:
-        fig.subplots_adjust(left=0.07, right=0.985, top=0.92, bottom=0.06, wspace=0.12, hspace=0.30)
-    legend_below(fig, axes, handles, handlelength=2.6, columnspacing=1.8)
+        fig.subplots_adjust(left=0.07, right=0.985, top=0.92, bottom=0.06, wspace=0.12, hspace=0.38)
+    legend_below(fig, axes, handles, fontsize=LEGEND_FONTSIZE, handlelength=2.6, columnspacing=1.8)
     fig.savefig(png, dpi=dpi, facecolor="white", bbox_inches="tight", pad_inches=0.25)
     plt.close(fig)
     return cond_max, flux_max
@@ -307,8 +329,8 @@ def write_day_night_txt(txt: Path, halves: dict, iops: tuple[int, ...]) -> None:
         "Day = 06-18 LT, night = 18-06 LT (Amazon local time, UTC-4). DDH windows: day = leads",
         "10-22 UTC of the 00 UTC runs (+0022 minus +0010, ddht DIFFE_EC2_EC1); night = 00-10 UTC",
         "(+0010) and 22-24 UTC (+0024 minus +0022), combined by duration. The three windows add",
-        "back to the 24 h budget to within 0.1 %. Updraft mass flux: the same local hours of the",
-        "convection caches. The 0 degC line is the 24 h one in both rows.",
+        "back to the 24 h budget to within 0.1 %. Upward mass flux: the convective box-hours of the",
+        "same local hours. The 0 degC line is the 24 h one in both rows.",
     ]
     for half, panels in halves.items():
         lines += ["", "#" * 60]
@@ -319,7 +341,7 @@ def write_day_night_txt(txt: Path, halves: dict, iops: tuple[int, ...]) -> None:
 def txt_lines(panels: dict, iops: tuple[int, ...], title: str | None = None) -> list[str]:
     names = " and ".join(f"IOP{iop}" for iop in iops)
     combined = " combined" if len(iops) > 1 else ""
-    title = title or "Closure-budget compression: DDH condensation and updraft mass flux"
+    title = title or "Closure-budget compression: DDH condensation and convective upward mass flux"
     lines = [
         title,
         "=" * len(title),
@@ -333,18 +355,25 @@ def txt_lines(panels: dict, iops: tuple[int, ...], title: str | None = None) -> 
         "domain: convection-scheme part = max(-condcv, 0), resolved-microphysics part =",
         "max(-condrs, 0), total = their sum, in g kg-1 day-1. Day-weighted mean over the",
         "campaign days.",
-        "0 degC isotherm from the DDH temperature of the same days (T = VCT0/VPP0/cp).",
-        "Updraft mass flux is the all-hours mean over the 4 km radar domain (2960 cells) from",
-        "the convection caches. The condensation profiles are DDH domain means.",
-        "G2M-XCU has no parameterized convection: its convective part is zero and it has no",
-        "updraft mass flux.",
+        "DDH domain: lon -61.27 to -59.93, lat -3.88 to -2.54 (about 150 km around T3).",
+        "0 degC isotherm from the DDH temperature at the start of the same days, 00 UTC",
+        "(T = VCT0/VPP0/cp, cp of the moist air).",
+        "Convective upward mass flux (kg m-2 s-1), the supervisor's procedure (build_iop_updraft_partition,",
+        "as IOP figure 6): each column split into 3MT updraft (UD_OMEGA relative to its environment),",
+        "downdraft (DD_OMEGA absolute) and the rest on the instantaneous hourly snapshots; rising part of",
+        "every piece x its area; convective columns only (rain >= 1 mm in the hour and a 3MT updraft,",
+        "G2M-XCU by rain alone), other columns 0; 20 km boxes over the 4 km radar domain divided by their",
+        "full area; mean over the box-hours with convection. So the flux is the convective boxes' mean on",
+        "the radar domain while the condensation is the DDH domain mean: compare their shapes.",
+        "G2M-XCU has no parameterized convection: its convective part is zero and its upward flux is the",
+        "rising resolved motion of its convective columns.",
         "",
         "experiment,days,column_0_10km_gkgday_km,peak_height_km,freezing_level_km",
     ]
     for experiment in EXPERIMENTS:
         d = panels[experiment]
         lines.append(
-            f"{LABELS[experiment]},{d['days']},{d['column']:.6g},{d['z_peak']:.4g},"
+            f"{DISPLAY[experiment]},{d['days']},{d['column']:.6g},{d['z_peak']:.4g},"
             f"{d['z_freeze']:.4g}"
         )
     lines += ["", "experiment,altitude_km,convective_gkgday,resolved_gkgday,total_gkgday"]
@@ -352,22 +381,22 @@ def txt_lines(panels: dict, iops: tuple[int, ...], title: str | None = None) -> 
         d = panels[experiment]
         for z, c, r, t in zip(d["altitude_km"], d["convective"], d["resolved"], d["total"]):
             if z <= Z_MAX_KM:
-                lines.append(f"{LABELS[experiment]},{z:.4f},{c:.6e},{r:.6e},{t:.6e}")
-    lines += ["", "experiment,height_km,updraft_mass_flux_kg_m2_s"]
+                lines.append(f"{DISPLAY[experiment]},{z:.4f},{c:.6e},{r:.6e},{t:.6e}")
+    lines += ["", "experiment,height_km,convective_upward_mass_flux_kg_m2_s"]
     for experiment in EXPERIMENTS:
         updraft = panels[experiment]["updraft"]
         if updraft is None:
-            lines.append(f"{LABELS[experiment]},nan,nan")
+            lines.append(f"{DISPLAY[experiment]},nan,nan")
             continue
         height, flux = updraft
         for h, f in zip(height, flux):
             if h <= Z_MAX_KM:
-                lines.append(f"{LABELS[experiment]},{h:.4f},{f:.6e}")
+                lines.append(f"{DISPLAY[experiment]},{h:.4f},{f:.6e}")
     return lines
 
 
 def figure_outputs(root: Path, period: str) -> tuple[Path, Path, Path]:
-    return figure_files(root, FIGURE_NUMBER, FIGURE_STEM, period)
+    return figure_files(root, FIGURE_NAME, FIGURE_STEM, period)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -396,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
             half: gather(args.work_dir, args.convection_work_dir, iops, half)
             for half in ("day", "night")
         }
-        png, jpg, txt = figure_files(args.output_dir, FIGURE_NUMBER, DAY_NIGHT_STEM, key)
+        png, jpg, txt = supplementary_files(args.output_dir, DAY_NIGHT_STEM, DAY_NIGHT_STEM, key)
         draw_rows({HALF_LABELS[h]: p for h, p in halves.items()}, png, args.dpi)
         convert_to_jpg(png, jpg, dpi=args.dpi)
         png.unlink()

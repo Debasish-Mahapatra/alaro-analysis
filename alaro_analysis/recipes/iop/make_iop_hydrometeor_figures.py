@@ -34,12 +34,15 @@ import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
+from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from alaro_analysis.common.cli_config import parse_configured_args
-from alaro_analysis.common.constants import EXPERIMENT_LABELS
-from alaro_analysis.common.figio import DEFAULT_DPI, convert_to_jpg
+from alaro_analysis.common.constants import EXPERIMENT_DISPLAY, EXPERIMENT_LABELS
+from alaro_analysis.common.experiments import shown_runs
+from alaro_analysis.common.figio import DEFAULT_DPI, convert_to_jpg, legend_below
 from alaro_analysis.common.iop_settings import (
+    PLOT_TOP_KM,
     FIGURES,
     GOAMAZON_IOPS,
     IOP_PERIODS,
@@ -49,8 +52,8 @@ from alaro_analysis.common.iop_settings import (
 from alaro_analysis.common.vertical import centers_to_edges
 from alaro_analysis.recipes.iop.build_iop_hydrometeor_histograms import DEFAULT_WORK_DIR
 
-EXPS = ("control", "graupel", "2mom", "2mom-xcu")
-FIGURE_NUMBER = 10
+EXPS = shown_runs(("control-nodiag", "control", "graupel", "2mom", "2mom-xcu"))
+FIGURE_NAME = "hydrometeor_mass_fraction"
 FIGURE_STEM = "hydrometeor_mass_fraction"
 ROWS = (
     (r"$q_\mathrm{g}$", "GRAUPEL", "Graupel"),
@@ -64,13 +67,16 @@ COL_FREEZE_EXP = EXPS
 MAX_HEIGHT_KM = 20.0
 # Below this the values are numerical residue rather than condensate.
 MIN_MASS_FRACTION = 1e-8
+# The median line is drawn only where a level holds at least this many grid-point-hours;
+# below that it jumps about (a few hundred points out of 2960 cells x 2904 hours).
+MIN_MEDIAN_POINTS = 1000
 COUNT_VMIN, COUNT_VMAX = 1e1, 2e6
 FREEZING_K = 273.15
 
 # Fonts, as in the paper figure: everything bold, including mathtext.
 TICK_FS, AXIS_FS, TITLE_FS = 17, 20, 23
 CBAR_FS, CBAR_TICK_FS = 20, 15
-SYM_FS, LEG_FS, LETTER_FS = 30, 15, 28
+SYM_FS, LETTER_FS = 30, 28
 
 plt.rcParams.update(
     {
@@ -193,7 +199,8 @@ def prepare(data: dict) -> dict:
                 continue
             counts = counts[:, first:]
             fields[(exp, species)] = counts[order][keep]
-            medians[(exp, species)] = level_median(counts, log_edges)[order][keep]
+            median = np.where(counts.sum(axis=1) >= MIN_MEDIAN_POINTS, level_median(counts, log_edges), np.nan)
+            medians[(exp, species)] = median[order][keep]
     freezing = {exp: freezing_level_km(data["temperature"][exp][order][keep], y) for exp in EXPS}
     return {
         "q_edges": 10.0**log_edges,
@@ -211,16 +218,16 @@ def column_plan(species: str) -> list[tuple]:
     Graupel is not prognostic in the 2-ice control, so that row shows "no data"
     and then the G1M absolute, exactly as the paper figure does.
     """
-    labels = {exp: EXPERIMENT_LABELS[exp] for exp in EXPS}
-    later = [("graupel", "control"), ("2mom", "graupel"), ("2mom-xcu", "2mom")]
+    labels = {exp: EXPERIMENT_DISPLAY[exp] for exp in EXPS}
+    later = list(zip(EXPS[1:], EXPS[:-1]))
     if species == "GRAUPEL":
-        plan = [
-            ("nodata", None, labels["control"], None),
-            ("abs", "graupel", labels["graupel"], "graupel"),
-        ]
-        pairs = later[1:]
+        # The controls carry no graupel: "no data" up to G1M, then G1M absolute.
+        first = EXPS.index("graupel")
+        plan = [("nodata", None, labels[exp], None) for exp in EXPS[:first]]
+        plan.append(("abs", "graupel", labels["graupel"], "graupel"))
+        pairs = later[first:]
     else:
-        plan = [("abs", "control", labels["control"], "control")]
+        plan = [("abs", EXPS[0], labels[EXPS[0]], EXPS[0])]
         pairs = later
     for new, old in pairs:
         plan.append(("diff", (new, old), f"{labels[new]} − {labels[old]}", new))
@@ -267,9 +274,8 @@ def draw(prepared: dict, png: Path, dpi: int) -> float:
 
     # A zero-height spacer row widens only the graupel/snow gap, where the column
     # titles change meaning; the other rows stay tight.
-    # Paper panel geometry for four columns, kept under Pillow's 179 Mpx ceiling
-    # at 450 dpi (29.5 x 27.5 in -> 13275 x 12375 px).
-    fig = plt.figure(figsize=(29.5, 27.5))
+    # Paper panel geometry (four columns), one column wider with both controls.
+    fig = plt.figure(figsize=(29.5 if len(EXPS) == 4 else 36.0, 27.5))
     grid = fig.add_gridspec(
         len(ROWS) + 1,
         len(EXPS),
@@ -289,14 +295,14 @@ def draw(prepared: dict, png: Path, dpi: int) -> float:
         for c in range(len(EXPS)):
             axes[r, c] = fig.add_subplot(grid[grid_rows[r], c])
 
-    letters = iter("abcdefghijklmnopqrst")
+    letters = iter("abcdefghijklmnopqrstuvwxy")
     for r, (_symbol, species, _name) in enumerate(ROWS):
         for c, (kind, payload, title, median_exp) in enumerate(column_plan(species)):
             ax = axes[r, c]
             ax.set_xscale("log")
             ax.set_xlim(q_edges[0], q_edges[-1])
-            ax.set_ylim(0.0, MAX_HEIGHT_KM)
-            ax.set_yticks(np.arange(0.0, MAX_HEIGHT_KM + 0.1, 5.0))
+            ax.set_ylim(0.0, PLOT_TOP_KM)
+            ax.set_yticks(np.arange(0.0, PLOT_TOP_KM + 0.1, 5.0))
             ax.tick_params(axis="both", labelsize=TICK_FS)
             if r <= 1:
                 ax.set_title(title, fontsize=TITLE_FS, fontweight="bold")
@@ -304,20 +310,19 @@ def draw(prepared: dict, png: Path, dpi: int) -> float:
                 ax.set_xlabel(r"Mass fraction (kg kg$^{-1}$)", fontsize=AXIS_FS, fontweight="bold")
             if c == 0:
                 ax.set_ylabel("Height (km)", fontsize=AXIS_FS, fontweight="bold")
-            ax.text(
+            ax.text(  # upper right: no species reaches that far at those heights
                 0.975,
-                0.03,
+                0.97,
                 f"({next(letters)})",
                 transform=ax.transAxes,
                 ha="right",
-                va="bottom",
+                va="top",
                 fontsize=LETTER_FS,
                 fontweight="bold",
                 zorder=12,
                 bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.9, "pad": 2.0},
             )
 
-            handles = []
             if kind == "nodata":
                 ax.text(
                     0.5,
@@ -362,23 +367,10 @@ def draw(prepared: dict, png: Path, dpi: int) -> float:
                 cbar.ax.yaxis.set_major_formatter(mticker.FuncFormatter(sci_tick))
 
             if median_exp is not None and (median_exp, species) in medians:
-                (line,) = ax.plot(
-                    medians[(median_exp, species)], y, color="black", lw=2.4, zorder=6,
-                    label="Median",
-                )
-                handles.append(line)
+                ax.plot(medians[(median_exp, species)], y, color="black", lw=2.4, zorder=6)
             level = freezing[COL_FREEZE_EXP[c]]
             if np.isfinite(level):
-                handles.append(
-                    ax.axhline(level, color="black", lw=2.4, ls="--", zorder=7, label="0 °C level")
-                )
-            if handles:
-                ax.legend(
-                    handles=handles,
-                    loc="upper right",
-                    framealpha=0.9,
-                    prop={"size": LEG_FS, "weight": "bold"},
-                )
+                ax.axhline(level, color="black", lw=2.4, ls="--", zorder=7)
 
     # Species symbol in the wide left margin, clear of the "Height (km)" label.
     for r, (symbol, _species, _name) in enumerate(ROWS):
@@ -393,6 +385,15 @@ def draw(prepared: dict, png: Path, dpi: int) -> float:
             fontsize=SYM_FS,
             fontweight="bold",
         )
+
+    # One legend for every panel, below the figure, so none covers data.
+    handles = [
+        Line2D([0], [0], color="black", lw=2.4, label="Median mass fraction"),
+        Line2D([0], [0], color="black", lw=2.4, ls="--", label="0 °C level"),
+    ]
+    legend = legend_below(fig, axes, handles, ncol=2, fontsize=AXIS_FS)
+    for text in legend.get_texts():
+        text.set_fontweight("bold")
 
     # Tight bbox so the last column's colorbar label is inside the page rather
     # than clipped at the right edge.
@@ -413,7 +414,7 @@ def write_txt(txt: Path, data: dict, prepared: dict, iops: tuple[int, ...], diff
     for iop in iops:
         start, end = GOAMAZON_IOPS[iop]
         lines.append(f"IOP{iop}: {start} to {end} inclusive, {(end - start).days + 1} days.")
-    files = ", ".join(f"{EXPERIMENT_LABELS[e]} {data['files'][e]}" for e in EXPS)
+    files = ", ".join(f"{EXPERIMENT_DISPLAY[e]} {data['files'][e]}" for e in EXPS)
     lines += [
         f"Hourly files per experiment: {files}.",
         "NO NORMALISATION IS APPLIED. Each cell is the plain number of grid-point-hours whose",
@@ -421,17 +422,20 @@ def write_txt(txt: Path, data: dict, prepared: dict, iops: tuple[int, ...], diff
         "native 4 km grid (2960 cells, ALARO-RUNS/mask/Radar_mask_4km_native.nc), all runs from",
         "raw FA. Heights are NOT rescaled to 100 %, so this is not a CFAD and heights, species",
         "and experiments are directly comparable.",
-        "Columns: C1M absolute; G1M - C1M; G2M - G1M; G2M-XCU - G2M.",
-        "Graupel row: C1M (no data), G1M absolute, G2M - G1M, G2M-XCU - G2M.",
+        "Columns: " + "; ".join(title if kind == "diff" else f"{title} absolute"
+                                for kind, _, title, _ in column_plan("RAIN")).replace("−", "-") + ".",
+        "Graupel row: " + ", ".join(title if kind == "diff" else f"{title} ({'no data' if kind == 'nodata' else 'absolute'})"
+                                    for kind, _, title, _ in column_plan("GRAUPEL")).replace("−", "-") + ".",
         f"Absolute: WhiteBlueGreenYellowRed LogNorm {COUNT_VMIN:g}..{COUNT_VMAX:g} counts.",
         f"Difference: RdBu_r symmetric log, +/-{diff_scale:,.0f} counts, linear within "
-        f"+/-{DIFF_LINTHRESH:,.0f}. The three difference columns span an order of magnitude,",
-        "so a linear scale set by the largest would leave G1M - C1M blank; the log scale shows",
+        f"+/-{DIFF_LINTHRESH:,.0f}. The difference columns span an order of magnitude,",
+        "so a linear scale set by the largest would leave the smallest blank; the log scale shows",
         "every column on one global range.",
         f"Only mass fractions >= {MIN_MASS_FRACTION:g} kg/kg are plotted; lower bins are",
         "numerical residue and are dropped. Empty bins are left blank; a zero on one side of a",
         "difference is kept.",
-        "Black solid line: per-level median mass fraction of that panel's later model.",
+        "Black solid line: per-level median mass fraction of that panel's later model, drawn where the",
+        f"level holds at least {MIN_MEDIAN_POINTS} grid-point-hours above the threshold.",
         "Black dashed line: 0 degC level of that column's model.",
         "The full count matrices are in the npz caches under IOP-runs/analysis/hydrometeors/.",
         "",
@@ -440,15 +444,15 @@ def write_txt(txt: Path, data: dict, prepared: dict, iops: tuple[int, ...], diff
         "series,z_freeze_km",
     ]
     lines += [
-        f"{EXPERIMENT_LABELS[e]},{prepared['freezing'][e]:.4g}"
+        f"{EXPERIMENT_DISPLAY[e]},{prepared['freezing'][e]:.4g}"
         if np.isfinite(prepared["freezing"][e])
-        else f"{EXPERIMENT_LABELS[e]},nan"
+        else f"{EXPERIMENT_DISPLAY[e]},nan"
         for e in EXPS
     ]
 
     heading = "Counted grid-point-hours per species"
     lines += ["", heading, "-" * len(heading)]
-    lines.append("species," + ",".join(EXPERIMENT_LABELS[e] for e in EXPS))
+    lines.append("species," + ",".join(EXPERIMENT_DISPLAY[e] for e in EXPS))
     for _, species, name in ROWS:
         row = []
         for exp in EXPS:
@@ -459,7 +463,7 @@ def write_txt(txt: Path, data: dict, prepared: dict, iops: tuple[int, ...], diff
     for _, species, name in ROWS:
         heading = f"{name}: per-level median mass fraction (kg kg-1)"
         lines += ["", heading, "-" * len(heading)]
-        lines.append("height_km," + ",".join(EXPERIMENT_LABELS[e] for e in EXPS))
+        lines.append("height_km," + ",".join(EXPERIMENT_DISPLAY[e] for e in EXPS))
         for i, height in enumerate(prepared["y"]):
             row = [f"{height:.4f}"]
             for exp in EXPS:
@@ -471,7 +475,7 @@ def write_txt(txt: Path, data: dict, prepared: dict, iops: tuple[int, ...], diff
 
 
 def figure_outputs(root: Path, period: str) -> tuple[Path, Path, Path]:
-    return figure_files(root, FIGURE_NUMBER, FIGURE_STEM, period)
+    return figure_files(root, FIGURE_NAME, FIGURE_STEM, period)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

@@ -249,6 +249,7 @@
     "family": "iop",
     "module": "alaro_analysis.recipes.iop.build_iop_updraft_cloud_partition",
     "description": "Diurnal height-hour sections of updraft extent, mass flux and cloud cover, all four runs.",
+    "legacy_script": "scripts/build_iop_updraft_cloud_partition.py",
     "status": "available",
     "package_dependencies": [
       "alaro_analysis.common.iop_settings",
@@ -508,23 +509,6 @@
       "alaro_analysis.common.iop_settings",
       "alaro_analysis.common.vertical",
       "alaro_analysis.recipes.iop.build_iop_hydrometeor_histograms"
-    ],
-    "interface": "arguments and TOML"
-  },
-  {
-    "name": "make_iop_microphysics_story",
-    "family": "iop",
-    "module": "alaro_analysis.recipes.iop.make_iop_microphysics_story",
-    "description": "Supplementary S04 microphysics figures: radar, disdrometer and W-band cloud radar against the four runs.",
-    "legacy_script": "scripts/make_iop_microphysics_story.py",
-    "status": "available",
-    "package_dependencies": [
-      "alaro_analysis.analysis.radar_echo",
-      "alaro_analysis.common.cli_config",
-      "alaro_analysis.common.figio",
-      "alaro_analysis.common.iop_settings",
-      "alaro_analysis.data.microphysics_columns",
-      "alaro_analysis.data.wacr_occurrence"
     ],
     "interface": "arguments and TOML"
   },
@@ -863,15 +847,33 @@
     "interface": "arguments and TOML"
   },
   {
-    "name": "make_paper_updraft_cloud_partition_panel",
-    "family": "paper1",
-    "module": "alaro_analysis.recipes.paper1.make_paper_updraft_cloud_partition_panel",
-    "description": "Paper figure 5, rebuilt on the GoAmazon IOPs: updraft extent, upward mass flux, cloud cover.",
+    "name": "make_iop_draft_sections",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.make_iop_draft_sections",
+    "description": "IOP figures 6 and 7: diurnal height sections of the updrafts and of the downdrafts.",
+    "legacy_script": "scripts/make_iop_draft_sections.py",
     "status": "available",
     "package_dependencies": [
+      "alaro_analysis.common.figio",
       "alaro_analysis.common.iop_settings",
-      "alaro_analysis.common.paths",
       "alaro_analysis.data.convection_sections",
+      "alaro_analysis.recipes.iop.make_iop_convection_figures"
+    ],
+    "interface": "arguments and TOML"
+  },
+  {
+    "name": "make_iop_convective_flux_sampling",
+    "family": "iop",
+    "module": "alaro_analysis.recipes.iop.make_iop_convective_flux_sampling",
+    "description": "How the choice of convective columns changes the G2M-XCU minus G2M mass flux.",
+    "legacy_script": "scripts/make_iop_convective_flux_sampling.py",
+    "status": "available",
+    "package_dependencies": [
+      "alaro_analysis.common.cli_config",
+      "alaro_analysis.common.constants",
+      "alaro_analysis.common.figio",
+      "alaro_analysis.common.iop_settings",
+      "alaro_analysis.recipes.iop.build_iop_convection_diurnal",
       "alaro_analysis.recipes.iop.make_iop_convection_figures"
     ],
     "interface": "arguments and TOML"

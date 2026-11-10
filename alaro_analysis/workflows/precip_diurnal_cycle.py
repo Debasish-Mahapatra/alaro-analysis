@@ -18,7 +18,8 @@ from matplotlib.patches import Patch
 
 from alaro_analysis.common.cli_config import parse_configured_args
 from alaro_analysis.common.constants import RUNS_ROOT
-from alaro_analysis.common.figio import DatasetConfig, add_io_args, save_figure
+from alaro_analysis.common.experiments import run_color, run_display, shown_runs
+from alaro_analysis.common.figio import DatasetConfig, add_io_args, legend_below, save_figure
 
 DEFAULT_DATA_DIR = (
     RUNS_ROOT / "rainfall-conservative-rebuild" / "common-valid-time-production-bilinearmask"
@@ -34,14 +35,17 @@ class HourlyStats:
     count: np.ndarray
 
 
-DATASETS: tuple[DatasetConfig, ...] = (
+_ALL_DATASETS: tuple[DatasetConfig, ...] = (
     DatasetConfig("radar", "Radar", "Radar_common_valid.nc", "rainfall", "black", "-", 3.2),
     DatasetConfig("imerg", "IMERG", "IMERG_common_valid.nc", "rainfall", "dimgray", ":", 3.6),
-    DatasetConfig("control", "C1M", "C1M_common_valid.nc", "rainfall", "#d62728", "-", 3.0),
+    DatasetConfig("nodiag", run_display("nodiag"), "C1M_nodiaggrp_common_valid.nc", "rainfall", run_color("nodiag"), "-", 3.0),
+    DatasetConfig("control", "C1M_diaggrp", "C1M_common_valid.nc", "rainfall", "#d62728", "-", 3.0),
     DatasetConfig("graupel", "G1M", "G1M_common_valid.nc", "rainfall", "#1f77b4", "-", 3.0),
     DatasetConfig("2mom", "G2M", "G2M_common_valid.nc", "rainfall", "#2ca02c", "-", 3.0),
     DatasetConfig("no3m", "G2M-XCU", "G2M-XCU_common_valid.nc", "rainfall", "#9467bd", "-", 3.0),
 )
+# Without the run with the diagnostic graupel when the four-run set is drawn.
+DATASETS = tuple(cfg for cfg in _ALL_DATASETS if shown_runs((cfg.key,)))
 
 OBS_SHADE_KEYS = ("radar", "imerg")
 SHADE_SETTINGS = {
@@ -92,6 +96,13 @@ def shading_bounds(
     elif mode == "percent":
         lower = stats.mean * (1.0 - percent_uncertainty)
         upper = stats.mean * (1.0 + percent_uncertainty)
+    elif mode == "sampling":
+        # 95 % range of each hourly mean from the day-to-day spread: how much it could
+        # change with another sample of days of the same kind (one value per day and hour)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            spread = 1.96 * stats.std / np.sqrt(stats.count)
+        lower = stats.mean - spread
+        upper = stats.mean + spread
     else:
         raise ValueError(f"Unsupported shading mode: {mode}")
     return np.clip(lower, 0.0, None), np.clip(upper, 0.0, None)
@@ -129,11 +140,105 @@ def plot_diurnal_cycle(
     std_multiplier: float,
     percent_uncertainty: float,
     dpi: int,
+    period_label: str | None = None,
 ) -> None:
+    """Mean diurnal cycles; ``period_label`` (e.g. "IOP1") goes just above the line legend."""
     hours = np.arange(24)
     fig, ax = plt.subplots(figsize=(12, 7))
+    shade_handles, tops = _draw_cycles(ax, stats_by_key, shade_mode=shade_mode,
+                                       std_multiplier=std_multiplier, percent_uncertainty=percent_uncertainty)
 
+    ax.set_ylabel(r"Rainfall rate (mm h$^{-1}$)", fontsize=18)
+    ax.set_xlabel("Local time (UTC-4)", fontsize=18)
+    ax.set_xticks(hours)
+    ax.set_xlim(0, 23)
+    ax.tick_params(axis="both", which="major", labelsize=16)
+    ax.grid(True, linestyle="--", alpha=0.3)
+
+    if period_label:
+        # One legend, lines and shading, in the empty upper left (the afternoon peaks fill
+        # the upper right), lowered a little with the period written just above it.
+        line_handles, _ = ax.get_legend_handles_labels()
+        legend = ax.legend(handles=line_handles + shade_handles, loc="upper left",
+                           bbox_to_anchor=(0.0, 0.93), fontsize=14, framealpha=0.9, ncol=2)
+        fig.canvas.draw()
+        box = legend.get_window_extent().transformed(ax.transAxes.inverted())
+        # raise the top of the y-axis until nothing under the legend reaches it
+        x0, x1 = ax.get_xlim()
+        under = (hours >= x0 + box.x0 * (x1 - x0) - 0.5) & (hours <= x0 + box.x1 * (x1 - x0) + 0.5)
+        highest = float(np.nanmax(np.stack(tops)[:, under]))
+        y0, y1 = ax.get_ylim()
+        room = box.y0 - 0.03
+        if (highest - y0) / (y1 - y0) > room:
+            ax.set_ylim(y0, y0 + (highest - y0) / room)
+        ax.text(0.5 * (box.x0 + box.x1), box.y1 + 0.008, period_label, transform=ax.transAxes,
+                ha="center", va="bottom", fontsize=16, fontweight="bold")
+    else:
+        line_legend = ax.legend(loc="upper left", fontsize=16, framealpha=0.9)
+        ax.add_artist(line_legend)
+        ax.legend(
+            handles=shade_handles,
+            loc="upper right",
+            fontsize=14,
+            framealpha=0.9,
+            title="Shaded uncertainty",
+            title_fontsize=14,
+        )
+
+    fig.tight_layout()
+    save_figure(fig, output_path, dpi=dpi)
+    plt.close(fig)
+
+
+def plot_diurnal_cycle_periods(
+    stats_by_period: dict[str, dict[str, HourlyStats]],
+    *,
+    output_path: Path,
+    shade_mode: str,
+    std_multiplier: float,
+    percent_uncertainty: float,
+    dpi: int,
+) -> None:
+    """Mean diurnal cycles of three periods (period label -> stats): the first across the top
+    row, the other two side by side below, one legend under them; each panel keeps its own
+    rain-rate axis."""
+    hours = np.arange(24)
+    fig = plt.figure(figsize=(15.0, 11.0))
+    grid = fig.add_gridspec(2, 2, hspace=0.30, wspace=0.16)
+    axes = np.array([fig.add_subplot(grid[0, :]), fig.add_subplot(grid[1, 0]), fig.add_subplot(grid[1, 1])])
+    for index, (ax, (label, stats_by_key)) in enumerate(zip(axes, stats_by_period.items())):
+        shade_handles, _ = _draw_cycles(ax, stats_by_key, shade_mode=shade_mode,
+                                        std_multiplier=std_multiplier, percent_uncertainty=percent_uncertainty)
+        ax.set_xticks(hours[::3])
+        ax.set_xlim(0, 23)
+        ax.set_ylim(bottom=0.0)
+        ax.set_xlabel("Local time (UTC-4)", fontsize=17)
+        ax.tick_params(axis="both", which="major", labelsize=15)
+        ax.grid(True, linestyle="--", alpha=0.3)
+        ax.text(0.03, 0.97, f"({'abcdefgh'[index]}) {label}", transform=ax.transAxes, ha="left", va="top",
+                fontsize=17, fontweight="bold")
+    for ax in axes[:2]:
+        ax.set_ylabel(r"Rainfall rate (mm h$^{-1}$)", fontsize=17)
+    line_handles, _ = axes[0].get_legend_handles_labels()
+    fig.subplots_adjust(left=0.07, right=0.99, top=0.97, bottom=0.10)
+    legend_below(fig, list(axes[1:]), line_handles + shade_handles, ncol=4, fontsize=16)
+    save_figure(fig, output_path, dpi=dpi)
+    plt.close(fig)
+
+
+def _draw_cycles(
+    ax,
+    stats_by_key: dict[str, HourlyStats],
+    *,
+    shade_mode: str,
+    std_multiplier: float,
+    percent_uncertainty: float,
+) -> tuple[list[Patch], list[np.ndarray]]:
+    """Every dataset's mean cycle on ``ax``, the observations shaded; returns the shading
+    legend handles and the highest drawn value per hour of each line and band."""
+    hours = np.arange(24)
     shade_handles: list[Patch] = []
+    tops: list[np.ndarray] = []  # highest drawn value per hour, to keep the legend clear of data
     for cfg in DATASETS:
         stats = stats_by_key[cfg.key]
         if cfg.key in OBS_SHADE_KEYS:
@@ -144,6 +249,7 @@ def plot_diurnal_cycle(
                 percent_uncertainty=percent_uncertainty,
             )
             setting = SHADE_SETTINGS[cfg.key]
+            tops.append(np.asarray(upper, dtype=float))
             ax.fill_between(
                 hours,
                 lower,
@@ -154,9 +260,11 @@ def plot_diurnal_cycle(
                 zorder=1,
             )
             if shade_mode == "std":
-                shade_label = f"{cfg.label} +/- {std_multiplier:g} sigma"
+                shade_label = f"{cfg.label} ±{std_multiplier:g} sd"
+            elif shade_mode == "sampling":
+                shade_label = f"{cfg.label} 95 % sampling range"
             else:
-                shade_label = f"{cfg.label} +/- {100.0 * percent_uncertainty:g}%"
+                shade_label = f"{cfg.label} ±{100.0 * percent_uncertainty:g} %"
             shade_handles.append(
                 Patch(
                     facecolor=setting["fill_color"],
@@ -166,6 +274,7 @@ def plot_diurnal_cycle(
                 )
             )
 
+        tops.append(np.asarray(stats.mean, dtype=float))
         ax.plot(
             hours,
             stats.mean,
@@ -175,28 +284,7 @@ def plot_diurnal_cycle(
             linewidth=cfg.linewidth,
             zorder=3,
         )
-
-    ax.set_ylabel(r"Rainfall rate (mm h$^{-1}$)", fontsize=18)
-    ax.set_xlabel("Local time (UTC-4)", fontsize=18)
-    ax.set_xticks(hours)
-    ax.set_xlim(0, 23)
-    ax.tick_params(axis="both", which="major", labelsize=16)
-    ax.grid(True, linestyle="--", alpha=0.3)
-
-    line_legend = ax.legend(loc="upper left", fontsize=16, framealpha=0.9)
-    ax.add_artist(line_legend)
-    ax.legend(
-        handles=shade_handles,
-        loc="upper right",
-        fontsize=14,
-        framealpha=0.9,
-        title="Shaded uncertainty",
-        title_fontsize=14,
-    )
-
-    fig.tight_layout()
-    save_figure(fig, output_path, dpi=dpi)
-    plt.close(fig)
+    return shade_handles, tops
 
 
 def write_diurnal_txt(
@@ -221,8 +309,12 @@ def write_diurnal_txt(
         )
         fh.write(f"Local time offset: UTC{utc_offset_hours:+d}\n")
         fh.write(f"Shading mode: {shade_mode}\n")
-        fh.write(f"Standard deviation multiplier: {std_multiplier:g}\n")
-        fh.write(f"Percent uncertainty: {percent_uncertainty:g}\n")
+        if shade_mode == "sampling":
+            fh.write("Sampling range: mean +/- 1.96 std / sqrt(n), std of the hourly domain means over "
+                     "the n days at each local hour.\n")
+        else:
+            fh.write(f"Standard deviation multiplier: {std_multiplier:g}\n")
+            fh.write(f"Percent uncertainty: {percent_uncertainty:g}\n")
         fh.write("Shaded datasets: Radar, IMERG(GPM)\n\n")
 
         fh.write("Dataset summary\n")

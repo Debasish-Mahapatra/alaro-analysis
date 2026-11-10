@@ -10,6 +10,7 @@ from .paths import RUNS_ROOT as RUNS_ROOT
 
 EXPERIMENTS = ("control", "graupel", "2mom")
 EXPERIMENT_LABELS = {key: exp.label for key, exp in EXPERIMENT_CATALOG.items()}
+EXPERIMENT_DISPLAY = {key: exp.display or exp.label for key, exp in EXPERIMENT_CATALOG.items()}
 
 # Line/marker colour per base experiment.  Kept here so every workflow
 # (main plots, convective_feedback, microphysics_budget, kt273_diurnal,

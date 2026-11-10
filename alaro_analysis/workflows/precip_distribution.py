@@ -16,7 +16,8 @@ import xarray as xr
 
 from alaro_analysis.common.cli_config import parse_configured_args
 from alaro_analysis.common.constants import RUNS_ROOT
-from alaro_analysis.common.figio import DatasetConfig, add_io_args, save_figure
+from alaro_analysis.common.experiments import run_color, run_display, shown_runs
+from alaro_analysis.common.figio import DatasetConfig, add_io_args, legend_below, save_figure
 
 DEFAULT_DATA_DIR = (
     RUNS_ROOT / "rainfall-conservative-rebuild" / "common-valid-time-production-bilinearmask"
@@ -24,14 +25,17 @@ DEFAULT_DATA_DIR = (
 DEFAULT_OUTPUT_DIR = RUNS_ROOT / "figures" / "precip_distribution_corrected"
 
 
-DATASETS: tuple[DatasetConfig, ...] = (
+_ALL_DATASETS: tuple[DatasetConfig, ...] = (
     DatasetConfig("radar", "Radar", "Radar_common_valid.nc", "rainfall", "black"),
     DatasetConfig("imerg", "IMERG", "IMERG_common_valid.nc", "rainfall", "dimgray", ":"),
-    DatasetConfig("control", "C1M", "C1M_common_valid.nc", "rainfall", "#d62728"),
+    DatasetConfig("nodiag", run_display("nodiag"), "C1M_nodiaggrp_common_valid.nc", "rainfall", run_color("nodiag")),
+    DatasetConfig("control", "C1M_diaggrp", "C1M_common_valid.nc", "rainfall", "#d62728"),
     DatasetConfig("graupel", "G1M", "G1M_common_valid.nc", "rainfall", "#1f77b4"),
     DatasetConfig("2mom", "G2M", "G2M_common_valid.nc", "rainfall", "#2ca02c"),
     DatasetConfig("no3m", "G2M-XCU", "G2M-XCU_common_valid.nc", "rainfall", "#9467bd"),
 )
+# Without the run with the diagnostic graupel when the four-run set is drawn.
+DATASETS = tuple(cfg for cfg in _ALL_DATASETS if shown_runs((cfg.key,)))
 
 
 @dataclass(frozen=True)
@@ -193,6 +197,55 @@ def write_pdf_txt(
                     f"{sample.config.label},{tail_break:.10g},{tail_marker:.10g},"
                     f"{int(tail_counts[key])},{density:.12g}\n"
                 )
+
+
+def _draw_pdf_panel(ax, samples, edges, densities, *, xscale_log: bool, label_size: int = 13) -> None:
+    """One PDF panel (log y): every dataset's density above the first edge."""
+    centers = 0.5 * (edges[:-1] + edges[1:])
+    positive_y: list[float] = []
+    for sample in samples:
+        cfg = sample.config
+        density = densities[cfg.key]
+        mask = density > 0.0
+        positive_y.extend(density[mask].tolist())
+        ax.plot(centers[mask], density[mask], label=cfg.label, color=cfg.color,
+                linestyle=cfg.linestyle, linewidth=2.0)
+    if xscale_log:
+        ax.set_xscale("log")
+    ax.set_yscale("log")
+    if positive_y:
+        ax.set_ylim(bottom=max(min(positive_y) * 0.6, 1.0e-10))
+    ax.set_xlabel(r"Precipitation intensity (mm h$^{-1}$)", fontsize=label_size)
+    ax.set_ylabel(r"PDF density (mm$^{-1}$ h)", fontsize=label_size)
+    ax.tick_params(axis="both", labelsize=label_size - 1)
+    ax.grid(True, which="both", linestyle=":", alpha=0.25)
+
+
+def plot_pdf_panels(
+    samples: list[SampleSet],
+    *,
+    edges: np.ndarray,
+    densities: dict[str, np.ndarray],
+    output_path: Path,
+    dpi: int,
+    period_label: str | None = None,
+) -> None:
+    """The same PDFs twice: (a) log-log, for the light rain, (b) log-linear, for the tail;
+    one legend below, titled with ``period_label``."""
+    fig, axes = plt.subplots(1, 2, figsize=(17, 6.8))
+    for ax, xscale_log, letter in zip(axes, (True, False), "ab"):
+        _draw_pdf_panel(ax, samples, edges, densities, xscale_log=xscale_log, label_size=15)
+        ax.text(0.0, 1.02, f"({letter})", transform=ax.transAxes, fontsize=17,
+                fontweight="bold", va="bottom")
+    axes[1].set_xlim(0.0, None)
+    fig.subplots_adjust(left=0.07, right=0.98, top=0.93, bottom=0.14, wspace=0.22)
+    handles, _ = axes[0].get_legend_handles_labels()
+    legend = legend_below(fig, axes, handles, ncol=len(handles), fontsize=15, title=period_label)
+    if period_label:
+        legend.get_title().set_fontweight("bold")
+        legend.get_title().set_fontsize(16)
+    save_figure(fig, output_path, dpi=dpi)
+    plt.close(fig)
 
 
 def plot_pdf(

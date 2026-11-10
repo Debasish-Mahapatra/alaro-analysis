@@ -41,12 +41,13 @@ from alaro_analysis.analysis.fractions_skill import (
     useful_skill,
 )
 from alaro_analysis.common.cli_config import parse_configured_args
+from alaro_analysis.common.experiments import run_display, shown_runs
 from alaro_analysis.common.figio import DEFAULT_DPI, convert_to_jpg
 from alaro_analysis.common.iop_settings import (
     FIGURES,
     GOAMAZON_IOPS,
     IOP_PERIODS,
-    figure_files,
+    supplementary_files,
     write_figure_index,
 )
 from alaro_analysis.recipes.iop.build_iop_rainfall_common_valid import (
@@ -60,8 +61,8 @@ PERIODS = {
     "iop1": f"{COMMON_SUBDIR}-iop1",
     "iop2": f"{COMMON_SUBDIR}-iop2",
 }
-EXPERIMENTS = ("C1M", "G1M", "G2M", "G2M-XCU")
-FIGURE_NUMBER = 12
+EXPERIMENTS = shown_runs(("C1M_nodiaggrp", "C1M", "G1M", "G2M", "G2M-XCU"))  # file stems
+SUPPLEMENT_NAME = "fractions_skill_score"
 THRESHOLDS_MM_H = (0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0)
 PERCENTILES = (90.0, 95.0, 97.5, 99.0, 99.5)
 # Odd widths only, so each neighbourhood is centred on its cell.
@@ -274,7 +275,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--work-dir", type=Path, default=DEFAULT_WORK_DIR)
     p.add_argument("--output-dir", type=Path, default=FIGURES)
     p.add_argument("--periods", nargs="+", default=["combined"], choices=list(PERIODS))
-    p.add_argument("--experiments", nargs="+", default=["C1M"], choices=list(EXPERIMENTS))
+    p.add_argument("--experiments", nargs="+", default=list(shown_runs(("C1M_nodiaggrp", "C1M"))), choices=list(EXPERIMENTS))
     p.add_argument("--dpi", type=int, default=DEFAULT_DPI)
     return parse_configured_args(p, "make_iop_fss", argv=argv)
 
@@ -306,12 +307,13 @@ def main(argv: list[str] | None = None) -> int:
                 "useful": [useful_skill(f) for f in base_radar],
             }
 
-            png, jpg, txt = figure_files(args.output_dir, FIGURE_NUMBER, f"fss_{label}", key)
-            draw(label, absolute, percentile, png, args.dpi)
+            name = run_display(label)
+            png, jpg, txt = supplementary_files(args.output_dir, SUPPLEMENT_NAME, f"fss_{name}", key)
+            draw(name, absolute, percentile, png, args.dpi)
             convert_to_jpg(png, jpg, dpi=args.dpi)
             png.unlink()
             write_txt(
-                txt, label, iops, times.size, int(footprint.sum()), absolute, percentile,
+                txt, name, iops, times.size, int(footprint.sum()), absolute, percentile,
                 nwpeval_table(radar, model, footprint),
             )
             print(f"[saved] {jpg}\n[saved] {txt}", flush=True)

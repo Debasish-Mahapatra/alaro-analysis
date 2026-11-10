@@ -4,7 +4,8 @@
 Runs the ``ddhb`` QV budget on every campaign IOP day and aggregates it into the
 schema ``ddh.plot_condensation_partition.load_partition`` reads: ``altitude_km``,
 ``block__condcv``, ``block__condrs`` and the day list. The DDH mean temperature
-profile (T = VCT0/VPP0/cp) is stored alongside, for the 0 degC line of the figure.
+profile (T = VCT0/VPP0/cp, cp of the moist air) is stored alongside, for the 0 degC line
+of the figure.
 
 Sources: G1M, G2M and G2M-XCU are already extracted under ``IOP-runs/iop*/<exp>/
 untar-ddh``; C1M's DDH exists only as one tarball per day under
@@ -38,6 +39,7 @@ from pathlib import Path
 import numpy as np
 
 from alaro_analysis.common.cli_config import parse_configured_args
+from alaro_analysis.common.experiments import run_display
 from alaro_analysis.common.iop_settings import CACHE_DIRS, CONTROL_RUN, GOAMAZON_IOPS, IOP_RUNS
 from alaro_analysis.common.paths import data_path, runs_path
 from alaro_analysis.data.cache import save_npz
@@ -55,11 +57,19 @@ WINDOWS = {
     "night_late": ("DHFDLABOF+0022", "DHFDLABOF+0024", 2),
 }
 HALVES = {"day": ("day",), "night": ("night_early", "night_late")}
-CP_DRY = 1004.0
+# Heat capacities of the model (J kg-1 K-1: RCPD, RCPV, RCW, RCS). VCT holds cp T of the
+# moist air, so T needs the moist cp; dividing by the dry cp alone makes the air 1-5 K
+# too warm and lifts the 0 degC level by about 0.2 km.
+CP_DRY, CP_VAPOUR, CP_LIQUID, CP_ICE = 1004.709, 1846.1, 4218.0, 2106.0
+LIQUID_FIELDS, ICE_FIELDS = ("VQL0", "VQR0"), ("VQN0", "VQS0", "VQG0")
 # Experiment directory -> ddhb runtime. NO3M is a 2-moment variant, so it uses the
 # 2mom budget lists, as the earlier IOP closure workflow did.
-RUNTIMES = {"control": "control", "graupel": "graupel", "2mom": "2mom", "NO3M": "2mom"}
-LABELS = {"control": "C1M", "graupel": "G1M", "2mom": "G2M", "NO3M": "G2M-XCU"}
+RUNTIMES = {"control_nodiaggrp": "control", "control": "control", "graupel": "graupel", "2mom": "2mom",
+            "NO3M": "2mom"}
+LABELS = {"control_nodiaggrp": "C1M_nodiaggrp", "control": "C1M", "graupel": "G1M", "2mom": "G2M",
+          "NO3M": "G2M-XCU"}
+# Names in the figures; LABELS keys the cache files.
+DISPLAY = {key: run_display(label) for key, label in LABELS.items()}
 
 
 def campaign_days(iop: int) -> list[date]:
@@ -197,7 +207,11 @@ def extract_days(work: Path, iop: int, experiment: str, days, workers: int, reco
 
 
 def temperature_profile(day_dirs: list[Path]) -> np.ndarray | None:
-    """Day-mean DDH temperature profile in K, from T = VCT0/VPP0/cp."""
+    """Mean DDH temperature profile in K over the days, at the start of each (00 UTC).
+
+    T = VCT0 / VPP0 / cp with cp of the moist air, cp = cpd (1 - q) + cpv qv + cl ql + ci qi
+    summed over the water species the file holds (C1M has no graupel).
+    """
     import epygram
 
     total, count = None, None
@@ -211,13 +225,21 @@ def temperature_profile(day_dirs: list[Path]) -> np.ndarray | None:
             if "VCT0" not in fields or "VPP0" not in fields:
                 resource.close()
                 continue
-            vct = np.asarray(resource.readfield("VCT0").getdata(), float).ravel()
-            vpp = np.asarray(resource.readfield("VPP0").getdata(), float).ravel()
+            def read(name: str) -> np.ndarray:
+                return np.asarray(resource.readfield(name).getdata(), float).ravel()
+
+            vct, vpp = read("VCT0"), read("VPP0")
+            mass = np.where(vpp > 0, vpp, np.nan)
+            vapour = read("VQV0") / mass
+            liquid = sum(read(n) for n in LIQUID_FIELDS if n in fields) / mass
+            ice = sum(read(n) for n in ICE_FIELDS if n in fields) / mass
             resource.close()
         except Exception:  # noqa: BLE001 - a corrupt day must not stop the mean
             continue
         with np.errstate(divide="ignore", invalid="ignore"):
-            temperature = vct / np.where(vpp > 0, vpp, np.nan) / CP_DRY
+            cp = (CP_DRY * (1.0 - vapour - liquid - ice) + CP_VAPOUR * vapour + CP_LIQUID * liquid
+                  + CP_ICE * ice)
+            temperature = vct / mass / cp
         if total is None:
             total = np.zeros_like(temperature)
             count = np.zeros_like(temperature)

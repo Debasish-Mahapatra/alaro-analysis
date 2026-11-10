@@ -39,6 +39,7 @@ DEFAULT_WORK_DIR = CACHE_DIRS["hydrometeors"]
 FA_WORKERS = 16
 # Experiment -> IOP -> raw FA directory holding pfYYYYMMDD/pfABOFABOF+HHHH.
 MODEL_RUNS = {
+    "control-nodiag": {iop: IOP_RUNS / f"iop{iop}" / "control_nodiaggrp" / "untar-pf" for iop in GOAMAZON_IOPS},
     "control": {iop: CONTROL_RUN / "untar-output" for iop in GOAMAZON_IOPS},
     "graupel": {iop: IOP_RUNS / f"iop{iop}" / "graupel" / "untar-pf" for iop in GOAMAZON_IOPS},
     "2mom": {iop: IOP_RUNS / f"iop{iop}" / "2mom" / "untar-pf" for iop in GOAMAZON_IOPS},

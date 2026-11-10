@@ -155,3 +155,30 @@ def test_convective_boxes_divide_by_the_full_box_area():
     sums, n_conv, n_boxes = convective_boxes(fields, rain, mask, has_scheme=False)
     assert (n_conv, n_boxes) == (1, 3)
     assert np.isclose(sums["box_up"][0], 9.0 / G / 25)
+
+
+def test_convective_boxes_by_rain_alone_keep_columns_without_an_updraft():
+    from alaro_analysis.data.convection_sections import convective_boxes
+
+    ny = nx = 5  # one box
+    mask = np.ones((ny, nx), dtype=bool)
+    zeros = np.zeros((1, ny, nx))
+    omega = zeros.copy()
+    omega[0, 0, 0] = -9.0
+    rain = np.zeros((ny, nx))
+    rain[0, 0] = 5.0  # raining, but no 3MT updraft anywhere
+    fields = {"VITESSE_VERT": omega, "UD_MESH_FRAC": zeros, "UD_OMEGA": zeros,
+              "DD_MESH_FRAC": zeros, "DD_OMEGA": zeros}
+    assert convective_boxes(fields, rain, mask)[1] == 0
+    sums, n_conv, _ = convective_boxes(fields, rain, mask, require_updraft=False)
+    assert n_conv == 1 and sums["box_up"][0] > 0
+
+
+def test_profiles_without_3mt_keep_the_resolved_motion_and_blank_the_drafts():
+    from alaro_analysis.data.convection_sections import profiles_from_fields
+
+    w = np.array([[1.0, -2.0, np.nan]])
+    out = profiles_from_fields({"VERT.VELOCIT": w, "CLOUD_FRACTI": np.zeros_like(w),
+                                "TEMPERATURE": np.full_like(w, 280.0)})
+    assert np.isclose(out["w_up"][0], 0.5) and np.isclose(out["w_dn"][0], 1.0)
+    assert np.isnan(out["dd_flux"][0]) and np.isnan(out["ud_extent"][0])

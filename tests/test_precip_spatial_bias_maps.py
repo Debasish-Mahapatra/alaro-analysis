@@ -83,7 +83,7 @@ def test_write_bias_txt_includes_summary_and_gridpoint_data(tmp_path: Path):
     assert "Spatial Relative Bias Map Data" in text
     assert "Panel summary" in text
     assert "Gridpoint data" in text
-    assert "C1M,Radar" in text
+    assert "C1M_diaggrp,Radar" in text
 
 
 def test_write_spatial_mean_txt_includes_gridpoint_data(tmp_path: Path):

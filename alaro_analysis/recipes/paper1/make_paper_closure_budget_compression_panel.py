@@ -40,7 +40,7 @@ from matplotlib.lines import Line2D
 
 from alaro_analysis.common.cli_config import parse_configured_args
 from alaro_analysis.common.figio import DEFAULT_DPI, LEGEND_FONTSIZE
-from alaro_analysis.common.iop_settings import CACHE_DIRS, GOAMAZON_IOPS, IOP_PERIODS
+from alaro_analysis.common.iop_settings import CACHE_DIRS, GOAMAZON_IOPS, IOP_PERIODS, PLOT_TOP_KM
 from alaro_analysis.common.paths import data_path
 from alaro_analysis.recipes.iop.make_iop_closure_budget_figures import (
     CONVECTIVE_COLOR,
@@ -178,7 +178,7 @@ def draw(panels: dict, png: Path, dpi: int) -> None:
         if np.isfinite(data["z_freeze"]):
             ax.axhline(data["z_freeze"], color=FREEZING_COLOR, lw=1.2, ls=":", alpha=0.95)
         ax.set_xlim(0, cond_max)
-        ax.set_ylim(0, Z_MAX_KM)
+        ax.set_ylim(0, PLOT_TOP_KM)
         ax.set_title(data["label"], pad=34)
         ax.set_xlabel(r"condensation (g kg$^{-1}$ day$^{-1}$)")
         if index == 0:
@@ -191,7 +191,7 @@ def draw(panels: dict, png: Path, dpi: int) -> None:
         height, flux = data["flux_up"]
         twin.plot(flux, height, color=UPDRAFT_COLOR, lw=2.1, alpha=0.95)
         twin.set_xlim(0, flux_max)
-        twin.set_ylim(0, Z_MAX_KM)
+        twin.set_ylim(0, PLOT_TOP_KM)
         twin.set_xlabel(r"upward mass flux (kg m$^{-2}$ s$^{-1}$)", color=UPDRAFT_COLOR)
         twin.tick_params(axis="x", colors=UPDRAFT_COLOR)
         twin.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:g}"))

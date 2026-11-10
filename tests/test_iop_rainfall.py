@@ -118,5 +118,5 @@ def test_roi_common_valid_drops_incomplete_hours_and_splits_by_iop(tmp_path):
 def test_roi_pdf_uses_imerg_as_the_only_reference():
     from alaro_analysis.recipes.iop.make_iop_rain_pdf_roi import DATASETS
 
-    assert [cfg.label for cfg in DATASETS] == ["IMERG", "C1M", "G1M", "G2M", "G2M-XCU"]
+    assert [cfg.label for cfg in DATASETS] == ["IMERG", "C1M_nodiaggrp", "C1M_diaggrp", "G1M", "G2M", "G2M-XCU"]
     assert DATASETS[0].color == "black" and DATASETS[0].linestyle == "-"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -17,6 +18,7 @@ import xarray as xr
 
 from alaro_analysis.common.cli_config import parse_configured_args
 from alaro_analysis.common.constants import RUNS_ROOT
+from alaro_analysis.common.experiments import run_display, shown_runs
 from alaro_analysis.common.figio import DatasetConfig, add_io_args, strip_cbar_zeros
 
 DEFAULT_DATA_DIR = RUNS_ROOT / "rainfall-conservative-rebuild" / "common-valid-time-production"
@@ -24,7 +26,7 @@ DEFAULT_OUTPUT_DIR = RUNS_ROOT / "figures" / "rainfall_spatial_bias_maps"
 DEFAULT_MIN_REFERENCE = 0.01
 MANAUS_LON = -60.0217
 MANAUS_LAT = -3.1190
-PANEL_LABELS = ("(a)", "(b)", "(c)", "(d)", "(e)", "(f)")
+PANEL_LABELS = tuple(f"({letter})" for letter in "abcdefghijkl")
 
 
 @dataclass(frozen=True)
@@ -37,14 +39,17 @@ class SpatialField:
     n_time: int
 
 
-DATASETS: tuple[DatasetConfig, ...] = (
+_ALL_DATASETS: tuple[DatasetConfig, ...] = (
     DatasetConfig("radar", "Radar", "Radar_common_valid.nc", "rainfall"),
     DatasetConfig("imerg", "IMERG(GPM)", "IMERG_common_valid.nc", "rainfall"),
-    DatasetConfig("control", "C1M", "C1M_common_valid.nc", "rainfall"),
+    DatasetConfig("nodiag", run_display("nodiag"), "C1M_nodiaggrp_common_valid.nc", "rainfall"),
+    DatasetConfig("control", "C1M_diaggrp", "C1M_common_valid.nc", "rainfall"),
     DatasetConfig("graupel", "G1M", "G1M_common_valid.nc", "rainfall"),
     DatasetConfig("2mom", "G2M", "G2M_common_valid.nc", "rainfall"),
     DatasetConfig("no3m", "G2M-XCU", "G2M-XCU_common_valid.nc", "rainfall"),
 )
+# Without the run with the diagnostic graupel when the four-run set is drawn.
+DATASETS = tuple(cfg for cfg in _ALL_DATASETS if shown_runs((cfg.key,)))
 DATASET_BY_KEY = {cfg.key: cfg for cfg in DATASETS}
 
 
@@ -135,6 +140,77 @@ def build_bias_maps(
         )
         for key in comparison_keys
     }
+
+
+def build_rmse_maps(
+    fields: dict[str, SpatialField],
+    *,
+    reference_key: str,
+    comparison_keys: Sequence[str],
+) -> dict[str, np.ndarray]:
+    """Per-cell RMSE (mm h-1) of the hourly rain against the reference, over the hours
+    both have, read from the hourly files behind ``fields``."""
+
+    def hourly(key: str) -> np.ndarray:
+        field = fields[key]
+        with xr.open_dataset(field.source_path) as ds:
+            return np.asarray(ds[field.config.variable].values, dtype=np.float64)
+
+    reference = hourly(reference_key)
+    out = {}
+    for key in comparison_keys:
+        diff = hourly(key) - reference
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            out[key] = np.sqrt(np.nanmean(diff**2, axis=0))
+    return out
+
+
+def pooled_rmse(rmse_map: np.ndarray) -> float:
+    """RMSE over all cells and hours (cells share the common-valid hours)."""
+    return float(np.sqrt(np.nanmean(rmse_map**2)))
+
+
+def write_rmse_txt(
+    output_path: Path,
+    *,
+    figure_path: Path,
+    fields: dict[str, SpatialField],
+    rmse_maps: dict[str, np.ndarray],
+    reference_key: str,
+    vmax: float,
+) -> None:
+    """Data behind an RMSE map figure: per-panel summary, then every cell."""
+    reference = fields[reference_key]
+    lines = [
+        f"RMSE Map Data: {figure_path.stem}",
+        "=" * (15 + len(figure_path.stem)),
+        f"Figure: {figure_path}",
+        f"Reference dataset: {reference.config.label}",
+        "Method: at each cell, sqrt(mean over the common-valid hours of (candidate - reference)^2),",
+        "hourly rain in mm h^-1 on the 0.1 deg grid. Panel value: RMSE over all cells and hours.",
+        f"Plot colour limits: 0, {vmax:g} mm h^-1.",
+        "",
+        "Panel summary",
+        "-------------",
+        "panel,candidate,reference,n_cells,reference_mean_mm_h,pooled_rmse_mm_h,"
+        "mean_cell_rmse_mm_h,median_cell_rmse_mm_h,min_cell_rmse_mm_h,max_cell_rmse_mm_h",
+    ]
+    for index, (key, data) in enumerate(rmse_maps.items()):
+        ok = np.isfinite(data)
+        lines.append(",".join([
+            PANEL_LABELS[index], fields[key].config.label, reference.config.label, str(int(ok.sum())),
+            _fmt(np.nanmean(reference.values[ok])), _fmt(pooled_rmse(data)), _fmt(np.nanmean(data)),
+            _fmt(np.nanmedian(data)), _fmt(np.nanmin(data)), _fmt(np.nanmax(data)),
+        ]))
+    lines += ["", "Cells", "-----", "lat,lon," + ",".join(fields[k].config.label for k in rmse_maps)]
+    lon2d, lat2d = np.meshgrid(reference.lon, reference.lat)
+    ok = np.any([np.isfinite(m) for m in rmse_maps.values()], axis=0)
+    for jy, jx in zip(*np.nonzero(ok)):
+        lines.append(f"{lat2d[jy, jx]:.4f},{lon2d[jy, jx]:.4f},"
+                     + ",".join(_fmt(m[jy, jx]) for m in rmse_maps.values()))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _fmt(value: float) -> str:
@@ -280,11 +356,11 @@ def _panel_label(ax, index: int) -> None:
     )
 
 
-def _mean_label(ax, data: np.ndarray) -> None:
+def _mean_label(ax, data: np.ndarray, text: str | None = None) -> None:
     ax.text(
         0.03,
         0.02,
-        f"Mean: {float(np.nanmean(data)):+.1f}%",
+        text if text is not None else f"Mean: {float(np.nanmean(data)):+.1f}%",
         transform=ax.transAxes,
         ha="left",
         va="bottom",
@@ -367,7 +443,15 @@ def plot_bias_maps(
     vmin: float,
     vmax: float,
     dpi: int,
+    period_label: str | None = None,
+    cmap: str = "RdBu_r",
+    colorbar_label: str = "Relative Bias (%)",
+    title_join: str = " - ",
+    panel_note=None,
 ) -> None:
+    """Maps of one statistic per dataset (relative bias by default); ``period_label``
+    (e.g. "IOP1") is written under the colorbar, ``panel_note(data)`` gives each
+    panel's corner text (default: the mean relative bias)."""
     try:
         import cartopy.crs as ccrs
         import cartopy.feature as cfeature
@@ -391,7 +475,12 @@ def plot_bias_maps(
         er, ec = slots[n_panels]
         holder = fig.add_subplot(grid[er, ec])
         holder.axis("off")
-        cbar_ax = holder.inset_axes([0.46, 0.08, 0.07, 0.84])
+        if period_label:  # shorten the bar to leave room for the label under it
+            cbar_ax = holder.inset_axes([0.46, 0.20, 0.07, 0.72])
+            holder.text(0.5, 0.07, period_label, transform=holder.transAxes, ha="center",
+                        va="center", fontsize=15, fontweight="bold")
+        else:
+            cbar_ax = holder.inset_axes([0.46, 0.08, 0.07, 0.84])
     else:
         grid = fig.add_gridspec(
             rows,
@@ -405,7 +494,14 @@ def plot_bias_maps(
             for row in range(rows)
             for col in range(cols)
         ]
-        cbar_ax = fig.add_subplot(grid[:, -1])
+        if period_label:  # shorten the bar to leave room for the label under it
+            holder = fig.add_subplot(grid[:, -1])
+            holder.axis("off")
+            cbar_ax = holder.inset_axes([0.0, 0.10, 1.0, 0.86])
+            holder.text(0.5, 0.025, period_label, transform=holder.transAxes, ha="center",
+                        va="center", fontsize=15, fontweight="bold")
+        else:
+            cbar_ax = fig.add_subplot(grid[:, -1])
     image = None
 
     for index, (key, data) in enumerate(bias_maps.items()):
@@ -414,13 +510,13 @@ def plot_bias_maps(
             reference.lon,
             reference.lat,
             data,
-            cmap="RdBu_r",
+            cmap=cmap,
             vmin=vmin,
             vmax=vmax,
             transform=projection,
         )
         ax.set_title(
-            f"{fields[key].config.label} - {title_suffix}",
+            f"{fields[key].config.label}{title_join}{title_suffix}",
             fontsize=16,
             fontweight="bold",
             color="black",
@@ -428,16 +524,87 @@ def plot_bias_maps(
         _add_map_context(ax, ccrs, cfeature)
         _add_manaus(ax, ccrs)
         _panel_label(ax, index)
-        _mean_label(ax, data)
+        _mean_label(ax, data, panel_note(data) if panel_note else None)
 
     for ax in axes_flat[len(bias_maps) :]:
         fig.delaxes(ax)
 
     if image is None:
         raise ValueError("No bias maps were supplied for plotting")
-    cbar = fig.colorbar(image, cax=cbar_ax)
+    # The limit is a high percentile, so a few cells pass it: arrows say they are clipped.
+    values = np.concatenate([np.ravel(data) for data in bias_maps.values()])
+    values = values[np.isfinite(values)]
+    over, under = bool((values > vmax).any()), bool((values < vmin).any())
+    extend = {(True, True): "both", (True, False): "max", (False, True): "min"}.get((over, under), "neither")
+    cbar = fig.colorbar(image, cax=cbar_ax, extend=extend)
     strip_cbar_zeros(cbar)
-    cbar.set_label("Relative Bias (%)", fontsize=14)
+    cbar.set_label(colorbar_label, fontsize=14)
+    fig.savefig(output_path, dpi=dpi, facecolor="white", bbox_inches="tight")
+    plt.close(fig)
+
+
+def _extend(maps: Iterable[np.ndarray], vmin: float, vmax: float) -> str:
+    """Colour-bar arrows for the values the limits clip."""
+    values = np.concatenate([np.ravel(data) for data in maps])
+    values = values[np.isfinite(values)]
+    over, under = bool((values > vmax).any()), bool((values < vmin).any())
+    return {(True, True): "both", (True, False): "max", (False, True): "min"}.get((over, under), "neither")
+
+
+def plot_map_rows(
+    fields: dict[str, SpatialField],
+    rows: Sequence[dict],
+    *,
+    reference_key: str,
+    output_path: Path,
+    figsize: tuple[float, float],
+    dpi: int,
+    period_label: str | None = None,
+) -> None:
+    """One row of maps per statistic, the datasets in columns, a colour bar per row.
+
+    Each entry of ``rows`` holds ``maps`` (dataset key -> map), ``vmin``, ``vmax``, ``cmap``,
+    ``colorbar_label`` and ``panel_note`` (map -> corner text). The column titles are the
+    dataset names; panel letters run along the rows; ``period_label`` goes under the figure.
+    """
+    import cartopy.crs as ccrs
+    import cartopy.feature as cfeature
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    reference = fields[reference_key]
+    projection = ccrs.PlateCarree()
+    keys = list(rows[0]["maps"])
+    nrow, ncol = len(rows), len(keys)
+    fig = plt.figure(figsize=figsize)
+    grid = fig.add_gridspec(nrow, ncol + 1, width_ratios=[1.0] * ncol + [0.05], wspace=0.08, hspace=0.10)
+    index = 0
+    for r, row in enumerate(rows):
+        image = None
+        for c, key in enumerate(keys):
+            ax = fig.add_subplot(grid[r, c], projection=projection)
+            data = row["maps"][key]
+            image = ax.pcolormesh(reference.lon, reference.lat, data, cmap=row["cmap"],
+                                  vmin=row["vmin"], vmax=row["vmax"], transform=projection)
+            ax.coastlines(resolution="10m", linewidth=0.5)
+            ax.add_feature(cfeature.BORDERS, linewidth=0.5)
+            ax.add_feature(cfeature.RIVERS, linewidth=0.3, edgecolor="blue")
+            lines = ax.gridlines(draw_labels=True, linewidth=0.3, alpha=0.5)
+            lines.xlocator = matplotlib.ticker.FixedLocator([-61.0, -60.0, -59.0])  # narrow panels
+            lines.top_labels = lines.right_labels = False
+            lines.left_labels = c == 0
+            lines.bottom_labels = r == nrow - 1
+            if r == 0:
+                ax.set_title(fields[key].config.label, fontsize=16, fontweight="bold", color="black")
+            _add_manaus(ax, ccrs)
+            _panel_label(ax, index)
+            _mean_label(ax, data, row["panel_note"](data))
+            index += 1
+        cbar = fig.colorbar(image, cax=fig.add_subplot(grid[r, -1]),
+                            extend=_extend(row["maps"].values(), row["vmin"], row["vmax"]))
+        strip_cbar_zeros(cbar)
+        cbar.set_label(row["colorbar_label"], fontsize=14)
+    if period_label:
+        fig.text(0.5, 0.06, period_label, ha="center", va="top", fontsize=15, fontweight="bold")
     fig.savefig(output_path, dpi=dpi, facecolor="white", bbox_inches="tight")
     plt.close(fig)
 

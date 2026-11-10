@@ -7,7 +7,8 @@ and every hourly snapshot:
   scheme's own law (1-moment Abel & Boutle 2012, 2-moment gamma with the ALARO
   variable shape), truncated at the disdrometer's 0.312 mm like the paper's DSD
   figure (``dsd.truncated_moments``): joint histogram of
-  Dm and log10 Nw, and Dm per rain-rate bin;
+  Dm and log10 Nw, and Dm per rain-rate bin; ``dsd800`` the same 800 m above the
+  ground, the height of the CHUVA micro rain radar gate it is compared with;
 * ``profiles``: mean hydrometeor mass fractions, precipitation fluxes (3MT convection
   scheme and resolved microphysics) and mass occurrence at fixed heights;
 * ``coldpool``: 2 m temperature and humidity departures from the hour's median over
@@ -30,6 +31,8 @@ SPECIES = ("qc", "qi", "qr", "qs", "qg")
 DMIN_M = 0.312e-3
 MIN_RR = 0.1
 MAX_DBZ = 55.0
+MRR_HEIGHT_M = 800.0  # MRR gate 3, 800 m above the instrument
+LOWEST_LEVEL_M = 20.0  # height of the lowest model level above the ground, about
 RD = 287.06
 UTC_OFFSET = -4
 
@@ -48,6 +51,10 @@ def empty_stats() -> dict[str, np.ndarray]:
         "dsd_dm_by_rr": np.zeros((RAIN_EDGES.size - 1, DM_EDGES.size - 1)),
         "dsd_mu_sum": np.zeros(1),
         "dsd_n": np.zeros(1),
+        "dsd800_hist": np.zeros((DM_EDGES.size - 1, LOGNW_EDGES.size - 1)),
+        "dsd800_dm_by_rr": np.zeros((RAIN_EDGES.size - 1, DM_EDGES.size - 1)),
+        "dsd800_mu_sum": np.zeros(1),
+        "dsd800_n": np.zeros(1),
         "species_sum": np.zeros((len(SPECIES), nh)),
         "flux_sum": np.zeros((2, nh)),  # 3MT (CV_PREC_FLUX), resolved (ST_PREC_FLUX) precipitation flux (kg m-2 s-1)
         "mass_occurrence": np.zeros((3, nh)),  # qs+qg >= 1e-5, 1e-4; qr >= 1e-4 kg/kg
@@ -77,7 +84,17 @@ def _to_heights(values: np.ndarray, height_m: np.ndarray) -> np.ndarray:
     return out
 
 
-def _dsd(stats: dict, qr: np.ndarray, nr: np.ndarray | None, rho: np.ndarray) -> None:
+def _at_height(values: np.ndarray, agl_m: np.ndarray, z_m: float) -> np.ndarray:
+    """(level, n) on top-first levels -> (n,), linear in height at ``z_m`` above the ground."""
+    below = agl_m < z_m  # top first: from the first level below z_m down to the ground
+    k = np.clip(np.argmax(below, axis=0), 1, values.shape[0] - 1)
+    cols = np.arange(values.shape[1])
+    z_hi, z_lo = agl_m[k - 1, cols], agl_m[k, cols]
+    f = np.clip((z_m - z_lo) / np.where(z_hi > z_lo, z_hi - z_lo, 1.0), 0.0, 1.0)
+    return values[k, cols] + f * (values[k - 1, cols] - values[k, cols])
+
+
+def _dsd(stats: dict, qr: np.ndarray, nr: np.ndarray | None, rho: np.ndarray, prefix: str = "dsd") -> None:
     from alaro_analysis.dsd.truncated_moments import moments_abel_boutle, moments_two_moment
 
     rain = qr > 1e-7
@@ -90,12 +107,12 @@ def _dsd(stats: dict, qr: np.ndarray, nr: np.ndarray | None, rho: np.ndarray) ->
         s = moments_two_moment(qr[ok], nr[ok], rho[ok], DMIN_M, MIN_RR, MAX_DBZ)
     if s["dm_mm"].size == 0:
         return
-    stats["dsd_hist"] += np.histogram2d(s["dm_mm"], s["log_nw"], [DM_EDGES, LOGNW_EDGES])[0]
+    stats[f"{prefix}_hist"] += np.histogram2d(s["dm_mm"], s["log_nw"], [DM_EDGES, LOGNW_EDGES])[0]
     # rain rate of the truncated spectrum, recomputed from LWC and Dm with the same fall law
     rr = _rain_rate(s["lwc_g_m3"].astype(float), s["dm_mm"].astype(float))
-    stats["dsd_dm_by_rr"] += np.histogram2d(rr, s["dm_mm"], [RAIN_EDGES, DM_EDGES])[0]
-    stats["dsd_mu_sum"] += float(np.sum(s["mu"]))
-    stats["dsd_n"] += s["dm_mm"].size
+    stats[f"{prefix}_dm_by_rr"] += np.histogram2d(rr, s["dm_mm"], [RAIN_EDGES, DM_EDGES])[0]
+    stats[f"{prefix}_mu_sum"] += float(np.sum(s["mu"]))
+    stats[f"{prefix}_n"] += s["dm_mm"].size
 
 
 def _rain_rate(lwc_g_m3: np.ndarray, dm_mm: np.ndarray) -> np.ndarray:
@@ -125,6 +142,12 @@ def model_day(task: tuple[str, bool]) -> dict:
         # surface DSD (lowest level)
         nr = None if nr_all is None else nr_all[i][-1, sel].astype(float)
         _dsd(stats, get["qr"][i][-1, sel].astype(float), nr, rho[-1].astype(float))
+        # the same 800 m above the ground (the lowest level taken as LOWEST_LEVEL_M up)
+        agl = height - height[-1][None] + LOWEST_LEVEL_M
+        qr_all = get["qr"][i][:, sel].astype(float)
+        nr800 = None if nr_all is None else _at_height(nr_all[i][:, sel].astype(float), agl, MRR_HEIGHT_M)
+        _dsd(stats, _at_height(qr_all, agl, MRR_HEIGHT_M), nr800,
+             _at_height(rho.astype(float), agl, MRR_HEIGHT_M), prefix="dsd800")
         # profiles at fixed heights
         for k, sp in enumerate(SPECIES):
             stats["species_sum"][k] += np.nansum(_to_heights(np.maximum(get[sp][i][:, sel], 0.0), height), axis=1)

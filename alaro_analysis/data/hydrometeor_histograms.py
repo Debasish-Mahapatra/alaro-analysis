@@ -21,7 +21,7 @@ from alaro_analysis.data.convection_sections import N_LEVELS, read_fa_stack
 # Paper row order: graupel, snow, cloud ice, cloud water, rain.
 SPECIES = ("GRAUPEL", "SNOW", "SOLID_WATER", "LIQUID_WATER", "RAIN")
 # The 2-ice control has no prognostic graupel; its FA field is identically zero.
-ABSENT_SPECIES = {"control": ("GRAUPEL",)}
+ABSENT_SPECIES = {"control": ("GRAUPEL",), "control-nodiag": ("GRAUPEL",)}
 NBINS = 60
 LOG_EDGES = np.linspace(-11.0, -1.0, NBINS + 1)  # log10(q), 1e-11 .. 1e-1
 DBIN = (LOG_EDGES[-1] - LOG_EDGES[0]) / NBINS

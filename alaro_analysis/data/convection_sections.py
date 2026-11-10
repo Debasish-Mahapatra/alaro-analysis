@@ -40,6 +40,9 @@ FIELDS = (
     "TEMPERATURE",
 )
 QUANTITIES = ("ud_extent", "ud_flux", "dd_extent", "dd_flux", "w_up", "w_dn", "cloud", "temp")
+# Without 3MT (G2M-XCU) the draft fields carry no meaning, so they are not read and the
+# draft quantities come back NaN.
+FIELDS_NO_SCHEME = ("VERT.VELOCIT", "CLOUD_FRACTI", "TEMPERATURE")
 
 _WINDOW: tuple[int, int, int, int, np.ndarray] | None = None
 
@@ -63,20 +66,28 @@ def profiles_from_fields(fields: dict[str, np.ndarray]) -> dict[str, np.ndarray]
     3MT scheme discards that before use: mesh fractions below 0 become 0
     (``accvud``, ``acmodo``/``acnsdo``), updraft omega above 0 becomes 0
     (``PUDOM = MIN(0, PUDOM)``) and downdraft omega below 0 becomes 0
-    (``PDDOM = MAX(0, PDDOM)``).
+    (``PDDOM = MAX(0, PDDOM)``). Without the draft fields (a run without 3MT) the
+    draft quantities are NaN.
     """
-    axis = tuple(range(1, fields["UD_MESH_FRAC"].ndim))
-    ud_mesh = nonnegative(fields["UD_MESH_FRAC"])
-    dd_mesh = nonnegative(fields["DD_MESH_FRAC"])
-    ud_omega = -nonnegative(-np.asarray(fields["UD_OMEGA"], dtype=np.float64))
-    dd_omega = nonnegative(fields["DD_OMEGA"])
     w = fields["VERT.VELOCIT"]
+    axis = tuple(range(1, np.ndim(w)))
     finite_w = np.isfinite(w)
+    if "UD_MESH_FRAC" in fields:
+        ud_mesh = nonnegative(fields["UD_MESH_FRAC"])
+        dd_mesh = nonnegative(fields["DD_MESH_FRAC"])
+        ud_omega = -nonnegative(-np.asarray(fields["UD_OMEGA"], dtype=np.float64))
+        dd_omega = nonnegative(fields["DD_OMEGA"])
+        drafts = {
+            "ud_extent": ud_mesh,
+            "ud_flux": updraft_mass_flux(ud_omega, ud_mesh),
+            "dd_extent": dd_mesh,
+            "dd_flux": downdraft_mass_flux(dd_omega, dd_mesh),
+        }
+    else:
+        absent = np.full(np.shape(w), np.nan)
+        drafts = {key: absent for key in ("ud_extent", "ud_flux", "dd_extent", "dd_flux")}
     parts = {
-        "ud_extent": ud_mesh,
-        "ud_flux": updraft_mass_flux(ud_omega, ud_mesh),
-        "dd_extent": dd_mesh,
-        "dd_flux": downdraft_mass_flux(dd_omega, dd_mesh),
+        **drafts,
         "w_up": np.where(finite_w, np.maximum(w, 0.0), np.nan),
         "w_dn": np.where(finite_w, np.maximum(-w, 0.0), np.nan),
         "cloud": fields["CLOUD_FRACTI"],
@@ -99,6 +110,23 @@ BOX_QUANTITIES = ("box_up", "box_up_nodd", "box_down", "box_par_up", "box_res_up
                   "box_up_area", "box_down_area", "box_conv_frac", "box_frequency")
 
 
+def column_pieces(omega, sig_u, om_u_rel, sig_d, om_d):
+    """Area and absolute omega of the updraft, downdraft and the rest of the column.
+
+    Returns ((sig_u, sig_d, rest), (om_up, om_d, om_ed), om_e), with the definitions and
+    clean-ups of ``column_fluxes``; the areas add up to 1 and the area-weighted omegas to
+    the grid-mean omega.
+    """
+    sig_u = np.minimum(sig_u, 0.999)  # fractions at or above 1 are advection overshoots
+    om_e = omega - sig_u * om_u_rel
+    om_up = omega + (1.0 - sig_u) * om_u_rel
+    om_d = np.maximum(om_d, om_e)  # ACMODO: no downdraft slower than its environment
+    sig_d = np.minimum(sig_d, np.maximum(1.0 - sig_u - 1.0e-3, 0.0))
+    rest = 1.0 - sig_u - sig_d
+    om_ed = ((1.0 - sig_u) * om_e - sig_d * om_d) / rest
+    return (sig_u, sig_d, rest), (om_up, om_d, om_ed), om_e
+
+
 def column_fluxes(omega, sig_u, om_u_rel, sig_d, om_d):
     """Upward and downward mass flux (kg m-2 s-1, both >= 0) of columns split into
     updraft, downdraft and environment, as the 3MT scheme defines them.
@@ -117,14 +145,8 @@ def column_fluxes(omega, sig_u, om_u_rel, sig_d, om_d):
     same without the downdraft split (updraft + environment only).
     """
     g = G
-    sig_u = np.minimum(sig_u, 0.999)  # fractions at or above 1 are advection overshoots
-    om_e = omega - sig_u * om_u_rel
-    om_up = omega + (1.0 - sig_u) * om_u_rel
-    om_d = np.maximum(om_d, om_e)  # ACMODO: no downdraft slower than its environment
-    sig_d = np.minimum(sig_d, np.maximum(1.0 - sig_u - 1.0e-3, 0.0))
-    rest = 1.0 - sig_u - sig_d
-    om_ed = ((1.0 - sig_u) * om_e - sig_d * om_d) / rest
-    up = -(sig_u * np.minimum(om_up, 0) + sig_d * np.minimum(om_d, 0) + rest * np.minimum(om_ed, 0)) / g
+    (sig_u, sig_d, rest), (om_up, om_d, om_ed), om_e = column_pieces(omega, sig_u, om_u_rel, sig_d, om_d)
+    up =-(sig_u * np.minimum(om_up, 0) + sig_d * np.minimum(om_d, 0) + rest * np.minimum(om_ed, 0)) / g
     down = (sig_u * np.maximum(om_up, 0) + sig_d * np.maximum(om_d, 0) + rest * np.maximum(om_ed, 0)) / g
     # Area of the rising and sinking parts, for the profiler's sigma_u and sigma_d.
     rising = sig_u * (om_up < 0) + sig_d * (om_d < 0) + rest * (om_ed < 0)
@@ -155,12 +177,14 @@ def box_means(values: np.ndarray, ny: int, nx: int, size: int = BOX_CELLS) -> np
 
 
 def convective_boxes(fields: dict[str, np.ndarray], rain: np.ndarray, mask: np.ndarray,
-                     has_scheme: bool = True) -> tuple[dict[str, np.ndarray], int, int]:
+                     has_scheme: bool = True, require_updraft: bool = True
+                     ) -> tuple[dict[str, np.ndarray], int, int]:
     """Level profiles summed over the convective 20 km boxes of one snapshot.
 
     fields: (level, y, x) crops of DRAFT_FIELDS; rain: (y, x) mm in the hour ending at
     the snapshot. A column is convective if it rains >= RAIN_MIN_MM_H and, in runs with
-    3MT, carries an updraft (mesh > ACTIVE_MESH at some level). Fluxes of the other
+    3MT, carries an updraft (mesh > ACTIVE_MESH at some level; ``require_updraft=False``
+    picks by rain alone, as in the run without 3MT). Fluxes of the other
     columns count as 0, and every box is divided by its full area. A box counts when it
     holds at least one convective column. Returns (sum over those boxes per quantity,
     number of those boxes, number of boxes in the domain).
@@ -171,7 +195,7 @@ def convective_boxes(fields: dict[str, np.ndarray], rain: np.ndarray, mask: np.n
         om_u_rel = -nonnegative(-np.asarray(fields["UD_OMEGA"], dtype=np.float64))
         sig_d = np.minimum(nonnegative(fields["DD_MESH_FRAC"]), 1.0)
         om_d = nonnegative(fields["DD_OMEGA"])
-        active = (sig_u > ACTIVE_MESH).any(axis=0)
+        active = (sig_u > ACTIVE_MESH).any(axis=0) if require_updraft else np.ones(omega.shape[1:], bool)
     else:  # no 3MT: the draft fields are not meaningful
         sig_u = om_u_rel = sig_d = om_d = np.zeros_like(omega)
         active = np.ones(omega.shape[1:], dtype=bool)
@@ -219,11 +243,13 @@ def _accumulators() -> tuple[dict, dict]:
     return sums, counts
 
 
-def fa_day(task: tuple[str, str]) -> tuple[dict, dict, int, tuple[str, ...]]:
-    """Reduce one day of raw FA; profiles come back surface first."""
+def fa_day(task: tuple) -> tuple[dict, dict, int, tuple[str, ...]]:
+    """Reduce one day of raw FA; task = (root, day[, has_scheme]); profiles come back
+    surface first."""
     import epygram
 
-    root, day_token = task
+    root, day_token, *rest = task
+    names = FIELDS if (rest[0] if rest else True) else FIELDS_NO_SCHEME
     sums, counts = _accumulators()
     problems: list[str] = []
     n_files = 0
@@ -235,7 +261,7 @@ def fa_day(task: tuple[str, str]) -> tuple[dict, dict, int, tuple[str, ...]]:
         try:
             resource = epygram.formats.resource(str(path), "r")
             try:
-                fields = {name: read_fa_stack(resource, name) for name in FIELDS}
+                fields = {name: read_fa_stack(resource, name) for name in names}
             finally:
                 resource.close()
             profiles = profiles_from_fields(fields)
@@ -269,8 +295,8 @@ def read_fa_crop(resource, name: str, levels: bool = True) -> np.ndarray:
     return out if levels else out[0]
 
 
-def fa_day_boxes(task: tuple[str, str, bool]) -> tuple[dict, dict, int, tuple[str, ...]]:
-    """One day of convective-box profiles; task = (root, day, has_scheme).
+def fa_day_boxes(task: tuple) -> tuple[dict, dict, int, tuple[str, ...]]:
+    """One day of convective-box profiles; task = (root, day, has_scheme[, require_updraft]).
 
     Snapshots are the instantaneous fields at leads +0001..+0024, each paired with the
     rain of the hour ending at it (accumulated rain differenced between leads). Sums
@@ -280,7 +306,8 @@ def fa_day_boxes(task: tuple[str, str, bool]) -> tuple[dict, dict, int, tuple[st
     """
     import epygram
 
-    root, day_token, has_scheme = task
+    root, day_token, has_scheme, *rest = task
+    require_updraft = rest[0] if rest else True
     mask = _WINDOW[4]
     names = DRAFT_FIELDS if has_scheme else ("VITESSE_VERT",)
     sums = {q: np.zeros((N_LEVELS, 24)) for q in BOX_QUANTITIES}
@@ -306,7 +333,7 @@ def fa_day_boxes(task: tuple[str, str, bool]) -> tuple[dict, dict, int, tuple[st
                 continue
             rain = np.maximum(accumulated - previous, 0.0)
             previous = accumulated
-            box_sums, n_conv, n_boxes = convective_boxes(fields, rain, mask, has_scheme)
+            box_sums, n_conv, n_boxes = convective_boxes(fields, rain, mask, has_scheme, require_updraft)
         except Exception as exc:  # noqa: BLE001
             problems.append(f"{day_token} +{lead:04d}: {exc}")
             previous = None

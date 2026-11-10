@@ -65,6 +65,7 @@ DEFAULT_END = "2015-12-31T23:00:00"
 
 # key, plot-label, FA experiment sub-directory
 MODEL_EXPERIMENTS: tuple[tuple[str, str, str], ...] = (
+    ("nodiag", "C1M_nodiaggrp", "control_nodiaggrp"),
     ("control", "C1M", "control"),
     ("graupel", "G1M", "graupel"),
     ("2mom", "G2M", "2mom"),
@@ -473,7 +474,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--radar-hourly", type=Path, default=DEFAULT_RADAR_HOURLY)
     p.add_argument("--start", default=DEFAULT_START)
     p.add_argument("--end", default=DEFAULT_END)
-    p.add_argument("--experiments", nargs="+", default=[k for k, _, _ in MODEL_EXPERIMENTS])
+    # The no-diagnostic-graupel control only exists for the IOPs (build_iop_rainfall_common_valid).
+    p.add_argument("--experiments", nargs="+", default=[k for k, _, _ in MODEL_EXPERIMENTS if k != "nodiag"])
     p.add_argument("--max-days", type=int, default=None)
     p.add_argument("--workers", type=int, default=32)
     p.add_argument(

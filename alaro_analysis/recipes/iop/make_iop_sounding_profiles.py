@@ -9,15 +9,17 @@ time mask is applied to every model: at each height a launch counts only where
 the sonde and all four models have a value, so every mean uses the same launches.
 
 C1M comes from the continuous control run (FA); G1M, G2M and G2M-XCU from the IOP
-warm-restart runs (masked NetCDF, which equals FA at the site). The figure goes
-to figure 06 of the IOP series
-(``iop-run-figures/06_sounding_profiles/sounding_profiles_<period>_450dpi.jpg``) for the
-combined IOPs, IOP1 and IOP2.
+warm-restart runs (masked NetCDF, which equals FA at the site). The figure is
+``sounding_profiles`` in the main IOP series
+(``iop-run-figures/<NN>_sounding_profiles/sounding_profiles_<period>_450dpi.jpg``) for the
+combined IOPs, IOP1 and IOP2, and ``sounding_profiles_combined_iop1_iop2`` stacks the three
+periods in one figure, sharing the x-limits per column.
 
-A second figure per period splits the launches into day and night by their local
-launch time (Amazon local time, UTC-4; day = 06:00-18:00 LT) and stacks the two, day
-on top, with shared x-limits per column
-(``sounding_profiles_day_night_<period>_450dpi.jpg``). ARM MAO launched five times a
+Two supplementary figures per period split the launches into day and night by their
+local launch time (Amazon local time, UTC-4; day = 06:00-18:00 LT):
+``sounding_profiles_day_night`` stacks the two, day on top, with shared x-limits per
+column, and ``sounding_profiles_day_minus_night`` shows the day minus night change of
+each model's difference from the sondes. ARM MAO launched five times a
 day, near 01:30, 07:30, 10:30, 13:30 and 19:30 LT, so day holds the 07:30, 10:30 and
 13:30 launches and night the 19:30 and 01:30 launches.
 """
@@ -32,9 +34,11 @@ import numpy as np
 import xarray as xr
 
 from alaro_analysis.common.cli_config import parse_configured_args
-from alaro_analysis.common.constants import EXPERIMENT_LABELS
+from alaro_analysis.common.constants import EXPERIMENT_DISPLAY, EXPERIMENT_LABELS
+from alaro_analysis.common.experiments import DIAG_CONTROL_SHOWN, shown_runs
 from alaro_analysis.common.figio import DEFAULT_DPI, convert_to_jpg
 from alaro_analysis.common.iop_settings import (
+    PLOT_TOP_KM,
     CACHE_DIRS,
     CONTROL_RUN,
     FIGURES,
@@ -42,6 +46,7 @@ from alaro_analysis.common.iop_settings import (
     IOP_PERIODS,
     IOP_RUNS,
     figure_files,
+    supplementary_files,
     write_figure_index,
 )
 from alaro_analysis.common.parallel import resolve_workers
@@ -68,16 +73,22 @@ from alaro_analysis.plotting.radiosondes import (
 )
 
 DEFAULT_WORK_DIR = CACHE_DIRS["soundings"]
-FIGURE_NUMBER = 6
+FIGURE_NAME = "sounding_profiles"
 FIGURE_STEM = "sounding_profiles"
 # Experiment -> IOP -> (run root, experiment directory, source read by data.radiosondes)
 MODEL_RUNS = {
+    "control-nodiag": {iop: (IOP_RUNS / f"iop{iop}", "control_nodiaggrp", "netcdf") for iop in GOAMAZON_IOPS},
     "control": {iop: (CONTROL_RUN.parent, CONTROL_RUN.name, "fa") for iop in GOAMAZON_IOPS},
     "graupel": {iop: (IOP_RUNS / f"iop{iop}", "graupel", "netcdf") for iop in GOAMAZON_IOPS},
     "2mom": {iop: (IOP_RUNS / f"iop{iop}", "2mom", "netcdf") for iop in GOAMAZON_IOPS},
     "2mom-xcu": {iop: (IOP_RUNS / f"iop{iop}", "NO3M", "netcdf") for iop in GOAMAZON_IOPS},
 }
+MODEL_RUNS = {key: runs for key, runs in MODEL_RUNS.items() if shown_runs((key,))}
 PANELS = ("tdry", "dewpoint", "rh")
+# The paper figure: the dewpoint bias repeats the RH bias (r = 0.65-0.87), and the combined
+# row averages two seasons whose biases differ, so it shows T and RH for each IOP (2x2).
+PAPER_PANELS = ("tdry", "rh")
+PAPER_PERIODS = ("iop1", "iop2")
 # As in the paper figure: model minus sonde up to 20 km in 250 m steps, >= 10 launches a height.
 MAX_HEIGHT_M = 20000.0
 HEIGHT_STEP_M = 250.0
@@ -85,11 +96,14 @@ MIN_SAMPLES = 10
 # Day/night split on the local launch time (Amazon local time).
 UTC_OFFSET_HOURS = -4
 DAY_START_LT, DAY_END_LT = 6, 18
+# Supplementary figures; each folder is named after its file stem.
 DAY_NIGHT_STEM = "sounding_profiles_day_night"
 DELTA_STEM = "sounding_profiles_day_minus_night"
 # Runs with the 3MT convection scheme; the shaded band is for their mean.
-BAND_RUNS = ("control", "graupel", "2mom")
+BAND_RUNS = shown_runs(("control-nodiag", "control", "graupel", "2mom"))
 N_BOOT = 4000
+# Row labels of the stacked-period figure.
+PERIOD_LABELS = {"combined": "Combined IOPs", "iop1": "IOP1", "iop2": "IOP2"}
 
 
 def iop_launches(sonde_root: Path) -> dict[int, list[SondeLaunch]]:
@@ -289,20 +303,22 @@ def header_lines(title: str, parts: dict[int, dict], subset: str = "") -> list[s
         )
     lines += [
         "Time mask: the models are sampled only at the radiosonde launch times, each floored to "
-        "its UTC hour. At each height a launch counts only where the sonde and all four models "
+        f"its UTC hour. At each height a launch counts only where the sonde and all {len(MODEL_RUNS)} models "
         "have a value, so every mean uses the same launches (n_launches); heights with fewer "
         f"than {MIN_SAMPLES} launches are blank.",
         f"Site: median launch position ({grid['site_lat']:.4f}, {grid['site_lon']:.4f}); "
         f"nearest model grid point ({grid['model_grid_lat']:.4f}, {grid['model_grid_lon']:.4f}).",
-        "C1M: continuous control run (FA). G1M, G2M, G2M-XCU: IOP warm-restart runs "
-        "(masked NetCDF, identical to FA at the site grid point).",
+        ("C1M_diaggrp: continuous control run (FA). C1M_nodiaggrp, G1M, G2M, G2M-XCU: IOP warm-restart runs "
+         if DIAG_CONTROL_SHOWN else
+         "C1M (control without the diagnostic graupel), G1M, G2M, G2M-XCU: IOP warm-restart runs ")
+        + "(masked NetCDF, identical to FA at the site grid point).",
         "Statistic: mean. Height above mean sea level (km). Plotted: model minus ARM sonde.",
     ]
     return lines
 
 
 def profile_lines(data: dict) -> list[str]:
-    labels = [EXPERIMENT_LABELS[key] for key in MODEL_RUNS]
+    labels = [EXPERIMENT_DISPLAY[key] for key in MODEL_RUNS]
     lines = [
         "",
         "0 degC height (km)",
@@ -310,7 +326,7 @@ def profile_lines(data: dict) -> list[str]:
         "series,z_freeze_km",
         f"ARM sonde,{_fmt_txt(data['obs_freezing_km'])}",
     ]
-    lines += [f"{EXPERIMENT_LABELS[k]},{_fmt_txt(data['model_freezing_km'][k])}" for k in MODEL_RUNS]
+    lines += [f"{EXPERIMENT_DISPLAY[k]},{_fmt_txt(data['model_freezing_km'][k])}" for k in MODEL_RUNS]
     for panel in PANELS:
         heading = COMBINED_PANEL_XLABELS[panel]
         columns = ["height_km", "n_launches", "ARM_sonde", *labels, *[f"{x}-ARM" for x in labels]]
@@ -381,8 +397,8 @@ def day_minus_night(day_parts: list[dict], night_parts: list[dict], heights_m, s
 
 
 def write_delta_txt(txt: Path, delta: dict, parts: dict[int, dict], y_km) -> None:
-    labels = [EXPERIMENT_LABELS[key] for key in MODEL_RUNS]
-    band = "+".join(EXPERIMENT_LABELS[k] for k in BAND_RUNS)
+    labels = [EXPERIMENT_DISPLAY[key] for key in MODEL_RUNS]
+    band = "+".join(EXPERIMENT_DISPLAY[k] for k in BAND_RUNS)
     lines = header_lines("Sounding bias, day minus night", parts)
     lines += [
         f"Launches split on their local launch time (UTC{UTC_OFFSET_HOURS:+d}): day = "
@@ -411,6 +427,15 @@ def write_txt(txt: Path, data: dict, parts: dict[int, dict]) -> None:
     txt.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def write_period_rows_txt(txt: Path, rows: dict[str, tuple[dict, dict[int, dict]]]) -> None:
+    """All rows of the stacked-period figure in one file, in figure order."""
+    lines = ["Sounding profiles by period", "==========================="]
+    for label, (data, parts) in rows.items():
+        lines += ["", "#" * 60, *header_lines(label.upper(), parts)]
+        lines += profile_lines(data)
+    txt.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def write_day_night_txt(txt: Path, rows: dict[str, tuple[dict, dict[int, dict]]]) -> None:
     """Both halves of the day/night figure in one file, day first."""
     lines = [
@@ -428,7 +453,7 @@ def write_day_night_txt(txt: Path, rows: dict[str, tuple[dict, dict[int, dict]]]
 
 def figure_outputs(root: Path, period: str) -> tuple[Path, Path, Path]:
     """Temporary PNG render, final JPG, and data text of the figure."""
-    return figure_files(root, FIGURE_NUMBER, FIGURE_STEM, period)
+    return figure_files(root, FIGURE_NAME, FIGURE_STEM, period)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -460,6 +485,7 @@ def main(argv: list[str] | None = None) -> int:
         iop: matched_profiles(args.work_dir, iop, group, heights_m)
         for iop, group in launches.items()
     }
+    period_rows = {}
     for key in args.periods:
         iops = IOP_PERIODS[key]
         data = period_data([parts[iop] for iop in iops], heights_m)
@@ -469,12 +495,48 @@ def main(argv: list[str] | None = None) -> int:
             png,
             panel_names=PANELS,
             diff_vars=PANELS,
-            max_height_m=MAX_HEIGHT_M,
+            max_height_m=PLOT_TOP_KM * 1000.0,
             dpi=args.dpi,
         )
         convert_to_jpg(png, jpg, dpi=args.dpi)
         png.unlink()
         write_txt(txt, data, {iop: parts[iop] for iop in iops})
+        print(f"[saved] {jpg}\n[saved] {txt}", flush=True)
+        n = sum(parts[iop]["common"] for iop in iops)
+        period_rows[key] = (f"{PERIOD_LABELS[key]}, n = {n}", data, {iop: parts[iop] for iop in iops})
+
+    # The paper figure: T and RH, one row per IOP.
+    if all(key in period_rows for key in PAPER_PERIODS):
+        rows = {period_rows[key][0]: period_rows[key][1:] for key in PAPER_PERIODS}
+        png, jpg, txt = figure_outputs(args.output_dir, "_".join(PAPER_PERIODS))
+        draw_profile_rows(
+            {label: data for label, (data, _) in rows.items()},
+            png,
+            panel_names=PAPER_PANELS,
+            diff_vars=PAPER_PANELS,
+            max_height_m=PLOT_TOP_KM * 1000.0,
+            dpi=args.dpi,
+        )
+        convert_to_jpg(png, jpg, dpi=args.dpi)
+        png.unlink()
+        write_period_rows_txt(txt, rows)
+        print(f"[saved] {jpg}\n[saved] {txt}", flush=True)
+    period_rows = {label: (data, period_parts) for label, data, period_parts in period_rows.values()}
+
+    # The periods stacked in one figure, combined IOPs on top.
+    if len(period_rows) > 1:
+        png, jpg, txt = figure_outputs(args.output_dir, "_".join(args.periods))
+        draw_profile_rows(
+            {label: data for label, (data, _) in period_rows.items()},
+            png,
+            panel_names=PANELS,
+            diff_vars=PANELS,
+            max_height_m=PLOT_TOP_KM * 1000.0,
+            dpi=args.dpi,
+        )
+        convert_to_jpg(png, jpg, dpi=args.dpi)
+        png.unlink()
+        write_period_rows_txt(txt, period_rows)
         print(f"[saved] {jpg}\n[saved] {txt}", flush=True)
 
     # Day and night, stacked.
@@ -496,13 +558,13 @@ def main(argv: list[str] | None = None) -> int:
             n = sum(split_parts[half][iop]["common"] for iop in iops)
             rows[f"{half.capitalize()}: launches at {launch_times_lt(subset)} LT, n = {n}"] = data
             row_data[half] = (data, {iop: split_parts[half][iop] for iop in iops})
-        png, jpg, txt = figure_files(args.output_dir, FIGURE_NUMBER, DAY_NIGHT_STEM, key)
+        png, jpg, txt = supplementary_files(args.output_dir, DAY_NIGHT_STEM, DAY_NIGHT_STEM, key)
         draw_profile_rows(
             rows,
             png,
             panel_names=PANELS,
             diff_vars=PANELS,
-            max_height_m=MAX_HEIGHT_M,
+            max_height_m=PLOT_TOP_KM * 1000.0,
             dpi=args.dpi,
         )
         convert_to_jpg(png, jpg, dpi=args.dpi)
@@ -520,12 +582,11 @@ def main(argv: list[str] | None = None) -> int:
         delta.update(
             y_km=heights_m / 1000.0,
             experiments=list(MODEL_RUNS),
-            band_label="95 % range, mean of "
-            + ", ".join(EXPERIMENT_LABELS[k] for k in BAND_RUNS),
+            band_label="95 % range, mean of the runs with 3MT",
             freezing_km=all_launches["obs_freezing_km"],
         )
-        png, jpg, txt = figure_files(args.output_dir, FIGURE_NUMBER, DELTA_STEM, key)
-        draw_delta_profiles(delta, png, panel_names=PANELS, max_height_m=MAX_HEIGHT_M, dpi=args.dpi)
+        png, jpg, txt = supplementary_files(args.output_dir, DELTA_STEM, DELTA_STEM, key)
+        draw_delta_profiles(delta, png, panel_names=PANELS, max_height_m=PLOT_TOP_KM * 1000.0, dpi=args.dpi)
         convert_to_jpg(png, jpg, dpi=args.dpi)
         png.unlink()
         write_delta_txt(txt, delta, {iop: parts[iop] for iop in iops}, heights_m / 1000.0)
